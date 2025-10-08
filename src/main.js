@@ -68,38 +68,35 @@ window.addEventListener('orientationchange', () => setTimeout(resize, 100));
 /* --------------------------
    Tuner UI
    -------------------------- */
+// Your locked-in preset:
 const defaults = {
-  // Sky (three.js Sky)
-  turbidity: 2.0,
-  rayleigh: 1.2,
-  mieCoefficient: 0.005,
-  mieDirectionalG: 0.8,
-  elevation: 6.0,
-  azimuth: 180.0,
-
-  // NEW: separated exposures
-  skyExposure: 0.6,        // darken/brighten the dome only
-  lightingExposure: 1.5,   // scales sun + ambient for terrain
-
-  // Optional global tone mapping exposure
-  exposure: 1.0,
-
-  // Stars
+  turbidity: 0.2,
+  rayleigh: 0,
+  mieCoefficient: 0.036,
+  mieDirectionalG: 0.35,
+  elevation: 25.4,
+  azimuth: 180,
+  skyExposure: 0.08,
+  lightingExposure: 2.94,
+  exposure: 0.2, // global tone-map (optional; we wire it too)
   starCount: 10000,
   starSize: 1.6,
   starTwinkleSpeed: 0.9,
-
-  // Terrain
   terrainDisplacement: 0.55,
-  terrainRoughness: 1.0,
+  terrainRoughness: 1,
   terrainRepeat: 48,
-  terrainTint: '#ffffff',
-  blendHeightMin: 0.0,
-  blendHeightMax: 12.0,
-  blendSlopeBias: 1.0,
-  wLow: 1.0,
+  terrainTint: '#ebebeb',
+  blendHeightMin: 0,
+  blendHeightMax: 12,
+  blendSlopeBias: 1,
+  wLow: 1,
   wHigh: 0.7,
-  wSlope: 0.8
+  wSlope: 0.8,
+  // informational only (implicitly achieved via lightingExposure):
+  exposureGlobal: 0.2,
+  sunIntensity: 4.41,
+  ambientIntensity: 0.5613070622800734,
+  envLightColor: '#ffffff'
 };
 
 const state = { ...defaults };
@@ -114,11 +111,11 @@ function applyAll() {
   skyAPI.setElevation(state.elevation);
   skyAPI.setAzimuth(state.azimuth);
 
-  // NEW: separate exposures
+  // Separated exposures
   skyAPI.setSkyExposure(state.skyExposure);
   skyAPI.setLightingExposure(state.lightingExposure);
 
-  // Optional global tonemap keepable if you like
+  // Optional global tone-mapping exposure
   skyAPI.setExposureGlobal(state.exposure);
 
   // Stars
@@ -131,6 +128,7 @@ function applyAll() {
   terrainAPI.setRoughness(state.terrainRoughness);
   terrainAPI.setRepeat(state.terrainRepeat);
   terrainAPI.setTintColor(state.terrainTint);
+  // Future-blend placeholders:
   terrainAPI.setHeightRange(state.blendHeightMin, state.blendHeightMax);
   terrainAPI.setSlopeBias(state.blendSlopeBias);
   terrainAPI.setWeights(state.wLow, state.wHigh, state.wSlope);
@@ -150,11 +148,9 @@ panel.innerHTML = `
     <div class="row"><label>Elevation (°)</label><input id="elevation" type="range" min="-5" max="89" step="0.1" value="${state.elevation}"></div>
     <div class="row"><label>Azimuth (°)</label><input id="azimuth" type="range" min="0" max="360" step="0.1" value="${state.azimuth}"></div>
 
-    <!-- NEW: separate exposures -->
     <div class="row"><label>Sky Exposure</label><input id="skyExposure" type="range" min="0.0" max="2.5" step="0.01" value="${state.skyExposure}"></div>
     <div class="row"><label>Terrain Light Exposure</label><input id="lightingExposure" type="range" min="0.2" max="3.0" step="0.01" value="${state.lightingExposure}"></div>
 
-    <!-- Optional global tone mapping -->
     <div class="row"><label>Global Exposure</label><input id="exposure" type="range" min="0.2" max="3" step="0.01" value="${state.exposure}"></div>
   </div>
 
@@ -172,7 +168,7 @@ panel.innerHTML = `
     <div class="row"><label>Texture Repeat</label><input id="terrainRepeat" type="range" min="4" max="200" step="1" value="${state.terrainRepeat}"></div>
     <div class="row"><label>Sand Tint</label><input id="terrainTint" type="color" value="${state.terrainTint}"></div>
 
-    <!-- These remain for future blending; safe no-ops for now -->
+    <!-- Placeholders for future blending (no-ops in current terrain.js) -->
     <div class="row"><label>Blend Height Min</label><input id="blendHeightMin" type="range" min="-10" max="30" step="0.1" value="${state.blendHeightMin}"></div>
     <div class="row"><label>Blend Height Max</label><input id="blendHeightMax" type="range" min="-10" max="30" step="0.1" value="${state.blendHeightMax}"></div>
     <div class="row"><label>Slope Bias</label><input id="blendSlopeBias" type="range" min="0.2" max="4" step="0.05" value="${state.blendSlopeBias}"></div>
@@ -200,11 +196,8 @@ bind('mieDirectionalG', v => { state.mieDirectionalG = v; skyAPI.setMieDirection
 bind('elevation', v => { state.elevation = v; skyAPI.setElevation(v); });
 bind('azimuth', v => { state.azimuth = v; skyAPI.setAzimuth(v); });
 
-// NEW exposure binds
 bind('skyExposure', v => { state.skyExposure = v; skyAPI.setSkyExposure(v); });
 bind('lightingExposure', v => { state.lightingExposure = v; skyAPI.setLightingExposure(v); });
-
-// Optional global tone mapping
 bind('exposure', v => { state.exposure = v; skyAPI.setExposureGlobal(v); });
 
 // Stars binds
@@ -227,18 +220,10 @@ bind('wSlope', v => { state.wSlope = v; terrainAPI.setWeights(state.wLow, state.
 
 // Copy params
 document.getElementById('copyParams').addEventListener('click', async () => {
-  const snapshot = {
-    ...state,
-    ...skyAPI._getCurrent(),
-    ...terrainAPI._getCurrent()
-  };
+  const snapshot = { ...state, ...skyAPI._getCurrent(), ...terrainAPI._getCurrent() };
   const text = JSON.stringify(snapshot, null, 2);
-  try {
-    await navigator.clipboard.writeText(text);
-    toast('Parameters copied to clipboard.');
-  } catch {
-    prompt('Copy parameters:', text);
-  }
+  try { await navigator.clipboard.writeText(text); toast('Parameters copied to clipboard.'); }
+  catch { prompt('Copy parameters:', text); }
 });
 
 function toast(msg) {
