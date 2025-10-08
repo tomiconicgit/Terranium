@@ -41,7 +41,7 @@ export function createTerrain(manager) {
     displacementBias: 0.0,
     roughness: 1.0,
     metalness: 0.0,
-    color: '#ebebeb'        // match your preset
+    color: '#f5f7ff'        // match your preset
   });
 
   let repeat = 48;
