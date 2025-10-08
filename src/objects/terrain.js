@@ -18,7 +18,21 @@ export function createTerrain() {
 
     geometry.computeVertexNormals(); // For lighting if added later
 
-    const material = new THREE.MeshBasicMaterial({ color: 0xaaaaaa, side: THREE.DoubleSide });
+    const loader = new THREE.TextureLoader();
+    const colorTexture = loader.load('https://s3-us-west-2.amazonaws.com/s.cdpn.io/17271/lroc_color_poles_1k.jpg');
+    colorTexture.wrapS = colorTexture.wrapT = THREE.RepeatWrapping;
+    colorTexture.repeat.set(5, 5);
+
+    const bumpTexture = loader.load('https://s3-us-west-2.amazonaws.com/s.cdpn.io/17271/ldem_3_8bit.jpg');
+    bumpTexture.wrapS = bumpTexture.wrapT = THREE.RepeatWrapping;
+    bumpTexture.repeat.set(5, 5);
+
+    const material = new THREE.MeshPhongMaterial({ 
+        map: colorTexture, 
+        bumpMap: bumpTexture, 
+        bumpScale: 0.05, 
+        side: THREE.DoubleSide 
+    });
     const terrain = new THREE.Mesh(geometry, material);
     terrain.rotation.x = -Math.PI / 2;
     return terrain;
