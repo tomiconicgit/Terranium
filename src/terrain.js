@@ -1,4 +1,5 @@
-// src/terrain.js — stable color correction in <color_fragment>
+// SAFE baseline terrain (no fragile shader patches)
+
 import * as THREE from 'three';
 
 export function createTerrain(manager) {
@@ -36,42 +37,16 @@ export function createTerrain(manager) {
   const material = new THREE.MeshStandardMaterial({
     map: diffuse,
     displacementMap: displacement,
-    displacementScale: 0.55,
+    displacementScale: 0.55, // match your preset
     displacementBias: 0.0,
     roughness: 1.0,
     metalness: 0.0,
-    color: 0xffffff // base multiplier; we'll tint in-shader
+    color: '#ebebeb'        // match your preset
   });
 
   let repeat = 48;
   diffuse.repeat.set(repeat, repeat);
   displacement.repeat.set(repeat, repeat);
-
-  // --- Color correction uniforms (very safe) ---
-  const uniforms = {
-    uDesaturate: { value: 0.65 },                    // 0 = original, 1 = grayscale
-    uTint:       { value: new THREE.Color('#f5f7ff') } // cool white
-  };
-
-  // Patch AFTER all base color is computed: <color_fragment>
-  material.onBeforeCompile = (shader) => {
-    Object.assign(shader.uniforms, uniforms);
-    shader.fragmentShader = shader.fragmentShader.replace(
-      '#include <color_fragment>',
-      `
-        #include <color_fragment>
-        // Post-albedo correction (works with/without map/ao/etc.)
-        {
-          vec3 col = diffuseColor.rgb;
-          // linear luminance
-          float lum = dot(col, vec3(0.2126, 0.7152, 0.0722));
-          col = mix(col, vec3(lum), uDesaturate);
-          col *= uTint;
-          diffuseColor.rgb = col;
-        }
-      `
-    );
-  };
 
   const mesh = new THREE.Mesh(geometry, material);
   mesh.receiveShadow = true;
@@ -79,8 +54,6 @@ export function createTerrain(manager) {
   return {
     mesh,
     material,
-
-    // UI controls you already wired
     setDisplacementScale(v){ material.displacementScale = v; },
     setRoughness(v){ material.roughness = v; },
     setRepeat(v){
@@ -91,12 +64,9 @@ export function createTerrain(manager) {
       diffuse.needsUpdate = true;
       displacement.needsUpdate = true;
     },
-    setTintColor(hex){
-      uniforms.uTint.value.set(hex);
-      material.needsUpdate = true;
-    },
+    setTintColor(hex){ material.color.set(hex); },
 
-    // placeholders (no-ops for now)
+    // future blend placeholders
     setHeightRange(){},
     setSlopeBias(){},
     setWeights(){},
@@ -105,8 +75,7 @@ export function createTerrain(manager) {
       terrainDisplacement: material.displacementScale,
       terrainRoughness: material.roughness,
       terrainRepeat: repeat,
-      terrainTint: `#${uniforms.uTint.value.getHexString()}`,
-      terrainDesaturate: uniforms.uDesaturate.value
+      terrainTint: `#${material.color.getHexString()}`
     })
   };
 }
