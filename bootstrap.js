@@ -1,4 +1,4 @@
-// bootstrap.js — mobile-centered loader + explicit error details + preflight for main.js
+// bootstrap.js — mobile-centered loader + explicit error details + preflight + dynamic import
 
 (function attachErrorOverlay(){
   const show = (title, msg) => {
@@ -98,35 +98,24 @@ document.addEventListener('DOMContentLoaded', () => {
       catch (err) { console.error(err); showError('Load failed', `${err.message}\n\nCheck network/CORS and the URL.`); throw err; }
     }
 
-    // --- Robust main module load ---
+    // --- main module (dynamic import gives real failing import in stack) ---
     setProgress(targetPct + 15, 'Starting app…'); // ~85%
-    const appUrl = new URL('./src/main.js', document.baseURI).href; // resolves correctly in subpaths
+    const appUrl = new URL('./src/main.js', document.baseURI).href;
+
+    // Preflight HEAD for clear 404s
     try {
-      // Preflight HEAD to reveal exact HTTP status and path issues
       const res = await fetch(appUrl + `?cb=${Date.now()}`, { method: 'HEAD', cache: 'no-store' });
-      if (!res.ok) {
-        throw new Error(`HTTP ${res.status} ${res.statusText} for ${appUrl}\n` +
-                        `Check file exists and casing (case-sensitive on GitHub Pages).`);
-      }
-    } catch (err) {
-      console.error(err);
-      showError('App file not reachable', String(err?.message || err));
-      return; // stop here
-    }
+      if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText} for ${appUrl}\nCheck filename & casing.`);
+    } catch (err) { console.error(err); showError('App file not reachable', String(err?.message || err)); return; }
 
     try {
-      await add(appUrl, { type: 'module' });
+      // Dynamic import returns detailed error (including which import failed).
+      await import(appUrl + `?cb=${Date.now()}`);
       setProgress(100, 'Ready');
       setTimeout(() => { loadingRoot.style.display = 'none'; }, 250);
     } catch (err) {
       console.error(err);
-      const extra =
-        '\nCommon causes:\n' +
-        '• Wrong import path inside main.js (needs ./ prefix and .js extension)\n' +
-        '• Missing file under src/* or wrong filename case\n' +
-        '• Syntax error in a module (open error overlay)\n' +
-        '• CORS blocking a resource';
-      showError('App start failed', String(err.message || err) + extra + `\n\nTried: ${appUrl}`);
+      showError('App start failed', (err && (err.stack || err.message)) ? (err.stack || err.message) : String(err));
     }
   })();
 });
