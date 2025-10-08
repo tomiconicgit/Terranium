@@ -1,13 +1,19 @@
 import * as THREE from 'three';
 
+import { createTerrain } from './terrain.js';
 import { createSky } from './sky.js';
 import { Controls } from './controls.js';
-import { DesertTerrain } from './desert.js';
 
 const scene = new THREE.Scene();
 scene.fog = new THREE.Fog(0x000000, 80, 300);
 
-const camera = new THREE.PerspectiveCamera(85, window.innerWidth / window.innerHeight, 0.1, 5000);
+// Wider FOV and longer far plane so Earth can sit far away
+const camera = new THREE.PerspectiveCamera(
+  85,
+  window.innerWidth / window.innerHeight,
+  0.1,
+  5000
+);
 camera.position.set(0, 10, 30);
 camera.lookAt(0, 0, 0);
 
@@ -19,18 +25,26 @@ renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.shadowMap.enabled = true;
 document.body.appendChild(renderer.domElement);
 
-// Hide loading label immediately (no async loads now)
-const loadingEl = document.getElementById('loading');
-if (loadingEl) loadingEl.style.display = 'none';
+const manager = new THREE.LoadingManager();
+manager.onProgress = (url, itemsLoaded, itemsTotal) => {
+  const progress = Math.floor((itemsLoaded / itemsTotal) * 100);
+  const el = document.getElementById('loading');
+  if (el) el.innerText = `Loading: ${progress}%`;
+};
+manager.onLoad = () => {
+  const el = document.getElementById('loading');
+  if (el) el.style.display = 'none';
+  animate();
+};
 
-// Sky
+// Terrain
+const terrain = createTerrain(manager);
+scene.add(terrain);
+
+// Sky (skydome + stars + sun + Earth)
 const moonSky = createSky(scene, renderer);
 
-// Desert terrain (50x50), moon-white
-const desert = new DesertTerrain(scene, { width: 50, length: 50 });
-const terrain = desert.generateTerrain();
-
-// Controls (mobile + PC)
+// Controls (visual joystick already implemented)
 const controls = new Controls(camera, renderer.domElement, terrain);
 controls.pitch = -0.35;
 controls.yaw = 0.0;
@@ -40,14 +54,14 @@ const clock = new THREE.Clock();
 function animate() {
   requestAnimationFrame(animate);
   const dt = clock.getDelta();
-  if (moonSky && moonSky.update) moonSky.update(dt);
+  moonSky.update(dt);           // spin clouds/stars subtly
   controls.update();
   renderer.render(scene, camera);
 }
-animate(); // <-- start immediately
 
 function resize() {
-  const w = window.innerWidth, h = window.innerHeight;
+  const w = window.innerWidth;
+  const h = window.innerHeight;
   camera.aspect = w / h;
   camera.updateProjectionMatrix();
   renderer.setSize(w, h, false);
