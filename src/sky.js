@@ -32,7 +32,6 @@ export function createSky(scene, renderer) {
   const skyExposureUniform = { value: 1.0 };
   sky.material.onBeforeCompile = (shader) => {
     shader.uniforms.uSkyExposure = skyExposureUniform;
-    // Multiply final sky color by uSkyExposure (r160 has this exact line)
     shader.fragmentShader = shader.fragmentShader.replace(
       /gl_FragColor\s*=\s*vec4\(\s*skyColor\s*,\s*1\.0\s*\)\s*;/,
       'gl_FragColor = vec4(skyColor * uSkyExposure, 1.0);'
@@ -61,7 +60,7 @@ export function createSky(scene, renderer) {
   }
   updateSun();
 
-  // Tone mapping (you can keep at 1.0; separate exposures do the work)
+  // Tone mapping
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.0;
 
@@ -136,7 +135,7 @@ export function createSky(scene, renderer) {
       ambient.intensity = baseAmb * Math.pow(v, 0.75);
     },
 
-    // Optional global exposure
+    // Optional global exposure (tone mapping)
     setExposureGlobal(v) { renderer.toneMappingExposure = v; },
 
     // Lighting tweaks
