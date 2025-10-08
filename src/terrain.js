@@ -1,4 +1,4 @@
-// Terrain with desaturation + cool/white tint pass (stable with r160)
+// src/terrain.js — stable color correction in <color_fragment>
 import * as THREE from 'three';
 
 export function createTerrain(manager) {
@@ -16,7 +16,7 @@ export function createTerrain(manager) {
   const geometry = new THREE.PlaneGeometry(SIZE, SIZE, SEGMENTS, SEGMENTS);
   geometry.rotateX(-Math.PI / 2);
 
-  // Dune shaping (same as before)
+  // Dune shaping
   function noise2(x, z) {
     return (
       Math.sin(x * 0.05) * Math.cos(z * 0.05) * 0.5 +
@@ -40,36 +40,35 @@ export function createTerrain(manager) {
     displacementBias: 0.0,
     roughness: 1.0,
     metalness: 0.0,
-    color: '#ffffff' // base multiplier; fine-tuned via uTint below
+    color: 0xffffff // base multiplier; we'll tint in-shader
   });
 
   let repeat = 48;
   diffuse.repeat.set(repeat, repeat);
   displacement.repeat.set(repeat, repeat);
 
-  // --- Color correction uniforms ---
+  // --- Color correction uniforms (very safe) ---
   const uniforms = {
-    uDesaturate: { value: 0.65 },                 // 0 = original, 1 = full grayscale
-    uTint:       { value: new THREE.Color('#f5f7ff') } // subtle cool white
+    uDesaturate: { value: 0.65 },                    // 0 = original, 1 = grayscale
+    uTint:       { value: new THREE.Color('#f5f7ff') } // cool white
   };
 
-  // Replace just the map sampling block to desaturate + tint the albedo
+  // Patch AFTER all base color is computed: <color_fragment>
   material.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, uniforms);
     shader.fragmentShader = shader.fragmentShader.replace(
-      '#include <map_fragment>',
+      '#include <color_fragment>',
       `
-        #ifdef USE_MAP
-          vec4 texelColor = texture2D( map, vMapUv );
-          texelColor = mapTexelToLinear( texelColor );
-          // Luma in linear space
-          float lum = dot(texelColor.rgb, vec3(0.2126, 0.7152, 0.0722));
-          // Desaturate toward luminance
-          texelColor.rgb = mix(texelColor.rgb, vec3(lum), uDesaturate);
-          // Cool/white tint
-          texelColor.rgb *= uTint;
-          diffuseColor *= texelColor;
-        #endif
+        #include <color_fragment>
+        // Post-albedo correction (works with/without map/ao/etc.)
+        {
+          vec3 col = diffuseColor.rgb;
+          // linear luminance
+          float lum = dot(col, vec3(0.2126, 0.7152, 0.0722));
+          col = mix(col, vec3(lum), uDesaturate);
+          col *= uTint;
+          diffuseColor.rgb = col;
+        }
       `
     );
   };
@@ -81,7 +80,7 @@ export function createTerrain(manager) {
     mesh,
     material,
 
-    // existing knobs still work
+    // UI controls you already wired
     setDisplacementScale(v){ material.displacementScale = v; },
     setRoughness(v){ material.roughness = v; },
     setRepeat(v){
@@ -93,11 +92,11 @@ export function createTerrain(manager) {
       displacement.needsUpdate = true;
     },
     setTintColor(hex){
-      uniforms.uTint.value.set(hex);  // lets your UI tint toward any white you like
+      uniforms.uTint.value.set(hex);
       material.needsUpdate = true;
     },
 
-    // placeholders (safe no-ops for now)
+    // placeholders (no-ops for now)
     setHeightRange(){},
     setSlopeBias(){},
     setWeights(){},
