@@ -1,70 +1,43 @@
 import * as THREE from 'three';
+import { Sky } from 'three/addons/objects/Sky.js';
 
 export function createSky(scene, renderer) {
-  // --- Sun / lighting ---
-  const sun = new THREE.DirectionalLight(0xffffff, 1.6);
-  sun.position.set(-200, 300, -120);
-  sun.castShadow = true;
-  sun.shadow.mapSize.set(2048, 2048);
-  sun.shadow.camera.near = 1;
-  sun.shadow.camera.far = 1500;
-  sun.shadow.camera.left = -400;
-  sun.shadow.camera.right = 400;
-  sun.shadow.camera.top = 400;
-  sun.shadow.camera.bottom = -400;
-  scene.add(sun);
+  // --- Official three.js Sky (as in webgl_shaders_sky) ---
+  const sky = new Sky();
+  sky.scale.setScalar(450000); // huge dome
+  scene.add(sky);
 
-  const ambient = new THREE.AmbientLight(0x406080, 0.18);
-  scene.add(ambient);
+  // Sky material uniforms (exact names from the example)
+  const uniforms = sky.material.uniforms;
+  uniforms[ 'turbidity'    ].value = 2;
+  uniforms[ 'rayleigh'     ].value = 1.2;
+  uniforms[ 'mieCoefficient'].value = 0.005;
+  uniforms[ 'mieDirectionalG' ].value = 0.8;
 
-  // --- Skydome (space gradient) ---
-  const skyGeo = new THREE.SphereGeometry(3000, 32, 16);
-  const skyUniforms = {
-    topColor:    { value: new THREE.Color(0x041021) },
-    bottomColor: { value: new THREE.Color(0x000000) },
-    offset:      { value: 0.4 },
-    exponent:    { value: 0.65 },
-    brightness:  { value: 1.0 }
-  };
-  const skyMat = new THREE.ShaderMaterial({
-    side: THREE.BackSide,
-    depthWrite: false,
-    uniforms: skyUniforms,
-    vertexShader: `
-      varying vec3 vWorldPos;
-      void main(){
-        vec4 wp = modelMatrix * vec4(position, 1.0);
-        vWorldPos = wp.xyz;
-        gl_Position = projectionMatrix * viewMatrix * wp;
-      }
-    `,
-    fragmentShader: `
-      uniform vec3 topColor;
-      uniform vec3 bottomColor;
-      uniform float offset;
-      uniform float exponent;
-      uniform float brightness;
-      varying vec3 vWorldPos;
-      void main(){
-        float h = normalize(vWorldPos).y * 0.5 + offset;
-        h = clamp(h, 0.0, 1.0);
-        h = pow(h, exponent);
-        vec3 col = mix(bottomColor, topColor, h) * brightness;
-        gl_FragColor = vec4(col, 1.0);
-      }
-    `
-  });
-  const skyMesh = new THREE.Mesh(skyGeo, skyMat);
-  scene.add(skyMesh);
-  renderer.setClearColor(0x000000, 1);
+  // Sun position calculated from elevation/azimuth
+  const sun = new THREE.Vector3();
+  let elevation = 6;   // degrees
+  let azimuth   = 180; // degrees
 
-  // --- Stars (with twinkle) ---
+  function updateSun() {
+    const phi   = THREE.MathUtils.degToRad(90 - elevation);
+    const theta = THREE.MathUtils.degToRad(azimuth);
+    sun.setFromSphericalCoords(1, phi, theta);
+    uniforms[ 'sunPosition' ].value.copy(sun);
+  }
+  updateSun();
+
+  // Exposure (glare)
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.0;
+
+  // --- Add a starfield for "sun in space" vibe ---
   const maxStars = 15000;
   const starGeo = new THREE.BufferGeometry();
   const starPos = new Float32Array(maxStars * 3);
   const starPhase = new Float32Array(maxStars);
   for (let i = 0; i < maxStars; i++) {
-    const r = 2200 + Math.random() * 500;
+    const r = 2000 + Math.random() * 1500;
     const u = Math.random();
     const v = Math.random();
     const theta = 2 * Math.PI * u;
@@ -72,7 +45,7 @@ export function createSky(scene, renderer) {
     starPos[i*3+0] = r * Math.sin(phi) * Math.cos(theta);
     starPos[i*3+1] = r * Math.cos(phi);
     starPos[i*3+2] = r * Math.sin(phi) * Math.sin(theta);
-    starPhase[i] = Math.random() * Math.PI * 2;
+    starPhase[i]   = Math.random() * Math.PI * 2;
   }
   starGeo.setAttribute('position', new THREE.BufferAttribute(starPos, 3));
   starGeo.setAttribute('phase', new THREE.BufferAttribute(starPhase, 1));
@@ -94,7 +67,7 @@ export function createSky(scene, renderer) {
       uniform float uSpeed;
       varying float vAlpha;
       void main(){
-        float twinkle = 0.75 + 0.25 * sin(uTime * uSpeed + phase);
+        float twinkle = 0.72 + 0.28 * sin(uTime * uSpeed + phase);
         vAlpha = twinkle;
         gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
         gl_PointSize = uSize;
@@ -115,51 +88,29 @@ export function createSky(scene, renderer) {
 
   // --- Public API for UI ---
   const api = {
-    update(dt) {
-      starUniforms.uTime.value += dt;
-    },
-    setExposure(v) {
-      renderer.toneMappingExposure = v; // "glare" feel
-    },
-    setSkyBrightness(v) {
-      skyUniforms.brightness.value = v;
-    },
-    setSkyTopColor(hex) {
-      skyUniforms.topColor.value.set(hex);
-    },
-    setSkyBottomColor(hex) {
-      skyUniforms.bottomColor.value.set(hex);
-    },
-    setEnvironmentLightColor(hex) {
-      sun.color.set(hex);
-      ambient.color.set(hex);
-    },
-    setSunIntensity(v) {
-      sun.intensity = v;
-    },
-    setAmbientIntensity(v) {
-      ambient.intensity = v;
-    },
-    setStarCount(n) {
-      const clamped = Math.max(0, Math.min(maxStars, Math.floor(n)));
-      starGeo.setDrawRange(0, clamped);
-      starGeo.attributes.position.needsUpdate = true;
-    },
-    setStarSize(px) {
-      starUniforms.uSize.value = px;
-    },
-    setStarTwinkleSpeed(speed) {
-      starUniforms.uSpeed.value = speed;
-    },
-    // For copying
+    update(dt) { starUniforms.uTime.value += dt; },
+    // sky params (match example)
+    setTurbidity(v)        { uniforms['turbidity'       ].value = v; },
+    setRayleigh(v)         { uniforms['rayleigh'        ].value = v; },
+    setMieCoefficient(v)   { uniforms['mieCoefficient'  ].value = v; },
+    setMieDirectionalG(v)  { uniforms['mieDirectionalG' ].value = v; },
+    setElevation(deg)      { elevation = deg; updateSun(); },
+    setAzimuth(deg)        { azimuth = deg;   updateSun(); },
+    setExposure(v)         { renderer.toneMappingExposure = v; },
+
+    // stars
+    setStarCount(n)        { starGeo.setDrawRange(0, Math.max(0, Math.min(maxStars, Math.floor(n)))); },
+    setStarSize(px)        { starUniforms.uSize.value = px; },
+    setStarTwinkleSpeed(s) { starUniforms.uSpeed.value = s; },
+
+    // snapshot
     _getCurrent: () => ({
+      turbidity: uniforms['turbidity'].value,
+      rayleigh: uniforms['rayleigh'].value,
+      mieCoefficient: uniforms['mieCoefficient'].value,
+      mieDirectionalG: uniforms['mieDirectionalG'].value,
+      elevation, azimuth,
       exposure: renderer.toneMappingExposure,
-      skyBrightness: skyUniforms.brightness.value,
-      skyTopColor: `#${skyUniforms.topColor.value.getHexString()}`,
-      skyBottomColor: `#${skyUniforms.bottomColor.value.getHexString()}`,
-      envLightColor: `#${sun.color.getHexString()}`,
-      sunIntensity: sun.intensity,
-      ambientIntensity: ambient.intensity,
       starCount: starGeo.drawRange.count,
       starSize: starUniforms.uSize.value,
       starTwinkleSpeed: starUniforms.uSpeed.value
