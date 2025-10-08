@@ -4,7 +4,6 @@ import { createScene } from './scene.js';
 import { createCamera } from './camera.js';
 import { createRenderer } from './renderer.js';
 import { createTerrain } from './objects/terrain.js';
-import { createMoon } from './objects/moon.js';
 import { createSky } from './objects/sky.js';
 
 // PWA manifest setup (dynamic for flexibility)
@@ -37,19 +36,17 @@ const camera = createCamera();
 const renderer = createRenderer(canvas);
 
 const terrain = createTerrain();
-const moon = createMoon();
-const sky = createSky();
 
 scene.add(terrain);
-scene.add(moon);
-scene.add(sky);
 
-// Add lights for Phong material
+createSky(scene); // HDRI setup async
+
+// Add lights for Standard material
 const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
 scene.add(ambientLight);
 
-const directionalLight = new THREE.DirectionalLight(0xffffff, 0.5);
-directionalLight.position.set(5, 10, 5);
+const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+directionalLight.position.set(10, 20, 10);
 scene.add(directionalLight);
 
 // First-person camera controls (look around only)
@@ -81,6 +78,7 @@ document.addEventListener('mousemove', (e) => {
 
 // Touch controls (swipe to look)
 document.addEventListener('touchstart', (e) => {
+    e.preventDefault();
     prevTouchX = e.touches[0].clientX;
     prevTouchY = e.touches[0].clientY;
 });
