@@ -1,10 +1,10 @@
+// src/main.js — no moon/environment deps
+
 import { createScene } from './scene.js';
 import { createCamera } from './camera.js';
 import { createRenderer } from './renderer.js';
 import { createTerrain } from './objects/terrain.js';
-import { createMoon } from './objects/moon.js';
 import { applySky } from './objects/sky.js';
-import { loadEnvironment } from './objects/environment.js';
 import { createLights } from './objects/lights.js';
 
 // Dynamic manifest
@@ -39,21 +39,12 @@ const renderer = createRenderer(canvas);
 const terrain = createTerrain();
 scene.add(terrain);
 
-const moon = createMoon?.();
-if (moon) {
-  if (moon.castShadow !== undefined) moon.castShadow = true;
-  scene.add(moon);
-}
-
 // Sky (sets scene.background/environment)
 applySky(scene);
 
 // Lights
 const lights = createLights();
 lights.forEach(l => scene.add(l));
-
-// Optional environment hook
-loadEnvironment?.(scene, renderer);
 
 // Loop
 function animate() {
