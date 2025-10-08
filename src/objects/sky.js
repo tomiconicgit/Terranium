@@ -1,18 +1,10 @@
-// src/objects/sky.js: Creates night sky
+// src/objects/sky.js: Creates HDRI sky
 
-export function createSky() {
-    const stars = new THREE.Group();
-    for (let i = 0; i < 1000; i++) {
-        const star = new THREE.Mesh(
-            new THREE.SphereGeometry(0.1, 8, 8),
-            new THREE.MeshBasicMaterial({ color: 0xffffff })
-        );
-        star.position.set(
-            Math.random() * 200 - 100,
-            Math.random() * 100 + 50,
-            Math.random() * 200 - 100
-        );
-        stars.add(star);
-    }
-    return stars;
+export function createSky(scene) {
+    const loader = new THREE.RGBELoader();
+    loader.load('https://www.spacespheremaps.com/wp-content/uploads/HDR_galactic_plane_no_nebulae.hdr', (texture) => {
+        texture.mapping = THREE.EquirectangularReflectionMapping;
+        scene.background = texture;
+        scene.environment = texture;
+    });
 }
