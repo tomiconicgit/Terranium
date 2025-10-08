@@ -73,7 +73,7 @@ document.addEventListener('mouseup', () => { isMouseDown = false; });
 document.addEventListener('mousemove', (e) => {
     if (isMouseDown) {
         yaw -= e.movementX * 0.002;
-        pitch -= e.movementY * 0.002;
+        pitch += e.movementY * 0.002;
         pitch = Math.max(-Math.PI / 2 + 0.01, Math.min(Math.PI / 2 - 0.01, pitch));
         updateCamera();
     }
@@ -89,7 +89,7 @@ document.addEventListener('touchmove', (e) => {
     const deltaX = e.touches[0].clientX - prevTouchX;
     const deltaY = e.touches[0].clientY - prevTouchY;
     yaw -= deltaX * 0.01;
-    pitch -= deltaY * 0.01;
+    pitch += deltaY * 0.01;
     pitch = Math.max(-Math.PI / 2 + 0.01, Math.min(Math.PI / 2 - 0.01, pitch));
     updateCamera();
     prevTouchX = e.touches[0].clientX;
