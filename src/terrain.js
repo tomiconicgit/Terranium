@@ -1,5 +1,4 @@
-// SAFE baseline terrain (no fragile shader patches)
-
+// Terrain with desaturation + cool/white tint pass (stable with r160)
 import * as THREE from 'three';
 
 export function createTerrain(manager) {
@@ -17,7 +16,7 @@ export function createTerrain(manager) {
   const geometry = new THREE.PlaneGeometry(SIZE, SIZE, SEGMENTS, SEGMENTS);
   geometry.rotateX(-Math.PI / 2);
 
-  // Dune shaping
+  // Dune shaping (same as before)
   function noise2(x, z) {
     return (
       Math.sin(x * 0.05) * Math.cos(z * 0.05) * 0.5 +
@@ -37,16 +36,43 @@ export function createTerrain(manager) {
   const material = new THREE.MeshStandardMaterial({
     map: diffuse,
     displacementMap: displacement,
-    displacementScale: 0.55, // match your preset
+    displacementScale: 0.55,
     displacementBias: 0.0,
     roughness: 1.0,
     metalness: 0.0,
-    color: '#ebebeb'        // match your preset
+    color: '#ffffff' // base multiplier; fine-tuned via uTint below
   });
 
   let repeat = 48;
   diffuse.repeat.set(repeat, repeat);
   displacement.repeat.set(repeat, repeat);
+
+  // --- Color correction uniforms ---
+  const uniforms = {
+    uDesaturate: { value: 0.65 },                 // 0 = original, 1 = full grayscale
+    uTint:       { value: new THREE.Color('#f5f7ff') } // subtle cool white
+  };
+
+  // Replace just the map sampling block to desaturate + tint the albedo
+  material.onBeforeCompile = (shader) => {
+    Object.assign(shader.uniforms, uniforms);
+    shader.fragmentShader = shader.fragmentShader.replace(
+      '#include <map_fragment>',
+      `
+        #ifdef USE_MAP
+          vec4 texelColor = texture2D( map, vMapUv );
+          texelColor = mapTexelToLinear( texelColor );
+          // Luma in linear space
+          float lum = dot(texelColor.rgb, vec3(0.2126, 0.7152, 0.0722));
+          // Desaturate toward luminance
+          texelColor.rgb = mix(texelColor.rgb, vec3(lum), uDesaturate);
+          // Cool/white tint
+          texelColor.rgb *= uTint;
+          diffuseColor *= texelColor;
+        #endif
+      `
+    );
+  };
 
   const mesh = new THREE.Mesh(geometry, material);
   mesh.receiveShadow = true;
@@ -54,6 +80,8 @@ export function createTerrain(manager) {
   return {
     mesh,
     material,
+
+    // existing knobs still work
     setDisplacementScale(v){ material.displacementScale = v; },
     setRoughness(v){ material.roughness = v; },
     setRepeat(v){
@@ -64,9 +92,12 @@ export function createTerrain(manager) {
       diffuse.needsUpdate = true;
       displacement.needsUpdate = true;
     },
-    setTintColor(hex){ material.color.set(hex); },
+    setTintColor(hex){
+      uniforms.uTint.value.set(hex);  // lets your UI tint toward any white you like
+      material.needsUpdate = true;
+    },
 
-    // future blend placeholders
+    // placeholders (safe no-ops for now)
     setHeightRange(){},
     setSlopeBias(){},
     setWeights(){},
@@ -75,7 +106,8 @@ export function createTerrain(manager) {
       terrainDisplacement: material.displacementScale,
       terrainRoughness: material.roughness,
       terrainRepeat: repeat,
-      terrainTint: `#${material.color.getHexString()}`
+      terrainTint: `#${uniforms.uTint.value.getHexString()}`,
+      terrainDesaturate: uniforms.uDesaturate.value
     })
   };
 }
