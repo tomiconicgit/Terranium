@@ -1,42 +1,52 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <meta name="theme-color" content="#000000" />
 
-    <meta name="theme-color" content="#1a1a1a">
-    <meta name="description" content="A stunning virtual environment experience.">
+  <!-- iOS PWA -->
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Iconic Developments" />
 
-    <link rel="manifest" href="manifest.json">
+  <!-- App basics -->
+  <title>Iconic Developments — Launch</title>
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="icon" sizes="192x192" href="assets/icons/icon-192.png" />
+  <link rel="icon" sizes="512x512" href="assets/icons/icon-512.png" />
+  <link rel="apple-touch-icon" href="assets/icons/icon-192.png" />
 
-    <link rel="stylesheet" href="style.css">
-
-    <title>Terranium</title>
+  <style>
+    /* minimal, clean base */
+    html, body { height:100%; margin:0; background:#000; color:#fff; }
+    body { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
+    .noscript {
+      position:fixed; inset:0; display:grid; place-items:center;
+      background:#000; color:#fff; font:14px/1.5 ui-monospace, Menlo, Consolas, monospace;
+      padding:24px; text-align:center;
+    }
+  </style>
 </head>
 <body>
-    
-    <div id="app-root">
-        <h1>Welcome to Terranium</h1>
-        <p>Your virtual environment is loading...</p>
+  <noscript>
+    <div class="noscript">
+      JavaScript is required to launch the app.
     </div>
+  </noscript>
 
-    <script src="app.js"></script>
+  <!-- Three.js (global build) — keep this file locally for offline PWA -->
+  <!-- Place your local build at: vendor/three.min.js (UMD that exposes window.THREE) -->
+  <script src="vendor/three.min.js" defer></script>
 
-    <script>
-        // Check if service workers are supported by the browser
-        if ('serviceWorker' in navigator) {
-            // Register the service worker after the page has loaded
-            window.addEventListener('load', () => {
-                navigator.serviceWorker.register('/service-worker.js')
-                    .then(registration => {
-                        console.log('✅ Service Worker registered successfully:', registration);
-                    })
-                    .catch(error => {
-                        console.log('❌ Service Worker registration failed:', error);
-                    });
-            });
-        }
-    </script>
+  <!-- Cinematic bootstrap (loads ./src/main.js after the intro) -->
+  <script src="bootstrap.js" defer></script>
 
+  <script>
+    // Optional: register a basic service worker if you have one at /sw.js
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/sw.js').catch(() => {});
+    }
+  </script>
 </body>
 </html>
