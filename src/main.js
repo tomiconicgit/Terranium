@@ -68,7 +68,7 @@ window.addEventListener('orientationchange', () => setTimeout(resize, 100));
 /* --------------------------
    Tuner UI
    -------------------------- */
-// Your locked-in preset:
+// Locked-in preset (+ terrainSaturation)
 const defaults = {
   turbidity: 0.2,
   rayleigh: 0,
@@ -78,21 +78,27 @@ const defaults = {
   azimuth: 180,
   skyExposure: 0.08,
   lightingExposure: 2.94,
-  exposure: 0.2, // global tone-map (optional; we wire it too)
+  exposure: 0.2, // global tone-map
   starCount: 10000,
   starSize: 1.6,
   starTwinkleSpeed: 0.9,
+
+  // Terrain
   terrainDisplacement: 0.55,
   terrainRoughness: 1,
   terrainRepeat: 48,
-  terrainTint: '#ebebeb',
+  terrainTint: '#f5f7ff',      // slightly cool white by default
+  terrainSaturation: 0.20,     // 0 = gray, 1 = original (moon white ~ 0.15–0.35)
+
+  // Placeholders (no-ops in current terrain.js)
   blendHeightMin: 0,
   blendHeightMax: 12,
   blendSlopeBias: 1,
   wLow: 1,
   wHigh: 0.7,
   wSlope: 0.8,
-  // informational only (implicitly achieved via lightingExposure):
+
+  // informational
   exposureGlobal: 0.2,
   sunIntensity: 4.41,
   ambientIntensity: 0.5613070622800734,
@@ -111,11 +117,9 @@ function applyAll() {
   skyAPI.setElevation(state.elevation);
   skyAPI.setAzimuth(state.azimuth);
 
-  // Separated exposures
+  // Exposures
   skyAPI.setSkyExposure(state.skyExposure);
   skyAPI.setLightingExposure(state.lightingExposure);
-
-  // Optional global tone-mapping exposure
   skyAPI.setExposureGlobal(state.exposure);
 
   // Stars
@@ -128,6 +132,8 @@ function applyAll() {
   terrainAPI.setRoughness(state.terrainRoughness);
   terrainAPI.setRepeat(state.terrainRepeat);
   terrainAPI.setTintColor(state.terrainTint);
+  terrainAPI.setSaturation(state.terrainSaturation); // ← NEW
+
   // Future-blend placeholders:
   terrainAPI.setHeightRange(state.blendHeightMin, state.blendHeightMax);
   terrainAPI.setSlopeBias(state.blendSlopeBias);
@@ -167,6 +173,7 @@ panel.innerHTML = `
     <div class="row"><label>Roughness</label><input id="terrainRoughness" type="range" min="0" max="1" step="0.01" value="${state.terrainRoughness}"></div>
     <div class="row"><label>Texture Repeat</label><input id="terrainRepeat" type="range" min="4" max="200" step="1" value="${state.terrainRepeat}"></div>
     <div class="row"><label>Sand Tint</label><input id="terrainTint" type="color" value="${state.terrainTint}"></div>
+    <div class="row"><label>Saturation</label><input id="terrainSaturation" type="range" min="0" max="1.5" step="0.01" value="${state.terrainSaturation}"></div>
 
     <!-- Placeholders for future blending (no-ops in current terrain.js) -->
     <div class="row"><label>Blend Height Min</label><input id="blendHeightMin" type="range" min="-10" max="30" step="0.1" value="${state.blendHeightMin}"></div>
@@ -210,6 +217,7 @@ bind('terrainDisplacement', v => { state.terrainDisplacement = v; terrainAPI.set
 bind('terrainRoughness', v => { state.terrainRoughness = v; terrainAPI.setRoughness(v); });
 bind('terrainRepeat', v => { state.terrainRepeat = v; terrainAPI.setRepeat(v); });
 bind('terrainTint', v => { state.terrainTint = v; terrainAPI.setTintColor(v); });
+bind('terrainSaturation', v => { state.terrainSaturation = v; terrainAPI.setSaturation(v); });
 
 bind('blendHeightMin', v => { state.blendHeightMin = v; terrainAPI.setHeightRange(state.blendHeightMin, state.blendHeightMax); });
 bind('blendHeightMax', v => { state.blendHeightMax = v; terrainAPI.setHeightRange(state.blendHeightMin, state.blendHeightMax); });
