@@ -1,19 +1,24 @@
-// bootstrap.js — mobile-centered loader + explicit error details + preflight + dynamic import
+// bootstrap.js — better error detail (CORS), centered loader, dynamic import
 
 (function attachErrorOverlay(){
-  const show = (title, msg) => {
+  const show = (title, msg, meta='') => {
     const el = document.createElement('div');
     el.style.cssText =
       'position:fixed;inset:0;z-index:2147483647;background:rgba(0,0,0,.94);color:#fff;' +
       'font:12px/1.5 system-ui,-apple-system,Segoe UI,Roboto,Arial;padding:16px;white-space:pre-wrap;overflow:auto';
-    el.innerHTML = `<div style="font-weight:700;margin-bottom:8px">${title}</div><div>${msg}</div>`;
+    el.innerHTML = `<div style="font-weight:700;margin-bottom:8px">${title}</div><div>${msg}</div>${meta?`<div style="opacity:.7;margin-top:8px">${meta}</div>`:''}`;
     document.body.appendChild(el);
   };
-  window.addEventListener('error', e => show('Unhandled error', e.message + (e.error?.stack? '\n\n'+e.error.stack:'')));
-  window.addEventListener('unhandledrejection', e => show('Unhandled rejection', String(e.reason)));
+  // capture filename/line too
+  window.addEventListener('error', e => {
+    const meta = `\nFile: ${e.filename || '(unknown)'}:${e.lineno || 0}:${e.colno || 0}`;
+    show('Unhandled error', (e.message || 'Script error.') + (e.error?.stack ? '\n\n'+e.error.stack : ''), meta);
+  }, true);
+  window.addEventListener('unhandledrejection', e => show('Unhandled rejection', String(e.reason)), true);
 })();
 
 document.addEventListener('DOMContentLoaded', () => {
+  // centered overlay
   const loadingRoot = document.getElementById('loading') || (() => {
     const d = document.createElement('div'); d.id = 'loading'; document.body.appendChild(d); return d;
   })();
@@ -24,13 +29,13 @@ document.addEventListener('DOMContentLoaded', () => {
     'z-index:2147483646;font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial';
 
   loadingRoot.innerHTML = `
-    <div class="ld-card" role="status" aria-live="polite" style="width:min(420px,88vw);padding:16px 16px 12px;border-radius:12px;background:rgba(18,20,24,.7);backdrop-filter:blur(8px);border:1px solid rgba(255,255,255,.08);box-shadow:0 8px 24px rgba(0,0,0,.35)">
-      <div class="ld-title" style="text-align:center;font-weight:600;font-size:16px;color:#fff;margin-bottom:10px">Terranium — loading…</div>
-      <div class="ld-row" style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:8px">
+    <div style="width:min(420px,88vw);padding:16px 16px 12px;border-radius:12px;background:rgba(18,20,24,.7);backdrop-filter:blur(8px);border:1px solid rgba(255,255,255,.08);box-shadow:0 8px 24px rgba(0,0,0,.35)">
+      <div style="text-align:center;font-weight:600;font-size:16px;color:#fff;margin-bottom:10px">Terranium — loading…</div>
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:8px">
         <div id="ld-status" style="font-size:12px;color:#b9c2cf;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Starting…</div>
         <div id="ld-pct" style="font-variant-numeric:tabular-nums;font-size:12px;color:#dfe7f3;width:3.5em;text-align:right">0%</div>
       </div>
-      <div class="ld-bar" style="width:100%;height:10px;border-radius:999px;background:#161a20;overflow:hidden;border:1px solid rgba(255,255,255,.07);position:relative">
+      <div style="width:100%;height:10px;border-radius:999px;background:#161a20;overflow:hidden;border:1px solid rgba(255,255,255,.07);position:relative">
         <div id="ld-fill" style="position:absolute;inset:0;width:0%;border-radius:inherit;transform-origin:left center;background:linear-gradient(90deg,#1e90ff,#42ffd2)"></div>
       </div>
       <div id="ld-hint" style="margin-top:8px;font-size:11px;color:#8aa0b8;min-height:1em"></div>
@@ -48,6 +53,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const elDet  = document.getElementById('ld-details');
   const elPre  = document.getElementById('ld-pre');
 
+  // progress
   let targetPct = 0, currentPct = 0, lastBump = performance.now();
   const tweenSpeed = 0.18;
   (function raf(){ currentPct += (targetPct - currentPct) * tweenSpeed;
@@ -60,6 +66,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const bump = (by, label) => setProgress(targetPct + by, label);
   const showError = (title, msg) => { elStat.textContent = title || 'Load failed'; elHint.textContent = 'Tap to expand details below.'; elHint.style.color = '#ff6666'; elDet.style.display = ''; elPre.textContent = msg || 'Unknown error'; };
 
+  // stall hint
   setInterval(() => {
     if (targetPct >= 100) return;
     if (performance.now() - lastBump > 8000) {
@@ -68,16 +75,22 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }, 2000);
 
+  // app can push progress
   document.addEventListener('bootstrap-progress', (e) => {
     const v = Number(e?.detail?.value); const label = e?.detail?.label;
     if (!Number.isNaN(v)) setProgress(v, label);
   });
 
-  function add(src, { type, defer } = {}) {
+  // helper (now sets crossOrigin for CDN scripts so errors aren’t masked)
+  function add(src, { type, defer, crossOrigin } = {}) {
     return new Promise((resolve, reject) => {
       const s = document.createElement('script');
-      s.src = src; if (type) s.type = type; if (defer) s.defer = true;
-      s.onload = resolve; s.onerror = () => reject(new Error(`Failed to load script: ${src}`));
+      s.src = src;
+      if (type) s.type = type;
+      if (defer) s.defer = true;
+      if (crossOrigin) s.crossOrigin = crossOrigin; // <-- key
+      s.onload = resolve;
+      s.onerror = () => reject(new Error(`Failed to load script: ${src}`));
       document.body.appendChild(s);
     });
   }
@@ -94,22 +107,21 @@ document.addEventListener('DOMContentLoaded', () => {
 
     for (const st of stages) {
       elHint.textContent = '';
-      try { await add(st.url); bump(st.pct, `Loaded ${st.name}`); }
+      try { await add(st.url, { crossOrigin: 'anonymous' }); bump(st.pct, `Loaded ${st.name}`); }
       catch (err) { console.error(err); showError('Load failed', `${err.message}\n\nCheck network/CORS and the URL.`); throw err; }
     }
 
-    // --- main module (dynamic import gives real failing import in stack) ---
+    // main module (dynamic import gives precise failing import if any)
     setProgress(targetPct + 15, 'Starting app…'); // ~85%
     const appUrl = new URL('./src/main.js', document.baseURI).href;
 
-    // Preflight HEAD for clear 404s
+    // preflight
     try {
       const res = await fetch(appUrl + `?cb=${Date.now()}`, { method: 'HEAD', cache: 'no-store' });
       if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText} for ${appUrl}\nCheck filename & casing.`);
     } catch (err) { console.error(err); showError('App file not reachable', String(err?.message || err)); return; }
 
     try {
-      // Dynamic import returns detailed error (including which import failed).
       await import(appUrl + `?cb=${Date.now()}`);
       setProgress(100, 'Ready');
       setTimeout(() => { loadingRoot.style.display = 'none'; }, 250);
