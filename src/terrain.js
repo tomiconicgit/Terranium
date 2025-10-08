@@ -1,5 +1,4 @@
 // SAFE baseline terrain (no fragile shader patches)
-// Keeps your displacement + repeat + tint; exposes the same UI API.
 
 import * as THREE from 'three';
 
@@ -38,11 +37,11 @@ export function createTerrain(manager) {
   const material = new THREE.MeshStandardMaterial({
     map: diffuse,
     displacementMap: displacement,
-    displacementScale: 0.5,
+    displacementScale: 0.55, // match your preset
     displacementBias: 0.0,
     roughness: 1.0,
     metalness: 0.0,
-    color: 0xffffff
+    color: '#ebebeb'        // match your preset
   });
 
   let repeat = 48;
@@ -67,7 +66,7 @@ export function createTerrain(manager) {
     },
     setTintColor(hex){ material.color.set(hex); },
 
-    // UI compatibility placeholders for future blending
+    // future blend placeholders
     setHeightRange(){},
     setSlopeBias(){},
     setWeights(){},
