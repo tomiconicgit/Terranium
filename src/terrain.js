@@ -3,40 +3,29 @@ import { EXRLoader } from 'three/addons/loaders/EXRLoader.js';
 
 export function createTerrain(manager) {
   const loader = new THREE.TextureLoader(manager);
-  const exrLoader = new EXRLoader(manager);
+  // Keep EXRLoader import in case you later add EXR normals/roughness
+  // const exrLoader = new EXRLoader(manager);
 
-  // --- Choose one set for now (moondusted) ---
+  // --- Texture set (moondusted) ---
   const diffuse = loader.load('src/assets/textures/moon/moondusted/moondusted-diffuse.jpg');
   const displacement = loader.load('src/assets/textures/moon/moondusted/moondusted-displacement.png');
-
-  // NOTE: Mobile Safari can be finicky with EXR. We'll skip EXR normal/roughness for now.
-  // If you want to try them later, uncomment and assign to material.normalMap / roughnessMap.
-  // const normalEXR = exrLoader.load('src/assets/textures/moon/moondusted/moondusted-normal.exr');
-  // const roughEXR  = exrLoader.load('src/assets/textures/moon/moondusted/moondusted-roughness.exr');
-
-  // Proper color space for sRGB JPGs
   diffuse.colorSpace = THREE.SRGBColorSpace;
-
-  // Tiling
   diffuse.wrapS = diffuse.wrapT = THREE.RepeatWrapping;
   displacement.wrapS = displacement.wrapT = THREE.RepeatWrapping;
 
-  // Bigger world so you clearly see ground to horizon
   const SIZE = 400;
   const SEGMENTS = 256;
   const geometry = new THREE.PlaneGeometry(SIZE, SIZE, SEGMENTS, SEGMENTS);
   geometry.rotateX(-Math.PI / 2);
 
-  // Lightweight height field (deterministic) — no shader magic needed
+  // mobile-friendly pseudo-noise dunes
   function noise2(x, z) {
-    // Simple pseudo-noise using sin/cos blends (mobile-friendly)
     return (
       Math.sin(x * 0.05) * Math.cos(z * 0.05) * 0.5 +
       Math.sin(x * 0.013 + z * 0.021) * 0.35 +
       Math.cos(x * 0.002 - z * 0.003) * 0.15
     );
   }
-
   const pos = geometry.attributes.position;
   for (let i = 0; i < pos.count; i++) {
     const x = pos.getX(i);
@@ -49,26 +38,44 @@ export function createTerrain(manager) {
   const material = new THREE.MeshStandardMaterial({
     map: diffuse,
     displacementMap: displacement,
-    displacementScale: 0.5,      // gentle parallax from height map
+    displacementScale: 0.5,
     displacementBias: 0.0,
     roughness: 1.0,
     metalness: 0.0,
+    color: new THREE.Color(0xffffff) // tint control
   });
 
-  // If you later add normal/roughness EXR, do it like this (EXR normals may need conversion):
-  // material.normalMap = normalEXR;
-  // material.roughnessMap = roughEXR;
-
-  // Repeat textures at a nice density (world-size aware)
-  const repeat = 40; // higher = smaller texels
+  const repeat = 40;
   diffuse.repeat.set(repeat, repeat);
   displacement.repeat.set(repeat, repeat);
-  // if (material.normalMap) material.normalMap.repeat.set(repeat, repeat);
-  // if (material.roughnessMap) material.roughnessMap.repeat.set(repeat, repeat);
 
   const mesh = new THREE.Mesh(geometry, material);
   mesh.receiveShadow = true;
-  // mesh.castShadow = true; // enable if you add rocks/props later
 
-  return mesh;
+  // Public API for UI
+  const api = {
+    mesh,
+    material,
+    setDisplacementScale(v) { material.displacementScale = v; },
+    setRoughness(v) { material.roughness = v; },
+    setRepeat(v) {
+      const r = Math.max(1, v);
+      diffuse.repeat.set(r, r);
+      displacement.repeat.set(r, r);
+      diffuse.needsUpdate = true;
+      displacement.needsUpdate = true;
+    },
+    setTintColor(hex) {
+      material.color.set(hex);
+    },
+    // For copying
+    _getCurrent: () => ({
+      terrainDisplacement: material.displacementScale,
+      terrainRoughness: material.roughness,
+      terrainRepeat: diffuse.repeat.x,
+      terrainTint: `#${material.color.getHexString()}`
+    })
+  };
+
+  return api;
 }
