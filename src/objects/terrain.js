@@ -13,7 +13,7 @@ export function createTerrain() {
     for (let i = 0; i < vertices.length; i += 3) {
         const x = vertices[i] / width + 0.5; // Normalize to 0-1
         const y = vertices[i + 1] / height + 0.5;
-        vertices[i + 2] = fbm(x * 5, y * 5) * 5; // Scale noise for height
+        vertices[i + 2] = -fbm(x * 5, y * 5) * 5; // Scale noise for height (inverted sign for upward elevation)
     }
 
     geometry.computeVertexNormals(); // For lighting if added later
