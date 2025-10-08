@@ -7,19 +7,19 @@ import { Controls } from './controls.js';
 const scene = new THREE.Scene();
 scene.fog = new THREE.Fog(0x000000, 80, 300);
 
+// Wider FOV for a more open feel
 const camera = new THREE.PerspectiveCamera(
-  75,
+  85, // was 75
   window.innerWidth / window.innerHeight,
   0.1,
   1000
 );
-
-// Start above ground, looking at the terrain
 camera.position.set(0, 10, 30);
 camera.lookAt(0, 0, 0);
 
-const renderer = new THREE.WebGLRenderer({ antialias: true });
-renderer.setSize(window.innerWidth, window.innerHeight);
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+renderer.setSize(window.innerWidth, window.innerHeight, false);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.shadowMap.enabled = true;
@@ -44,14 +44,8 @@ scene.add(terrain);
 // Sky & sun
 createSky(scene);
 
-// Grid (slightly above y=0 to avoid z-fighting with terrain flats)
-const grid = new THREE.GridHelper(400, 80, 0x555555, 0x222222);
-grid.position.y = 0.02;
-scene.add(grid);
-
-// Controls
+// Controls (now with visual joystick)
 const controls = new Controls(camera, renderer.domElement, terrain);
-// Prime internal angles to match the initial look direction (~15–20° down)
 controls.pitch = -0.35;
 controls.yaw = 0.0;
 
@@ -61,8 +55,13 @@ function animate() {
   renderer.render(scene, camera);
 }
 
-window.addEventListener('resize', () => {
-  camera.aspect = window.innerWidth / window.innerHeight;
+function resize() {
+  const w = window.innerWidth;
+  const h = window.innerHeight;
+  camera.aspect = w / h;
   camera.updateProjectionMatrix();
-  renderer.setSize(window.innerWidth, window.innerHeight);
-});
+  renderer.setSize(w, h, false);
+}
+window.addEventListener('resize', resize);
+// iOS sometimes fires orientationchange without proper resize; force one.
+window.addEventListener('orientationchange', () => setTimeout(resize, 100));
