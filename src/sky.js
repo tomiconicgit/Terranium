@@ -116,7 +116,7 @@ export function createSky(scene, renderer) {
 
   // ---------- 4) Earth + clouds (faces the sun) ----------
   const texLoader = new THREE.TextureLoader();
-  const earthTex = texLoader.load('src/assets/textures/space/earth_day.jpg');
+  const earthTex = texLoader.load('src/assets/textures/space/earth_day.png');
   earthTex.colorSpace = THREE.SRGBColorSpace;
 
   const earthRadius = 80;        // big on the horizon
