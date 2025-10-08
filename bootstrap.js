@@ -1,5 +1,16 @@
-<script>
 // bootstrap.js — staged loader with progress %, tweening, and stall notice
+
+// Minimal crash overlay so you see errors if anything breaks early.
+(function attachErrorOverlay(){
+  const show = (title, msg) => {
+    const el = document.createElement('div');
+    el.style.cssText = 'position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,.92);color:#fff;font:12px/1.5 system-ui, -apple-system, Segoe UI, Roboto, Arial;padding:16px;white-space:pre-wrap;overflow:auto';
+    el.innerHTML = `<div style="font-weight:700;margin-bottom:8px">${title}</div><div>${msg}</div>`;
+    document.body.appendChild(el);
+  };
+  window.addEventListener('error', e => show('Unhandled error', e.message + (e.error?.stack? '\n\n'+e.error.stack:'')));
+  window.addEventListener('unhandledrejection', e => show('Unhandled rejection', String(e.reason)));
+})();
 
 document.addEventListener('DOMContentLoaded', () => {
   // --- UI: build a compact progress bar inside #loading ---
@@ -58,10 +69,10 @@ document.addEventListener('DOMContentLoaded', () => {
   let targetPct = 0;
   let currentPct = 0;
   let lastBump = performance.now();
-  const tweenSpeed = 0.18; // higher = faster
+  const tweenSpeed = 0.18;
   function raf() {
     currentPct += (targetPct - currentPct) * tweenSpeed;
-    const shown = Math.min(99.0, currentPct); // avoid hitting 100 before we actually finish
+    const shown = Math.min(99.0, currentPct);
     elFill.style.width = shown.toFixed(1) + '%';
     elPct.textContent = Math.round(shown) + '%';
     requestAnimationFrame(raf);
@@ -73,18 +84,14 @@ document.addEventListener('DOMContentLoaded', () => {
     lastBump = performance.now();
     if (label) elStat.textContent = label;
   }
-
-  function bump(by, label) {
-    setProgress(targetPct + by, label);
-  }
-
+  function bump(by, label) { setProgress(targetPct + by, label); }
   function fail(msg) {
     elStat.textContent = 'Load failed';
     elHint.textContent = msg || 'Unknown error';
     elHint.classList.remove('ld-warn'); elHint.classList.add('ld-err');
   }
 
-  // Watchdog: if progress hasn't advanced for N seconds, show hint
+  // Watchdog
   const STALL_MS = 8000;
   setInterval(() => {
     if (targetPct >= 100) return;
@@ -95,8 +102,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }, 2000);
 
-  // Allow the app to report deeper asset progress (HDR/textures) if desired:
-  //   document.dispatchEvent(new CustomEvent('bootstrap-progress', { detail: { value: 72, label: 'Loading HDRI…' } }))
+  // Optional external progress
   document.addEventListener('bootstrap-progress', (e) => {
     const v = Number(e?.detail?.value);
     const label = e?.detail?.label;
@@ -117,13 +123,11 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // --- Staged load plan (percent allocations) ---
-  // You can tweak weights; they should sum to 100 before main.js finishes.
   const stages = [
     { name: 'Core',         pct: 25, url: 'https://unpkg.com/three@0.128.0/build/three.min.js' },
     { name: 'RGBELoader',   pct: 20, url: 'https://unpkg.com/three@0.128.0/examples/js/loaders/RGBELoader.js' },
     { name: 'fflate',       pct: 10, url: 'https://unpkg.com/three@0.128.0/examples/js/libs/fflate.min.js' },
     { name: 'EXRLoader',    pct: 15, url: 'https://unpkg.com/three@0.128.0/examples/js/loaders/EXRLoader.js' },
-    // Leave ~20–25% headroom for app bootstrap / first frame
   ];
 
   (async () => {
@@ -145,15 +149,11 @@ document.addEventListener('DOMContentLoaded', () => {
     await add('src/main.js', { type: 'module' })
       .then(() => {
         setProgress(100, 'Ready');
-        // Small delay so users see 100%
-        setTimeout(() => {
-          if (loadingRoot) loadingRoot.style.display = 'none';
-        }, 250);
+        setTimeout(() => { if (loadingRoot) loadingRoot.style.display = 'none'; }, 250);
       })
       .catch((err) => {
         console.error(err);
         fail(err.message);
-        // Keep the overlay visible so the error is readable
       });
 
   })().catch((err) => {
@@ -161,7 +161,6 @@ document.addEventListener('DOMContentLoaded', () => {
     fail(err.message || String(err));
   });
 
-  // Expose a simple hook in case your app wants to override/hard-set progress
+  // External hook
   window.tcSetProgress = (value, label) => setProgress(value, label);
 });
-</script>
