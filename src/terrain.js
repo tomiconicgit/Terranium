@@ -1,9 +1,9 @@
 import * as THREE from 'three';
 import { EXRLoader } from 'three/addons/loaders/EXRLoader.js';
 
-export function createTerrain() {
-    const loader = new THREE.TextureLoader();
-    const exrLoader = new EXRLoader();
+export function createTerrain(manager) {
+    const loader = new THREE.TextureLoader(manager);
+    const exrLoader = new EXRLoader(manager);
 
     // Load texture sets
     const moondusted = {
@@ -88,8 +88,8 @@ export function createTerrain() {
     }
 
     // Geometry
-    const size = 100;
-    const segments = 256;
+    const size = 30;
+    const segments = 128;
     const geometry = new THREE.PlaneGeometry(size, size, segments, segments);
     geometry.rotateX(-Math.PI / 2);
 
