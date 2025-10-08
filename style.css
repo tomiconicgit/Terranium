@@ -1,0 +1,75 @@
+/* General Body Styles */
+body {
+    background-color: #000;
+    color: #fff;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+    margin: 0;
+    overflow: hidden;
+}
+
+#app-root {
+    width: 100%;
+    text-align: center;
+}
+
+/* Cinematic Intro Text */
+.cinematic-text {
+    font-size: 3rem;
+    font-weight: 300;
+    letter-spacing: 4px;
+    opacity: 0;
+    transition: opacity 1.5s ease-in-out;
+}
+
+/* Loading Screen & Progress Bar */
+.loading-container {
+    opacity: 0;
+    transition: opacity 0.5s ease-in;
+}
+
+.progress-bar {
+    width: 50%;
+    max-width: 400px;
+    height: 20px;
+    background-color: #222;
+    border: 1px solid #444;
+    border-radius: 10px;
+    margin: 20px auto;
+    overflow: hidden;
+}
+
+#progress-fill {
+    width: 0%;
+    height: 100%;
+    background-color: #00bfff; /* Deep Sky Blue */
+    transition: width 0.5s ease-out;
+}
+
+/* Start Button */
+.start-button {
+    font-size: 1.5rem;
+    padding: 15px 30px;
+    background-color: #00bfff;
+    color: #fff;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.5s ease-in, transform 0.2s ease-out;
+    transform: scale(0.95);
+}
+
+.start-button:hover {
+    background-color: #009acd;
+    transform: scale(1);
+}
+
+/* General 'visible' class for fade-in animations */
+.visible {
+    opacity: 1;
+    transform: scale(1);
+}
