@@ -6,6 +6,7 @@ import { createRenderer } from './renderer.js';
 import { createTerrain } from './objects/terrain.js';
 import { createMoon } from './objects/moon.js';
 import { createSky } from './objects/sky.js';
+import '../utils/perlin.js'; // Ensure noise utils loaded
 
 // PWA manifest setup (dynamic for flexibility)
 const manifest = {
