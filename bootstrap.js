@@ -1,6 +1,6 @@
 // bootstrap.js — mobile-centered loader + explicit error details + staged progress
 
-// Fullscreen crash overlay (for early/runtime errors)
+// Crash overlay
 (function attachErrorOverlay(){
   const show = (title, msg) => {
     const el = document.createElement('div');
@@ -15,60 +15,41 @@
 })();
 
 document.addEventListener('DOMContentLoaded', () => {
-  // Create/ensure #loading
+  // Ensure #loading exists and nuke any inline styles from the old template
   const loadingRoot = document.getElementById('loading') || (() => {
     const d = document.createElement('div'); d.id = 'loading'; document.body.appendChild(d); return d;
   })();
+  loadingRoot.removeAttribute('style'); // kill inline CSS from index.html if any
 
-  // Style (mobile-safe centering + safe area)
-  const style = document.createElement('style');
-  style.textContent = `
-    #loading {
-      position: fixed; /* fixed so it's not affected by address bar collapse */
-      inset: env(safe-area-inset-top) env(safe-area-inset-right)
-             env(safe-area-inset-bottom) env(safe-area-inset-left);
-      min-height: 100dvh; /* true viewport height on iOS */
-      width: 100%;
-      display: flex; align-items: center; justify-content: center;
-      font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial;
-      color: #eaeaea; background:#000;
-      z-index: 2147483646; /* above everything */
-    }
-    .ld-card {
-      width: min(420px, 88vw); padding: 16px 16px 12px; border-radius: 12px;
-      background: rgba(18,20,24,0.7); backdrop-filter: blur(8px);
-      border: 1px solid rgba(255,255,255,0.08);
-      box-shadow: 0 8px 24px rgba(0,0,0,0.35);
-    }
-    .ld-title { font-weight: 600; font-size: 16px; letter-spacing: .2px; margin-bottom: 10px; color:#fff; text-align:center; }
-    .ld-row { display:flex; align-items:center; justify-content:space-between; margin-bottom: 8px; gap: 12px; }
-    .ld-status { font-size: 12px; color:#b9c2cf; min-height: 1em; flex: 1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-    .ld-pct { font-variant-numeric: tabular-nums; font-size: 12px; color:#dfe7f3; width: 3.5em; text-align:right; }
-    .ld-bar { width: 100%; height: 10px; border-radius: 999px; background: #161a20; overflow: hidden; position: relative;
-      border: 1px solid rgba(255,255,255,0.07); }
-    .ld-fill { position:absolute; inset:0; width:0%; border-radius: inherit; transform-origin: left center;
-      background: linear-gradient(90deg, #1e90ff, #42ffd2); }
-    .ld-hint { margin-top:8px; font-size:11px; color:#8aa0b8; min-height:1em; }
-    .ld-warn { color:#ffb86b; }
-    .ld-err  { color:#ff6666; }
-    .ld-details { margin-top:8px; }
-    .ld-details summary { cursor: pointer; font-size: 11px; color:#cdd7e3; }
-    .ld-pre { margin-top:6px; max-height: 35vh; overflow:auto; background:#0b0b0c; color:#eaeaea; padding:8px; border-radius:8px; }
-  `;
-  document.head.appendChild(style);
+  // Inline, highest-priority centering to beat any leftover CSS
+  loadingRoot.style.cssText =
+    'position:fixed;' +
+    'inset:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);' +
+    'min-height:100svh; height:100dvh; width:100%;' + // svh/dvh for iOS; harmless elsewhere
+    'display:grid; place-items:center; background:#000; color:#eaeaea;' +
+    'z-index:2147483646; font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial';
 
+  // Card HTML
   loadingRoot.innerHTML = `
-    <div class="ld-card">
-      <div class="ld-title">Terranium — loading…</div>
-      <div class="ld-row">
-        <div class="ld-status" id="ld-status">Starting…</div>
-        <div class="ld-pct" id="ld-pct">0%</div>
+    <div class="ld-card" role="status" aria-live="polite">
+      <div class="ld-title" style="text-align:center;font-weight:600;font-size:16px;color:#fff;margin-bottom:10px">
+        Terranium — loading…
       </div>
-      <div class="ld-bar"><div class="ld-fill" id="ld-fill"></div></div>
-      <div class="ld-hint" id="ld-hint"></div>
-      <details class="ld-details" id="ld-details" style="display:none">
-        <summary>Show error details</summary>
-        <pre class="ld-pre" id="ld-pre"></pre>
+      <div class="ld-row" style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:8px">
+        <div id="ld-status" class="ld-status" style="font-size:12px;color:#b9c2cf;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+          Starting…
+        </div>
+        <div id="ld-pct" class="ld-pct" style="font-variant-numeric:tabular-nums;font-size:12px;color:#dfe7f3;width:3.5em;text-align:right">
+          0%
+        </div>
+      </div>
+      <div class="ld-bar" style="width:100%;height:10px;border-radius:999px;background:#161a20;overflow:hidden;border:1px solid rgba(255,255,255,.07);position:relative">
+        <div id="ld-fill" class="ld-fill" style="position:absolute;inset:0;width:0%;border-radius:inherit;transform-origin:left center;background:linear-gradient(90deg,#1e90ff,#42ffd2)"></div>
+      </div>
+      <div id="ld-hint" class="ld-hint" style="margin-top:8px;font-size:11px;color:#8aa0b8;min-height:1em"></div>
+      <details id="ld-details" class="ld-details" style="display:none;margin-top:8px">
+        <summary style="cursor:pointer;font-size:11px;color:#cdd7e3">Show error details</summary>
+        <pre id="ld-pre" class="ld-pre" style="margin-top:6px;max-height:35vh;overflow:auto;background:#0b0b0c;color:#eaeaea;padding:8px;border-radius:8px"></pre>
       </details>
     </div>
   `;
@@ -83,61 +64,47 @@ document.addEventListener('DOMContentLoaded', () => {
   // Progress engine
   let targetPct = 0, currentPct = 0, lastBump = performance.now();
   const tweenSpeed = 0.18;
-  function raf() {
-    currentPct += (targetPct - currentPct) * tweenSpeed;
+  (function raf(){ currentPct += (targetPct - currentPct) * tweenSpeed;
     const shown = Math.min(99.0, currentPct);
     elFill.style.width = shown.toFixed(1) + '%';
     elPct.textContent = Math.round(shown) + '%';
     requestAnimationFrame(raf);
-  }
-  requestAnimationFrame(raf);
+  })();
 
-  function setProgress(p, label) {
-    targetPct = Math.max(targetPct, Math.min(100, p));
-    lastBump = performance.now();
-    if (label) elStat.textContent = label;
-  }
-  function bump(by, label) { setProgress(targetPct + by, label); }
+  function setProgress(p, label){ targetPct = Math.max(targetPct, Math.min(100, p)); lastBump = performance.now(); if (label) elStat.textContent = label; }
+  function bump(by, label){ setProgress(targetPct + by, label); }
   function showError(title, msg){
     elStat.textContent = title || 'Load failed';
-    elHint.textContent = 'Tap to expand details below.';
-    elHint.classList.remove('ld-warn'); elHint.classList.add('ld-err');
-    elDet.style.display = '';
-    elPre.textContent = msg || 'Unknown error';
+    elHint.textContent = 'Tap to expand details below.'; elHint.className = 'ld-hint ld-err';
+    elDet.style.display = ''; elPre.textContent = msg || 'Unknown error';
   }
 
   // Watchdog
-  const STALL_MS = 8000;
   setInterval(() => {
     if (targetPct >= 100) return;
-    const idle = performance.now() - lastBump;
-    if (idle > STALL_MS) {
+    if (performance.now() - lastBump > 8000) {
       elHint.textContent = 'Still working… (slow network or blocked file). If it stays here, refresh.';
-      elHint.classList.add('ld-warn');
+      elHint.className = 'ld-hint ld-warn';
     }
   }, 2000);
 
-  // Optional external progress from app
+  // Allow app-side progress bumps
   document.addEventListener('bootstrap-progress', (e) => {
-    const v = Number(e?.detail?.value);
-    const label = e?.detail?.label;
+    const v = Number(e?.detail?.value); const label = e?.detail?.label;
     if (!Number.isNaN(v)) setProgress(v, label);
   });
 
-  // Script loader with explicit file name in errors
+  // Script loader
   function add(src, { type, defer } = {}) {
     return new Promise((resolve, reject) => {
       const s = document.createElement('script');
-      s.src = src;
-      if (type) s.type = type;
-      if (defer) s.defer = true;
-      s.onload = resolve;
-      s.onerror = () => reject(new Error(`Failed to load script: ${src}`));
+      s.src = src; if (type) s.type = type; if (defer) s.defer = true;
+      s.onload = resolve; s.onerror = () => reject(new Error(`Failed to load script: ${src}`));
       document.body.appendChild(s);
     });
   }
 
-  // Stages (sum ~70). We’ll bump +15 “Starting app” to ~85, then app can push to 100.
+  // Stages
   const stages = [
     { name: 'Core',       pct: 25, url: 'https://unpkg.com/three@0.128.0/build/three.min.js' },
     { name: 'RGBELoader', pct: 20, url: 'https://unpkg.com/three@0.128.0/examples/js/loaders/RGBELoader.js' },
@@ -150,39 +117,25 @@ document.addEventListener('DOMContentLoaded', () => {
 
     for (const st of stages) {
       elHint.textContent = '';
-      try {
-        await add(st.url);
-        bump(st.pct, `Loaded ${st.name}`);
-      } catch (err) {
-        console.error(err);
-        showError('Load failed', `${err.message}\n\nCheck network/CORS and the URL.`);
-        throw err;
-      }
+      try { await add(st.url); bump(st.pct, `Loaded ${st.name}`); }
+      catch (err) { console.error(err); showError('Load failed', `${err.message}\n\nCheck network/CORS and the URL.`); throw err; }
     }
 
-    // App module (this is probably your 85% stall point)
+    // App module
     setProgress(targetPct + 15, 'Starting app…'); // ~85%
     try {
       await add('src/main.js', { type: 'module' });
       setProgress(100, 'Ready');
-      setTimeout(() => { if (loadingRoot) loadingRoot.style.display = 'none'; }, 250);
+      setTimeout(() => { loadingRoot.style.display = 'none'; }, 250);
     } catch (err) {
       console.error(err);
-      // Include a hint for the common causes
       const extra =
         '\nCommon causes:\n' +
         '• Bad import path (relative vs absolute)\n' +
         '• Missing file under src/*\n' +
-        '• Syntax error in a module (see stack above)\n' +
-        '• CORS on textures/HDR if you switched domains';
+        '• Syntax error in a module\n' +
+        '• CORS blocking a resource';
       showError('App start failed', String(err.message || err) + extra);
-      // keep overlay visible
     }
-  })().catch((err) => {
-    console.error(err);
-    showError('Bootstrap crashed', err?.message || String(err));
-  });
-
-  // External hook
-  window.tcSetProgress = (value, label) => setProgress(value, label);
+  })();
 });
