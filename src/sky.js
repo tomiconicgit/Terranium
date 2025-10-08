@@ -2,36 +2,59 @@ import * as THREE from 'three';
 import { Sky } from 'three/addons/objects/Sky.js';
 
 export function createSky(scene, renderer) {
-  // --- Official three.js Sky (as in webgl_shaders_sky) ---
+  // --- Sky dome (visual only) ---
   const sky = new Sky();
-  sky.scale.setScalar(450000); // huge dome
+  sky.scale.setScalar(450000);
   scene.add(sky);
 
-  // Sky material uniforms (exact names from the example)
-  const uniforms = sky.material.uniforms;
-  uniforms[ 'turbidity'    ].value = 2;
-  uniforms[ 'rayleigh'     ].value = 1.2;
-  uniforms[ 'mieCoefficient'].value = 0.005;
-  uniforms[ 'mieDirectionalG' ].value = 0.8;
+  const U = sky.material.uniforms;
+  U.turbidity.value = 2.0;
+  U.rayleigh.value = 1.2;
+  U.mieCoefficient.value = 0.005;
+  U.mieDirectionalG.value = 0.8;
 
-  // Sun position calculated from elevation/azimuth
+  // --- Real lighting (this is what actually lights your terrain) ---
+  const sunDir = new THREE.DirectionalLight(0xffffff, 1.5);
+  sunDir.castShadow = true;
+  sunDir.shadow.mapSize.set(1024, 1024);
+  sunDir.shadow.camera.near = 1;
+  sunDir.shadow.camera.far = 1500;
+  sunDir.shadow.camera.left = -400;
+  sunDir.shadow.camera.right = 400;
+  sunDir.shadow.camera.top = 400;
+  sunDir.shadow.camera.bottom = -400;
+  scene.add(sunDir);
+
+  const ambient = new THREE.AmbientLight(0x223344, 0.25); // soft fill so shadows aren’t pitch black
+  scene.add(ambient);
+
+  // Sun position from elevation/azimuth (degrees)
   const sun = new THREE.Vector3();
-  let elevation = 6;   // degrees
-  let azimuth   = 180; // degrees
+  let elevation = 6;
+  let azimuth = 180;
 
   function updateSun() {
-    const phi   = THREE.MathUtils.degToRad(90 - elevation);
+    const phi = THREE.MathUtils.degToRad(90 - elevation);
     const theta = THREE.MathUtils.degToRad(azimuth);
     sun.setFromSphericalCoords(1, phi, theta);
-    uniforms[ 'sunPosition' ].value.copy(sun);
+
+    // 1) Sky shader needs sun position
+    U.sunPosition.value.copy(sun);
+
+    // 2) DirectionalLight should come from the same direction
+    // Put it far away in that direction so shadows look consistent
+    const dist = 1000;
+    sunDir.position.set(sun.x * dist, sun.y * dist, sun.z * dist);
+    sunDir.target.position.set(0, 0, 0);
+    sunDir.target.updateMatrixWorld();
   }
   updateSun();
 
-  // Exposure (glare)
+  // Tone mapping “glare”
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.0;
 
-  // --- Add a starfield for "sun in space" vibe ---
+  // --- Starfield (for space vibe) ---
   const maxStars = 15000;
   const starGeo = new THREE.BufferGeometry();
   const starPos = new Float32Array(maxStars * 3);
@@ -42,20 +65,16 @@ export function createSky(scene, renderer) {
     const v = Math.random();
     const theta = 2 * Math.PI * u;
     const phi = Math.acos(2 * v - 1);
-    starPos[i*3+0] = r * Math.sin(phi) * Math.cos(theta);
-    starPos[i*3+1] = r * Math.cos(phi);
-    starPos[i*3+2] = r * Math.sin(phi) * Math.sin(theta);
-    starPhase[i]   = Math.random() * Math.PI * 2;
+    starPos[i * 3 + 0] = r * Math.sin(phi) * Math.cos(theta);
+    starPos[i * 3 + 1] = r * Math.cos(phi);
+    starPos[i * 3 + 2] = r * Math.sin(phi) * Math.sin(theta);
+    starPhase[i] = Math.random() * Math.PI * 2;
   }
   starGeo.setAttribute('position', new THREE.BufferAttribute(starPos, 3));
   starGeo.setAttribute('phase', new THREE.BufferAttribute(starPhase, 1));
-  starGeo.setDrawRange(0, 10000); // default visible count
+  starGeo.setDrawRange(0, 10000);
 
-  const starUniforms = {
-    uTime:  { value: 0 },
-    uSize:  { value: 1.5 },
-    uSpeed: { value: 0.8 }
-  };
+  const starUniforms = { uTime: { value: 0 }, uSize: { value: 1.6 }, uSpeed: { value: 0.9 } };
   const starMat = new THREE.ShaderMaterial({
     transparent: true,
     depthWrite: false,
@@ -86,31 +105,41 @@ export function createSky(scene, renderer) {
   const stars = new THREE.Points(starGeo, starMat);
   scene.add(stars);
 
-  // --- Public API for UI ---
+  // --- Public API for your UI ---
   const api = {
     update(dt) { starUniforms.uTime.value += dt; },
-    // sky params (match example)
-    setTurbidity(v)        { uniforms['turbidity'       ].value = v; },
-    setRayleigh(v)         { uniforms['rayleigh'        ].value = v; },
-    setMieCoefficient(v)   { uniforms['mieCoefficient'  ].value = v; },
-    setMieDirectionalG(v)  { uniforms['mieDirectionalG' ].value = v; },
-    setElevation(deg)      { elevation = deg; updateSun(); },
-    setAzimuth(deg)        { azimuth = deg;   updateSun(); },
-    setExposure(v)         { renderer.toneMappingExposure = v; },
 
-    // stars
-    setStarCount(n)        { starGeo.setDrawRange(0, Math.max(0, Math.min(maxStars, Math.floor(n)))); },
-    setStarSize(px)        { starUniforms.uSize.value = px; },
-    setStarTwinkleSpeed(s) { starUniforms.uSpeed.value = s; },
+    // Sky params (match the example)
+    setTurbidity(v)       { U.turbidity.value = v; }
+    ,
+    setRayleigh(v)        { U.rayleigh.value = v; },
+    setMieCoefficient(v)  { U.mieCoefficient.value = v; },
+    setMieDirectionalG(v) { U.mieDirectionalG.value = v; },
+    setElevation(deg)     { elevation = deg; updateSun(); },
+    setAzimuth(deg)       { azimuth = deg; updateSun(); },
+    setExposure(v)        { renderer.toneMappingExposure = v; },
 
-    // snapshot
+    // Lighting tweaks (optional)
+    setSunIntensity(v)    { sunDir.intensity = v; },
+    setAmbientIntensity(v){ ambient.intensity = v; },
+    setEnvLightColor(hex) { sunDir.color.set(hex); ambient.color.set(hex); },
+
+    // Stars
+    setStarCount(n)       { starGeo.setDrawRange(0, Math.max(0, Math.min(maxStars, Math.floor(n)))); },
+    setStarSize(px)       { starUniforms.uSize.value = px; },
+    setStarTwinkleSpeed(s){ starUniforms.uSpeed.value = s; },
+
+    // Snapshot
     _getCurrent: () => ({
-      turbidity: uniforms['turbidity'].value,
-      rayleigh: uniforms['rayleigh'].value,
-      mieCoefficient: uniforms['mieCoefficient'].value,
-      mieDirectionalG: uniforms['mieDirectionalG'].value,
+      turbidity: U.turbidity.value,
+      rayleigh: U.rayleigh.value,
+      mieCoefficient: U.mieCoefficient.value,
+      mieDirectionalG: U.mieDirectionalG.value,
       elevation, azimuth,
       exposure: renderer.toneMappingExposure,
+      sunIntensity: sunDir.intensity,
+      ambientIntensity: ambient.intensity,
+      envLightColor: `#${sunDir.color.getHexString()}`,
       starCount: starGeo.drawRange.count,
       starSize: starUniforms.uSize.value,
       starTwinkleSpeed: starUniforms.uSpeed.value
