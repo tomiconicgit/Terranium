@@ -1,88 +1,156 @@
+/**
+ * Injects the necessary CSS for the bootstrap sequence directly into the HTML head.
+ * This makes the loading screen and intro self-contained.
+ */
+function injectBootstrapCSS() {
+    const cssStyles = `
+        body {
+            background-color: #000;
+            color: #fff;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            overflow: hidden;
+        }
+
+        #app-root {
+            width: 100%;
+            text-align: center;
+        }
+
+        .cinematic-text {
+            font-size: 3rem;
+            font-weight: 300;
+            letter-spacing: 4px;
+            opacity: 0;
+            transition: opacity 1.5s ease-in-out;
+        }
+
+        .loading-container {
+            opacity: 0;
+            transition: opacity 0.5s ease-in;
+        }
+
+        .progress-bar {
+            width: 50%;
+            max-width: 400px;
+            height: 20px;
+            background-color: #222;
+            border: 1px solid #444;
+            border-radius: 10px;
+            margin: 20px auto;
+            overflow: hidden;
+        }
+
+        #progress-fill {
+            width: 0%;
+            height: 100%;
+            background-color: #00bfff; /* Deep Sky Blue */
+            transition: width 0.5s ease-out;
+        }
+
+        .start-button {
+            font-size: 1.5rem;
+            padding: 15px 30px;
+            background-color: #00bfff;
+            color: #fff;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            opacity: 0;
+            transition: opacity 0.5s ease-in, transform 0.2s ease-out;
+            transform: scale(0.95);
+        }
+
+        .start-button:hover {
+            background-color: #009acd;
+            transform: scale(1);
+        }
+
+        /* General 'visible' class for fade-in animations */
+        .visible {
+            opacity: 1;
+            transform: scale(1);
+        }
+    `;
+
+    // Create a <style> element and append it to the <head>
+    const styleElement = document.createElement('style');
+    styleElement.textContent = cssStyles;
+    document.head.appendChild(styleElement);
+}
+
 // Get the main app container from the HTML
 const appRoot = document.getElementById('app-root');
 
 // --- Cinematic Intro ---
 function playCinematicIntro() {
     return new Promise(resolve => {
-        // Create the intro text element
         const introText = document.createElement('div');
         introText.textContent = 'Iconic Developments';
         introText.classList.add('cinematic-text');
-
-        // Clear the app root and add the intro text
+        
         appRoot.innerHTML = '';
         appRoot.appendChild(introText);
-
-        // Animation sequence: fade in, hold, fade out
-        setTimeout(() => introText.classList.add('visible'), 100); // Fade in
-        setTimeout(() => introText.classList.remove('visible'), 3000); // Fade out
-        setTimeout(resolve, 4500); // Wait for fade out to finish
+        
+        setTimeout(() => introText.classList.add('visible'), 100);
+        setTimeout(() => introText.classList.remove('visible'), 3000);
+        setTimeout(resolve, 4500);
     });
 }
 
 // --- Loading Screen ---
 function showLoadingScreen() {
     return new Promise(resolve => {
-        // Create loading screen elements
         const loadingContainer = document.createElement('div');
         loadingContainer.classList.add('loading-container');
+        loadingContainer.innerHTML = `
+            <p id="loading-text">Loading game files...</p>
+            <div class="progress-bar">
+                <div id="progress-fill"></div>
+            </div>
+        `;
 
-        const loadingText = document.createElement('p');
-        loadingText.id = 'loading-text';
-        loadingText.textContent = 'Loading game files...';
-
-        const progressBar = document.createElement('div');
-        progressBar.classList.add('progress-bar');
-        const progressFill = document.createElement('div');
-        progressFill.id = 'progress-fill';
-        progressBar.appendChild(progressFill);
-        
-        loadingContainer.appendChild(loadingText);
-        loadingContainer.appendChild(progressBar);
-
-        // Clear app root and show the loading screen
         appRoot.innerHTML = '';
         appRoot.appendChild(loadingContainer);
         setTimeout(() => loadingContainer.classList.add('visible'), 100);
 
-        // --- Simulate File Loading ---
-        const filesToLoad = ['src/test.js']; // Add other game files here
+        const filesToLoad = ['src/test.js', 'assets/textures.dat', 'assets/models.bin'];
         let filesLoaded = 0;
 
         const fileCheckInterval = setInterval(() => {
             if (filesLoaded < filesToLoad.length) {
                 const file = filesToLoad[filesLoaded];
-                loadingText.textContent = `Verifying ${file}...`;
+                document.getElementById('loading-text').textContent = `Verifying ${file}...`;
                 filesLoaded++;
                 
                 const progress = (filesLoaded / filesToLoad.length) * 100;
                 document.getElementById('progress-fill').style.width = `${progress}%`;
             } else {
                 clearInterval(fileCheckInterval);
-                loadingText.textContent = 'All files ready.';
-                setTimeout(resolve, 1000); // Short delay before showing start button
+                document.getElementById('loading-text').textContent = 'All files ready.';
+                setTimeout(resolve, 1000);
             }
-        }, 800); // Simulate time for each file check
+        }, 800);
     });
 }
 
 // --- Start Game Screen ---
 function showStartScreen() {
-    // Create start button
     const startButton = document.createElement('button');
     startButton.textContent = 'Start Game';
     startButton.id = 'start-button';
     startButton.classList.add('start-button');
-
-    // Add event listener to start the main game logic
+    
     startButton.addEventListener('click', () => {
         console.log("Starting the main application...");
-        // Here you would load and run your main game script (app.js)
-        // For now, we'll just log to the console.
+        // This is where you would load your main game script, e.g., app.js
         appRoot.innerHTML = '<p>Game has started!</p>';
     });
 
-    // Clear the app root and add the button
     appRoot.innerHTML = '';
     appRoot.appendChild(startButton);
     setTimeout(() => startButton.classList.add('visible'), 100);
@@ -90,10 +158,19 @@ function showStartScreen() {
 
 // --- Main Application Flow ---
 async function main() {
+    // 1. Inject CSS
+    injectBootstrapCSS();
+
+    // 2. Play Intro
     await playCinematicIntro();
+    
+    // 3. Show Loading Screen
     await showLoadingScreen();
+
+    // 4. Show Start Screen
     showStartScreen();
 }
 
 // Start the bootstrap process
 main();
+
