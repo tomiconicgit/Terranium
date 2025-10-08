@@ -10,11 +10,12 @@
   <meta name="mobile-web-app-capable" content="yes" />
   <title>Terranium</title>
 
+  <!-- Pin three to a stable release -->
   <script type="importmap">
     {
       "imports": {
-        "three": "https://unpkg.com/three@latest/build/three.module.js",
-        "three/addons/": "https://unpkg.com/three@latest/examples/jsm/"
+        "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+        "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
       }
     }
   </script>
@@ -58,7 +59,7 @@
       pointer-events: none;
     }
 
-    /* Joystick from your existing CSS */
+    /* Joystick */
     .joy-base, .joy-knob {
       position: fixed;
       z-index: 40;
