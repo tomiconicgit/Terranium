@@ -1,4 +1,6 @@
-// src/terrain.js — SAFE baseline (no shader patch)
+// SAFE baseline terrain (no fragile shader patches)
+// Keeps your displacement + repeat + tint; exposes the same UI API.
+
 import * as THREE from 'three';
 
 export function createTerrain(manager) {
@@ -16,7 +18,7 @@ export function createTerrain(manager) {
   const geometry = new THREE.PlaneGeometry(SIZE, SIZE, SEGMENTS, SEGMENTS);
   geometry.rotateX(-Math.PI / 2);
 
-  // same dune shaping you had
+  // Dune shaping
   function noise2(x, z) {
     return (
       Math.sin(x * 0.05) * Math.cos(z * 0.05) * 0.5 +
@@ -43,15 +45,13 @@ export function createTerrain(manager) {
     color: 0xffffff
   });
 
-  // tiling (sandier)
-  const repeat = 48;
+  let repeat = 48;
   diffuse.repeat.set(repeat, repeat);
   displacement.repeat.set(repeat, repeat);
 
   const mesh = new THREE.Mesh(geometry, material);
   mesh.receiveShadow = true;
 
-  // API methods your UI expects — these are safe no-ops/adjusters
   return {
     mesh,
     material,
@@ -59,22 +59,23 @@ export function createTerrain(manager) {
     setRoughness(v){ material.roughness = v; },
     setRepeat(v){
       const r = Math.max(1, v|0);
+      repeat = r;
       diffuse.repeat.set(r, r);
       displacement.repeat.set(r, r);
       diffuse.needsUpdate = true;
       displacement.needsUpdate = true;
     },
-    setTintColor(hex){
-      material.color.set(hex);
-    },
-    // UI compatibility (temporarily no-op)
+    setTintColor(hex){ material.color.set(hex); },
+
+    // UI compatibility placeholders for future blending
     setHeightRange(){},
     setSlopeBias(){},
     setWeights(){},
+
     _getCurrent: () => ({
       terrainDisplacement: material.displacementScale,
       terrainRoughness: material.roughness,
-      terrainRepeat: diffuse.repeat.x,
+      terrainRepeat: repeat,
       terrainTint: `#${material.color.getHexString()}`
     })
   };
