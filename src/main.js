@@ -12,7 +12,17 @@ const renderer = new THREE.WebGLRenderer();
 renderer.setSize(window.innerWidth, window.innerHeight);
 document.body.appendChild(renderer.domElement);
 
-const terrain = createTerrain();
+const manager = new THREE.LoadingManager();
+manager.onProgress = (url, itemsLoaded, itemsTotal) => {
+    const progress = Math.floor((itemsLoaded / itemsTotal) * 100);
+    document.getElementById('loading').innerText = `Loading: ${progress}%`;
+};
+manager.onLoad = () => {
+    document.getElementById('loading').style.display = 'none';
+    animate();
+};
+
+const terrain = createTerrain(manager);
 scene.add(terrain);
 
 createSky(scene);
@@ -24,7 +34,6 @@ function animate() {
     controls.update();
     renderer.render(scene, camera);
 }
-animate();
 
 window.addEventListener('resize', () => {
     camera.aspect = window.innerWidth / window.innerHeight;
