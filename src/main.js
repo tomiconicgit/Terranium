@@ -44,6 +44,58 @@ scene.add(terrain);
 scene.add(moon);
 scene.add(sky);
 
+// Add lights for Phong material
+const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+scene.add(ambientLight);
+
+const directionalLight = new THREE.DirectionalLight(0xffffff, 0.5);
+directionalLight.position.set(5, 10, 5);
+scene.add(directionalLight);
+
+// First-person camera controls (look around only)
+let yaw = 0;
+let pitch = 0;
+let isMouseDown = false;
+let prevTouchX = 0;
+let prevTouchY = 0;
+
+function updateCamera() {
+    camera.rotation.order = 'YXZ';
+    camera.rotation.y = yaw;
+    camera.rotation.x = pitch;
+}
+
+updateCamera(); // Initial orientation
+
+// Mouse controls (drag to look)
+document.addEventListener('mousedown', () => { isMouseDown = true; });
+document.addEventListener('mouseup', () => { isMouseDown = false; });
+document.addEventListener('mousemove', (e) => {
+    if (isMouseDown) {
+        yaw -= e.movementX * 0.002;
+        pitch -= e.movementY * 0.002;
+        pitch = Math.max(-Math.PI / 2 + 0.01, Math.min(Math.PI / 2 - 0.01, pitch));
+        updateCamera();
+    }
+});
+
+// Touch controls (swipe to look)
+document.addEventListener('touchstart', (e) => {
+    prevTouchX = e.touches[0].clientX;
+    prevTouchY = e.touches[0].clientY;
+});
+document.addEventListener('touchmove', (e) => {
+    e.preventDefault();
+    const deltaX = e.touches[0].clientX - prevTouchX;
+    const deltaY = e.touches[0].clientY - prevTouchY;
+    yaw -= deltaX * 0.01;
+    pitch -= deltaY * 0.01;
+    pitch = Math.max(-Math.PI / 2 + 0.01, Math.min(Math.PI / 2 - 0.01, pitch));
+    updateCamera();
+    prevTouchX = e.touches[0].clientX;
+    prevTouchY = e.touches[0].clientY;
+});
+
 // Animation loop
 function animate() {
     requestAnimationFrame(animate);
