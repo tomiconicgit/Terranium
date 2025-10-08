@@ -1,5 +1,4 @@
-// Creates HDRI sky by setting scene background/environment.
-// NOTE: relies on THREE.RGBELoader loaded globally by bootstrap.
+// Sets an HDRI as background/environment. Uses global THREE.RGBELoader (loaded in bootstrap).
 export function applySky(scene) {
   const loader = new THREE.RGBELoader();
   loader.setDataType(THREE.UnsignedByteType);
