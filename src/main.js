@@ -19,25 +19,18 @@ renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.shadowMap.enabled = true;
 document.body.appendChild(renderer.domElement);
 
-const manager = new THREE.LoadingManager();
-manager.onProgress = (url, itemsLoaded, itemsTotal) => {
-  const el = document.getElementById('loading');
-  if (el) el.innerText = `Loading: ${Math.floor((itemsLoaded / itemsTotal) * 100)}%`;
-};
-manager.onLoad = () => {
-  const el = document.getElementById('loading');
-  if (el) el.style.display = 'none';
-  animate();
-};
+// Hide loading label immediately (no async loads now)
+const loadingEl = document.getElementById('loading');
+if (loadingEl) loadingEl.style.display = 'none';
 
-// Sky (kept)
+// Sky
 const moonSky = createSky(scene, renderer);
 
-// Desert terrain (50x50), moon-white; no cacti/buildings
+// Desert terrain (50x50), moon-white
 const desert = new DesertTerrain(scene, { width: 50, length: 50 });
-const terrain = desert.generateTerrain(); // returns the mesh
+const terrain = desert.generateTerrain();
 
-// Controls (mobile + PC); keep as-is
+// Controls (mobile + PC)
 const controls = new Controls(camera, renderer.domElement, terrain);
 controls.pitch = -0.35;
 controls.yaw = 0.0;
@@ -51,6 +44,7 @@ function animate() {
   controls.update();
   renderer.render(scene, camera);
 }
+animate(); // <-- start immediately
 
 function resize() {
   const w = window.innerWidth, h = window.innerHeight;
