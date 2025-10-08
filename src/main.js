@@ -1,4 +1,3 @@
-// src/main.js
 import { createScene } from './scene.js';
 import { createCamera } from './camera.js';
 import { createRenderer } from './renderer.js';
@@ -8,7 +7,7 @@ import { applySky } from './objects/sky.js';
 import { loadEnvironment } from './objects/environment.js';
 import { createLights } from './objects/lights.js';
 
-// Dynamic manifest (works on GitHub Pages too)
+// Dynamic manifest
 const manifest = {
   name: 'Terranium',
   short_name: 'Terranium',
@@ -28,7 +27,7 @@ const manifestURL = URL.createObjectURL(manifestBlob);
 const link = document.querySelector('link[rel="manifest"]');
 if (link) link.href = manifestURL;
 
-// Init Three.js
+// Canvas + core
 const canvas = document.createElement('canvas');
 document.body.appendChild(canvas);
 
@@ -36,23 +35,27 @@ const scene = createScene();
 const camera = createCamera();
 const renderer = createRenderer(canvas);
 
-// Objects
+// World
 const terrain = createTerrain();
-const moon = createMoon();
 scene.add(terrain);
-scene.add(moon);
 
-// Sky (sets scene background/environment; do NOT add to scene)
+const moon = createMoon?.();
+if (moon) {
+  if (moon.castShadow !== undefined) moon.castShadow = true;
+  scene.add(moon);
+}
+
+// Sky (sets scene.background/environment)
 applySky(scene);
 
 // Lights
 const lights = createLights();
 lights.forEach(l => scene.add(l));
 
-// Optional: environment preloads
+// Optional environment hook
 loadEnvironment?.(scene, renderer);
 
-// Animate
+// Loop
 function animate() {
   requestAnimationFrame(animate);
   renderer.render(scene, camera);
