@@ -5,6 +5,7 @@ import { createSky } from './sky.js';
 import { Controls } from './controls.js';
 
 const scene = new THREE.Scene();
+scene.fog = new THREE.Fog(0x000000, 80, 300);
 
 const camera = new THREE.PerspectiveCamera(
   75,
@@ -14,7 +15,7 @@ const camera = new THREE.PerspectiveCamera(
 );
 
 // Start above ground, looking at the terrain
-camera.position.set(0, 6, 16);
+camera.position.set(0, 10, 30);
 camera.lookAt(0, 0, 0);
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -43,13 +44,15 @@ scene.add(terrain);
 // Sky & sun
 createSky(scene);
 
-// Visual reference grid on ground (helps confirm terrain is visible)
-scene.add(new THREE.GridHelper(60, 60, 0x555555, 0x222222));
+// Grid (slightly above y=0 to avoid z-fighting with terrain flats)
+const grid = new THREE.GridHelper(400, 80, 0x555555, 0x222222);
+grid.position.y = 0.02;
+scene.add(grid);
 
 // Controls
 const controls = new Controls(camera, renderer.domElement, terrain);
-// Prime internal angles to match the initial look direction (~20° down)
-controls.pitch = -0.35; // down a bit
+// Prime internal angles to match the initial look direction (~15–20° down)
+controls.pitch = -0.35;
 controls.yaw = 0.0;
 
 function animate() {
