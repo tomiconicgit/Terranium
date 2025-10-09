@@ -2,21 +2,20 @@ import * as THREE from 'three';
 import { Sky } from 'three/addons/objects/Sky.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
-export function createSky(scene, renderer) {
-  // --- Sky dome (visual only) ---
+export function createSky(scene, renderer, manager) {
+  // --- Sky dome (visual only; does not light terrain) ---
   const sky = new Sky();
   sky.scale.setScalar(450000);
-  sky.material.toneMapped = false; // global exposure does not change sky
   scene.add(sky);
 
-  // official uniforms
+  // Sky uniforms
   const U = sky.material.uniforms;
-  U.turbidity.value = 2.0;
-  U.rayleigh.value = 1.2;
+  U.turbidity.value = 0.0;
+  U.rayleigh.value = 0.03;
   U.mieCoefficient.value = 0.005;
-  U.mieDirectionalG.value = 0.8;
+  U.mieDirectionalG.value = 0.03;
 
-  // Extra uniform for sky-only exposure
+  // Separate SKY exposure (dome only)
   const skyExposureUniform = { value: 1.0 };
   sky.material.onBeforeCompile = (shader) => {
     shader.uniforms.uSkyExposure = skyExposureUniform;
@@ -27,12 +26,36 @@ export function createSky(scene, renderer) {
   };
   sky.material.needsUpdate = true;
 
-  // Sun direction (for sky only)
-  const sun = new THREE.Vector3();
-  let elevation = 6;
-  let azimuth = 180;
+  // Sun position from elevation/azimuth (visual only)
+  const sunVec = new THREE.Vector3();
+  let elevation = 16.5;
+  let azimuth = 360;
 
-  // --- Stars (twinkling) ---
+  function updateSun() {
+    const phi = THREE.MathUtils.degToRad(90 - elevation);
+    const theta = THREE.MathUtils.degToRad(azimuth);
+    sunVec.setFromSphericalCoords(1, phi, theta);
+    U.sunPosition.value.copy(sunVec);
+
+    // place visual sun sphere far along the same direction
+    const dist = 3000;
+    sunSphere.position.set(sunVec.x * dist, sunVec.y * dist, sunVec.z * dist);
+  }
+
+  // Visual sun (large emissive sphere, no scene lighting)
+  const sunGeo = new THREE.SphereGeometry(10, 32, 16);
+  const sunMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+  const sunSphere = new THREE.Mesh(sunGeo, sunMat);
+  sunSphere.renderOrder = -1; // behind most things
+  scene.add(sunSphere);
+
+  updateSun();
+
+  // Renderer tone mapping stays standard; sky exposure is handled inside shader
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.0;
+
+  // --- Starfield ---
   const maxStars = 15000;
   const starGeo = new THREE.BufferGeometry();
   const starPos = new Float32Array(maxStars * 3);
@@ -52,11 +75,7 @@ export function createSky(scene, renderer) {
   starGeo.setAttribute('phase', new THREE.BufferAttribute(starPhase, 1));
   starGeo.setDrawRange(0, 10000);
 
-  const starUniforms = {
-    uTime: { value: 0 },
-    uSize: { value: 1.6 },
-    uSpeed: { value: 0.9 }
-  };
+  const starUniforms = { uTime: { value: 0 }, uSize: { value: 1.6 }, uSpeed: { value: 0.9 } };
   const starMat = new THREE.ShaderMaterial({
     transparent: true,
     depthWrite: false,
@@ -85,124 +104,78 @@ export function createSky(scene, renderer) {
   const stars = new THREE.Points(starGeo, starMat);
   scene.add(stars);
 
-  // --- Visual sun disc (sprite) that does NOT light the terrain ---
-  const sunTexture = makeRadialDiscTexture();
-  const sunSprite = new THREE.Sprite(new THREE.SpriteMaterial({
-    map: sunTexture,
-    transparent: true,
-    depthWrite: false,
-    depthTest: true,
-    color: 0xffffff
-  }));
-  sunSprite.scale.setScalar(35); // default disc size
-  scene.add(sunSprite);
-
-  function makeRadialDiscTexture() {
-    const size = 256;
-    const canvas = document.createElement('canvas');
-    canvas.width = size;
-    canvas.height = size;
-    const ctx = canvas.getContext('2d');
-
-    const g = ctx.createRadialGradient(size/2, size/2, 0, size/2, size/2, size/2);
-    g.addColorStop(0.0, 'rgba(255,255,255,1.0)');
-    g.addColorStop(0.3, 'rgba(255,255,255,0.8)');
-    g.addColorStop(0.7, 'rgba(255,255,255,0.25)');
-    g.addColorStop(1.0, 'rgba(255,255,255,0.0)');
-
-    ctx.fillStyle = g;
-    ctx.fillRect(0, 0, size, size);
-
-    const tex = new THREE.CanvasTexture(canvas);
-    tex.colorSpace = THREE.SRGBColorSpace;
-    tex.magFilter = THREE.LinearFilter;
-    tex.minFilter = THREE.LinearMipMapLinearFilter;
-    return tex;
-  }
-
-  function updateSun() {
-    const phi = THREE.MathUtils.degToRad(90 - elevation);
-    const theta = THREE.MathUtils.degToRad(azimuth);
-    sun.setFromSphericalCoords(1, phi, theta);
-    U.sunPosition.value.copy(sun);
-
-    const dist = 2000;
-    sunSprite.position.set(sun.x * dist, sun.y * dist, sun.z * dist);
-  }
-  updateSun();
-
-  // --- EARTH: GLB model with its own lights on layer 1 ---
-  const earthLayer = 1;
+  // --- Earth (GLB) — visual-only, unlit, independent of sun ---
   const earthGroup = new THREE.Group();
-  earthGroup.layers.set(earthLayer);
   scene.add(earthGroup);
 
-  // lights that only affect earth (layer 1)
-  const earthSun = new THREE.DirectionalLight(0xffffff, 2.0);
-  earthSun.layers.set(earthLayer);
-  earthGroup.add(earthSun);
+  const loader = new GLTFLoader(manager);
+  loader.load('src/assets/models/earth/earth.glb', (gltf) => {
+    const root = gltf.scene || gltf.scenes[0];
+    root.traverse((obj) => {
+      if (obj.isMesh) {
+        // Convert to unlit so it doesn't need lights and won't affect terrain
+        const old = obj.material;
+        const basic = new THREE.MeshBasicMaterial({ color: 0xffffff });
+        if (old && old.map) basic.map = old.map;
+        if (old && old.emissiveMap) basic.map = basic.map || old.emissiveMap;
+        basic.transparent = !!(old && old.transparent);
+        basic.side = THREE.FrontSide;
+        obj.material = basic;
+      }
+    });
+    earthGroup.add(root);
+    // default position & scale (these will be overwritten by setters if panel changes)
+    root.scale.setScalar(12);
+    root.position.set(180, 30, -260);
+  });
 
-  const earthAmbient = new THREE.AmbientLight(0xffffff, 0.4);
-  earthAmbient.layers.set(earthLayer);
-  earthGroup.add(earthAmbient);
-
-  // point the earthSun roughly from "sun" direction
-  function updateEarthLightDir() {
-    earthSun.position.set(sun.x * 1000, sun.y * 1000, sun.z * 1000);
-    earthSun.target.position.set(0, 0, 0);
-    earthSun.target.updateMatrixWorld();
-  }
-  updateEarthLightDir();
-
-  let earthRoot = null;
-  const gltf = new GLTFLoader();
-  gltf.load(
-    'assets/models/earth/earth.glb',
-    (g) => {
-      earthRoot = g.scene || g.scenes?.[0];
-      if (!earthRoot) return;
-      earthRoot.traverse((o) => {
-        o.layers.set(earthLayer);
-      });
-      earthGroup.add(earthRoot);
-      // default scale and position (will be overridden by UI apply)
-      earthGroup.scale.setScalar(30);
-      earthGroup.position.set(800, 200, -600);
-    },
-    undefined,
-    (err) => console.warn('Failed to load Earth GLB', err)
-  );
-
-  // --- Public API for UI ---
+  // --- API ---
+  let sunSize = 7.0;
   const api = {
     update(dt) { starUniforms.uTime.value += dt; },
 
-    // Sky params
+    // sky params
     setTurbidity(v) { U.turbidity.value = v; },
     setRayleigh(v) { U.rayleigh.value = v; },
     setMieCoefficient(v) { U.mieCoefficient.value = v; },
     setMieDirectionalG(v) { U.mieDirectionalG.value = v; },
-    setElevation(deg) { elevation = deg; updateSun(); updateEarthLightDir(); },
-    setAzimuth(deg) { azimuth = deg; updateSun(); updateEarthLightDir(); },
+    setElevation(deg) { elevation = deg; updateSun(); },
+    setAzimuth(deg) { azimuth = deg; updateSun(); },
 
-    // Sky-only exposure
+    // sky exposure (dome only)
     setSkyExposure(v) { skyExposureUniform.value = v; sky.material.needsUpdate = true; },
 
-    // Stars
+    // sun size (visual)
+    setSunSize(v) {
+      sunSize = Math.max(0.01, v);
+      sunSphere.scale.setScalar(sunSize / 10); // sphere base radius is 10
+    },
+
+    // stars
     setStarCount(n) { starGeo.setDrawRange(0, Math.max(0, Math.min(maxStars, Math.floor(n)))); },
     setStarSize(px) { starUniforms.uSize.value = px; },
     setStarTwinkleSpeed(s) { starUniforms.uSpeed.value = s; },
 
-    // Apparent sun disc size
-    setSunSize(s) { sunSprite.scale.set(s, s, s); },
+    // earth controls
+    setEarthScale(s) {
+      const sc = Math.max(0.01, s);
+      earthGroup.traverse((o) => { if (o.isMesh) o.scale.set(sc, sc, sc); });
+    },
+    setEarthPosition(x, y, z) {
+      earthGroup.position.set(x || 0, y || 0, z || 0);
+    },
+    setEarthBrightness(b) {
+      const k = Math.max(0, b);
+      earthGroup.traverse((o) => {
+        if (o.isMesh && o.material && o.material.isMeshBasicMaterial) {
+          // Multiply the base color; keep texture intact
+          o.material.color.setScalar(k);
+          o.material.needsUpdate = true;
+        }
+      });
+    },
 
-    // Earth controls
-    setEarthVisible(v) { earthGroup.visible = !!v; },
-    setEarthScale(s) { earthGroup.scale.set(s, s, s); },
-    setEarthPosition(x, y, z) { earthGroup.position.set(x, y, z); },
-    setEarthSunIntensity(i) { earthSun.intensity = i; },
-    setEarthAmbientIntensity(i) { earthAmbient.intensity = i; },
-
+    // snapshot
     _getCurrent: () => ({
       turbidity: U.turbidity.value,
       rayleigh: U.rayleigh.value,
@@ -210,6 +183,7 @@ export function createSky(scene, renderer) {
       mieDirectionalG: U.mieDirectionalG.value,
       elevation, azimuth,
       skyExposure: skyExposureUniform.value,
+      sunSize,
       starCount: starGeo.drawRange.count,
       starSize: starUniforms.uSize.value,
       starTwinkleSpeed: starUniforms.uSpeed.value
