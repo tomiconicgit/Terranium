@@ -21,14 +21,50 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
 renderer.setSize(window.innerWidth, window.innerHeight, false);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.shadowMap.enabled = true;
-// Keep global tone mapping neutral (we isolate exposures per-system)
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
+// Keep renderer exposure neutral so sky and terrain are controlled separately
 renderer.toneMappingExposure = 1.0;
 
 document.body.appendChild(renderer.domElement);
 
+// --------------------
+// Ambient looped sound
+// --------------------
+const listener = new THREE.AudioListener();
+camera.add(listener);
+
+const ambientSound = new THREE.Audio(listener);
+const manager = new THREE.LoadingManager(); // also used for textures below
+
+const audioLoader = new THREE.AudioLoader(manager);
+audioLoader.load(
+  'src/assets/sounds/planetsound.wav',
+  (buffer) => {
+    ambientSound.setBuffer(buffer);
+    ambientSound.setLoop(true);
+    ambientSound.setVolume(0.35); // tweak to taste
+    // Autoplay requires a user gesture — we hook that below
+  },
+  undefined,
+  () => console.warn('Could not load planetsound.wav')
+);
+
+// Unlock & start on first user interaction
+function startAmbientAudio() {
+  // resume context if needed
+  if (listener.context && listener.context.state === 'suspended') {
+    listener.context.resume();
+  }
+  if (ambientSound.buffer && !ambientSound.isPlaying) {
+    ambientSound.play();
+  }
+  window.removeEventListener('pointerdown', startAmbientAudio);
+  window.removeEventListener('keydown', startAmbientAudio);
+}
+window.addEventListener('pointerdown', startAmbientAudio, { passive: true });
+window.addEventListener('keydown', startAmbientAudio);
+
 // Loading UX
-const manager = new THREE.LoadingManager();
 manager.onProgress = (url, loaded, total) => {
   const el = document.getElementById('loading');
   if (el) el.innerText = `Loading: ${Math.floor((loaded / total) * 100)}%`;
@@ -39,10 +75,42 @@ manager.onLoad = () => {
   animate();
 };
 
-// Terrain & Sky
+// Terrain (mesh + material)
 const terrainAPI = createTerrain(manager);
 scene.add(terrainAPI.mesh);
+
+// SKY — pure visual, per the example. It does NOT create or drive lights.
 const skyAPI = createSky(scene, renderer);
+
+// ------------------------------
+// Terrain lighting (standalone)
+// ------------------------------
+// Directional light (the "sun" for terrain); independent of the sky.
+const sunLight = new THREE.DirectionalLight(0xffffff, 4.5); // your preferred intensity
+sunLight.castShadow = true;
+sunLight.shadow.mapSize.set(1024, 1024);
+sunLight.shadow.camera.near = 1;
+sunLight.shadow.camera.far = 1500;
+sunLight.shadow.camera.left = -400;
+sunLight.shadow.camera.right = 400;
+sunLight.shadow.camera.top = 400;
+sunLight.shadow.camera.bottom = -400;
+
+// Aim from a nice angle; adjust independently of sky
+// (Matches ~elevation 16.5°, azimuth 360° visually, but not linked.)
+const dist = 1000;
+const elevRad = THREE.MathUtils.degToRad(90 - 16.5);
+const azimRad = THREE.MathUtils.degToRad(360);
+const dir = new THREE.Vector3().setFromSphericalCoords(1, elevRad, azimRad);
+sunLight.position.set(dir.x * dist, dir.y * dist, dir.z * dist);
+sunLight.target.position.set(0, 0, 0);
+sunLight.target.updateMatrixWorld();
+scene.add(sunLight);
+scene.add(sunLight.target);
+
+// Soft ambient to lift shadows a bit
+const ambient = new THREE.AmbientLight(0xffffff, 0.57);
+scene.add(ambient);
 
 // Controls
 const controls = new Controls(camera, renderer.domElement, terrainAPI.mesh);
@@ -54,7 +122,7 @@ const clock = new THREE.Clock();
 function animate() {
   requestAnimationFrame(animate);
   const dt = clock.getDelta();
-  skyAPI.update(dt);
+  skyAPI.update(dt); // (no-op now, but fine to keep)
   controls.update();
   renderer.render(scene, camera);
 }
@@ -70,57 +138,31 @@ window.addEventListener('resize', resize);
 window.addEventListener('orientationchange', () => setTimeout(resize, 100));
 
 /* --------------------------
-   Tuner UI
+   Tuner UI (minimal wiring)
    -------------------------- */
-// Latest preset (terrain-only exposure + two sky exposures)
+// If you still want to tweak the sky visually via your sliders,
+// keep only these calls (they won’t touch terrain lighting).
 const defaults = {
-  turbidity: 0,
+  turbidity: 0.0,
   rayleigh: 0.08,
   mieCoefficient: 0.047,
   mieDirectionalG: 0.01,
   elevation: 16.5,
   azimuth: 360,
 
-  // Sky exposures
-  skyExposure: 2.5,        // existing sky-only brightness
-  skyGlobalExposure: 1.0,  // NEW separate sky-only multiplier
-  lightingExposure: 3,     // scales sun+ambient
-
-  // Terrain exposure (only terrain)
-  exposure: 2.48,
-
-  // Stars
-  starCount: 10000,
-  starSize: 1.6,
-  starTwinkleSpeed: 0.9,
-
-  // Terrain
+  // Terrain material controls you already used:
   terrainDisplacement: 0.55,
-  terrainRoughness: 1,
+  terrainRoughness: 1.0,
   terrainRepeat: 48,
   terrainTint: '#f5f7ff',
-  terrainSaturation: 0,
-
-  // Placeholders
-  blendHeightMin: 0,
-  blendHeightMax: 12,
-  blendSlopeBias: 1,
-  wLow: 1,
-  wHigh: 0.7,
-  wSlope: 0.8,
-
-  // informational (not used to drive UI)
-  exposureGlobal: 1.0,
-  sunIntensity: 4.5,
-  ambientIntensity: 0.5698767642386944,
-  envLightColor: '#ffffff'
+  terrainSaturation: 0.0
 };
 
 const state = { ...defaults };
 applyAll();
 
 function applyAll() {
-  // Sky
+  // Sky visuals only
   skyAPI.setTurbidity(state.turbidity);
   skyAPI.setRayleigh(state.rayleigh);
   skyAPI.setMieCoefficient(state.mieCoefficient);
@@ -128,148 +170,13 @@ function applyAll() {
   skyAPI.setElevation(state.elevation);
   skyAPI.setAzimuth(state.azimuth);
 
-  // Exposures (isolated)
-  skyAPI.setSkyExposure(state.skyExposure);
-  skyAPI.setSkyGlobalExposure(state.skyGlobalExposure); // NEW
-  skyAPI.setLightingExposure(state.lightingExposure);
-  terrainAPI.setExposure(state.exposure);               // terrain-only
-
-  // Stars
-  skyAPI.setStarCount(state.starCount);
-  skyAPI.setStarSize(state.starSize);
-  skyAPI.setStarTwinkleSpeed(state.starTwinkleSpeed);
-
-  // Terrain
+  // Terrain material knobs
   terrainAPI.setDisplacementScale(state.terrainDisplacement);
   terrainAPI.setRoughness(state.terrainRoughness);
   terrainAPI.setRepeat(state.terrainRepeat);
   terrainAPI.setTintColor(state.terrainTint);
-  terrainAPI.setSaturation(state.terrainSaturation);
-
-  // Placeholders
-  terrainAPI.setHeightRange(state.blendHeightMin, state.blendHeightMax);
-  terrainAPI.setSlopeBias(state.blendSlopeBias);
-  terrainAPI.setWeights(state.wLow, state.wHigh, state.wSlope);
+  if (terrainAPI.setSaturation) terrainAPI.setSaturation(state.terrainSaturation);
 }
 
-// UI
-const panel = document.getElementById('tunePanel');
-panel.innerHTML = `
-  <header><h3>Sky & Terrain Tuner</h3></header>
-
-  <div class="section">Sky (three.js Sky)</div>
-  <div class="grid">
-    <div class="row"><label>Turbidity</label><input id="turbidity" type="range" min="0" max="20" step="0.1" value="\${state.turbidity}"></div>
-    <div class="row"><label>Rayleigh</label><input id="rayleigh" type="range" min="0" max="4" step="0.01" value="\${state.rayleigh}"></div>
-    <div class="row"><label>Mie Coefficient</label><input id="mieCoefficient" type="range" min="0" max="0.1" step="0.001" value="\${state.mieCoefficient}"></div>
-    <div class="row"><label>Mie Directional G</label><input id="mieDirectionalG" type="range" min="0" max="1" step="0.01" value="\${state.mieDirectionalG}"></div>
-    <div class="row"><label>Elevation (°)</label><input id="elevation" type="range" min="-5" max="89" step="0.1" value="\${state.elevation}"></div>
-    <div class="row"><label>Azimuth (°)</label><input id="azimuth" type="range" min="0" max="360" step="0.1" value="\${state.azimuth}"></div>
-
-    <div class="row"><label>Sky Exposure</label><input id="skyExposure" type="range" min="0.0" max="3.0" step="0.01" value="\${state.skyExposure}"></div>
-    <div class="row"><label>Sky Global Exposure</label><input id="skyGlobalExposure" type="range" min="0.0" max="3.0" step="0.01" value="\${state.skyGlobalExposure}"></div>
-    <div class="row"><label>Terrain Light Exposure</label><input id="lightingExposure" type="range" min="0.2" max="4.0" step="0.01" value="\${state.lightingExposure}"></div>
-
-    <div class="row"><label>Terrain Exposure (only terrain)</label><input id="exposure" type="range" min="0.2" max="4" step="0.01" value="\${state.exposure}"></div>
-  </div>
-
-  <div class="section">Stars</div>
-  <div class="grid">
-    <div class="row"><label>Star Count</label><input id="starCount" type="range" min="0" max="15000" step="100" value="\${state.starCount}"></div>
-    <div class="row"><label>Star Size (px)</label><input id="starSize" type="range" min="0.5" max="6" step="0.1" value="\${state.starSize}"></div>
-    <div class="row"><label>Twinkle Speed</label><input id="starTwinkleSpeed" type="range" min="0" max="4" step="0.05" value="\${state.starTwinkleSpeed}"></div>
-  </div>
-
-  <div class="section">Terrain</div>
-  <div class="grid">
-    <div class="row"><label>Displacement</label><input id="terrainDisplacement" type="range" min="0" max="3" step="0.01" value="\${state.terrainDisplacement}"></div>
-    <div class="row"><label>Roughness</label><input id="terrainRoughness" type="range" min="0" max="1" step="0.01" value="\${state.terrainRoughness}"></div>
-    <div class="row"><label>Texture Repeat</label><input id="terrainRepeat" type="range" min="4" max="200" step="1" value="\${state.terrainRepeat}"></div>
-    <div class="row"><label>Tint</label><input id="terrainTint" type="color" value="\${state.terrainTint}"></div>
-    <div class="row"><label>Saturation</label><input id="terrainSaturation" type="range" min="0" max="1.5" step="0.01" value="\${state.terrainSaturation}"></div>
-
-    <!-- Placeholders (no-ops) -->
-    <div class="row"><label>Blend Height Min</label><input id="blendHeightMin" type="range" min="-10" max="30" step="0.1" value="\${state.blendHeightMin}"></div>
-    <div class="row"><label>Blend Height Max</label><input id="blendHeightMax" type="range" min="-10" max="30" step="0.1" value="\${state.blendHeightMax}"></div>
-    <div class="row"><label>Slope Bias</label><input id="blendSlopeBias" type="range" min="0.2" max="4" step="0.05" value="\${state.blendSlopeBias}"></div>
-    <div class="row"><label>Weight Low (sand)</label><input id="wLow" type="range" min="0" max="2" step="0.01" value="\${state.wLow}"></div>
-    <div class="row"><label>Weight High</label><input id="wHigh" type="range" min="0" max="2" step="0.01" value="\${state.wHigh}"></div>
-    <div class="row"><label>Weight Slope (rock)</label><input id="wSlope" type="range" min="0" max="2" step="0.01" value="\${state.wSlope}"></div>
-  </div>
-
-  <button id="copyParams" type="button">Copy current parameters</button>
-`;
-
-function bind(id, onChange) {
-  const el = document.getElementById(id);
-  if (!el) return;
-  const handler = () => onChange(el.type === 'color' ? el.value : Number(el.value));
-  el.addEventListener('input', handler, { passive: true });
-  el.addEventListener('change', handler, { passive: true });
-}
-
-// Sky binds
-bind('turbidity', v => { state.turbidity = v; skyAPI.setTurbidity(v); });
-bind('rayleigh', v => { state.rayleigh = v; skyAPI.setRayleigh(v); });
-bind('mieCoefficient', v => { state.mieCoefficient = v; skyAPI.setMieCoefficient(v); });
-bind('mieDirectionalG', v => { state.mieDirectionalG = v; skyAPI.setMieDirectionalG(v); });
-bind('elevation', v => { state.elevation = v; skyAPI.setElevation(v); });
-bind('azimuth', v => { state.azimuth = v; skyAPI.setAzimuth(v); });
-
-bind('skyExposure', v => { state.skyExposure = v; skyAPI.setSkyExposure(v); });
-bind('skyGlobalExposure', v => { state.skyGlobalExposure = v; skyAPI.setSkyGlobalExposure(v); });
-bind('lightingExposure', v => { state.lightingExposure = v; skyAPI.setLightingExposure(v); });
-
-// Terrain-only exposure
-bind('exposure', v => { state.exposure = v; terrainAPI.setExposure(v); });
-
-// Stars
-bind('starCount', v => { state.starCount = v; skyAPI.setStarCount(v); });
-bind('starSize', v => { state.starSize = v; skyAPI.setStarSize(v); });
-bind('starTwinkleSpeed', v => { state.starTwinkleSpeed = v; skyAPI.setStarTwinkleSpeed(v); });
-
-// Terrain binds
-bind('terrainDisplacement', v => { state.terrainDisplacement = v; terrainAPI.setDisplacementScale(v); });
-bind('terrainRoughness', v => { state.terrainRoughness = v; terrainAPI.setRoughness(v); });
-bind('terrainRepeat', v => { state.terrainRepeat = v; terrainAPI.setRepeat(v); });
-bind('terrainTint', v => { state.terrainTint = v; terrainAPI.setTintColor(v); });
-bind('terrainSaturation', v => { state.terrainSaturation = v; terrainAPI.setSaturation(v); });
-
-// Placeholders
-bind('blendHeightMin', v => { state.blendHeightMin = v; terrainAPI.setHeightRange(state.blendHeightMin, state.blendHeightMax); });
-bind('blendHeightMax', v => { state.blendHeightMax = v; terrainAPI.setHeightRange(state.blendHeightMin, state.blendHeightMax); });
-bind('blendSlopeBias', v => { state.blendSlopeBias = v; terrainAPI.setSlopeBias(v); });
-bind('wLow', v => { state.wLow = v; terrainAPI.setWeights(state.wLow, state.wHigh, state.wSlope); });
-bind('wHigh', v => { state.wHigh = v; terrainAPI.setWeights(state.wLow, state.wHigh, state.wSlope); });
-bind('wSlope', v => { state.wSlope = v; terrainAPI.setWeights(state.wLow, state.wHigh, state.wSlope); });
-
-// Copy params
-document.getElementById('copyParams').addEventListener('click', async () => {
-  const snapshot = { ...state, ...skyAPI._getCurrent(), ...terrainAPI._getCurrent() };
-  const text = JSON.stringify(snapshot, null, 2);
-  try { await navigator.clipboard.writeText(text); toast('Parameters copied to clipboard.'); }
-  catch { prompt('Copy parameters:', text); }
-});
-
-function toast(msg) {
-  const n = document.createElement('div');
-  n.textContent = msg;
-  n.style.cssText = `
-    position:fixed;left:50%;transform:translateX(-50%);
-    bottom:calc(80px + var(--safe-bottom));z-index:200;
-    background:rgba(20,22,26,.9);color:#fff;border:1px solid rgba(255,255,255,.2);
-    padding:10px 12px;border-radius:12px;font-weight:600;
-    box-shadow:0 10px 24px rgba(0,0,0,.4)
-  `;
-  document.body.appendChild(n);
-  setTimeout(() => n.remove(), 1500);
-}
-
-// Toggle panel
-const tuneBtn = document.getElementById('tuneBtn');
-let panelOpen = false;
-tuneBtn.addEventListener('click', () => {
-  panelOpen = !panelOpen;
-  panel.style.display = panelOpen ? 'block' : 'none';
-  panel.setAttribute('aria-hidden', String(!panelOpen));
-});
+// Keep your existing panel (if any) or wire new sliders the same way as before.
+// The key point: there is no call here that uses the sky to change terrain lights.
