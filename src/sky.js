@@ -8,8 +8,8 @@ export function createSky(scene, renderer) {
   scene.add(sky);
 
   const U = sky.material.uniforms;
-  U.turbidity.value = 0;
-  U.rayleigh.value = 0.03;
+  U.turbidity.value = 2;
+  U.rayleigh.value = 1.25;
   U.mieCoefficient.value = 0.005;
   U.mieDirectionalG.value = 0.03;
 
