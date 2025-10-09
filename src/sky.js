@@ -9,7 +9,7 @@ export function createSky(scene, renderer) {
 
   const U = sky.material.uniforms;
   U.turbidity.value = 2.0;
-  U.rayleigh.value = 1.2;
+  U.rayleigh.value = 0.3;
   U.mieCoefficient.value = 0.005;
   U.mieDirectionalG.value = 0.8;
 
