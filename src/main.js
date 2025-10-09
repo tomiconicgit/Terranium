@@ -68,17 +68,21 @@ window.addEventListener('orientationchange', () => setTimeout(resize, 100));
 /* --------------------------
    Tuner UI
    -------------------------- */
-// Locked-in preset (+ terrainSaturation)
+// Locked-in preset (+ terrainSaturation) — your values
 const defaults = {
-  turbidity: 0.2,
-  rayleigh: 0,
-  mieCoefficient: 0.036,
-  mieDirectionalG: 0.35,
-  elevation: 25.4,
-  azimuth: 180,
-  skyExposure: 0.08,
-  lightingExposure: 2.94,
-  exposure: 0.2, // global tone-map
+  turbidity: 0,
+  rayleigh: 0.02,
+  mieCoefficient: 0.047,
+  mieDirectionalG: 0.01,
+  elevation: 16.5,
+  azimuth: 360,
+
+  // Exposures (separated)
+  skyExposure: 2.5,
+  lightingExposure: 3,
+  exposure: 2.48, // global tone-map (same as exposureGlobal)
+
+  // Stars
   starCount: 10000,
   starSize: 1.6,
   starTwinkleSpeed: 0.9,
@@ -87,8 +91,8 @@ const defaults = {
   terrainDisplacement: 0.55,
   terrainRoughness: 1,
   terrainRepeat: 48,
-  terrainTint: '#f5f7ff',      // slightly cool white by default
-  terrainSaturation: 0.20,     // 0 = gray, 1 = original (moon white ~ 0.15–0.35)
+  terrainTint: '#f5f7ff',
+  terrainSaturation: 0, // moon-white (desaturated)
 
   // Placeholders (no-ops in current terrain.js)
   blendHeightMin: 0,
@@ -98,10 +102,10 @@ const defaults = {
   wHigh: 0.7,
   wSlope: 0.8,
 
-  // informational
-  exposureGlobal: 0.2,
-  sunIntensity: 4.41,
-  ambientIntensity: 0.5613070622800734,
+  // informational/duplicates
+  exposureGlobal: 2.48,
+  sunIntensity: 4.5,
+  ambientIntensity: 0.5698767642386944,
   envLightColor: '#ffffff'
 };
 
@@ -132,7 +136,7 @@ function applyAll() {
   terrainAPI.setRoughness(state.terrainRoughness);
   terrainAPI.setRepeat(state.terrainRepeat);
   terrainAPI.setTintColor(state.terrainTint);
-  terrainAPI.setSaturation(state.terrainSaturation); // ← NEW
+  terrainAPI.setSaturation(state.terrainSaturation);
 
   // Future-blend placeholders:
   terrainAPI.setHeightRange(state.blendHeightMin, state.blendHeightMax);
@@ -147,46 +151,47 @@ panel.innerHTML = `
 
   <div class="section">Sky (three.js Sky)</div>
   <div class="grid">
-    <div class="row"><label>Turbidity</label><input id="turbidity" type="range" min="0" max="20" step="0.1" value="${state.turbidity}"></div>
-    <div class="row"><label>Rayleigh</label><input id="rayleigh" type="range" min="0" max="4" step="0.01" value="${state.rayleigh}"></div>
-    <div class="row"><label>Mie Coefficient</label><input id="mieCoefficient" type="range" min="0" max="0.1" step="0.001" value="${state.mieCoefficient}"></div>
-    <div class="row"><label>Mie Directional G</label><input id="mieDirectionalG" type="range" min="0" max="1" step="0.01" value="${state.mieDirectionalG}"></div>
-    <div class="row"><label>Elevation (°)</label><input id="elevation" type="range" min="-5" max="89" step="0.1" value="${state.elevation}"></div>
-    <div class="row"><label>Azimuth (°)</label><input id="azimuth" type="range" min="0" max="360" step="0.1" value="${state.azimuth}"></div>
+    <div class="row"><label>Turbidity</label><input id="turbidity" type="range" min="0" max="20" step="0.1" value="\${state.turbidity}"></div>
+    <div class="row"><label>Rayleigh</label><input id="rayleigh" type="range" min="0" max="4" step="0.01" value="\${state.rayleigh}"></div>
+    <div class="row"><label>Mie Coefficient</label><input id="mieCoefficient" type="range" min="0" max="0.1" step="0.001" value="\${state.mieCoefficient}"></div>
+    <div class="row"><label>Mie Directional G</label><input id="mieDirectionalG" type="range" min="0" max="1" step="0.01" value="\${state.mieDirectionalG}"></div>
+    <div class="row"><label>Elevation (°)</label><input id="elevation" type="range" min="-5" max="89" step="0.1" value="\${state.elevation}"></div>
+    <div class="row"><label>Azimuth (°)</label><input id="azimuth" type="range" min="0" max="360" step="0.1" value="\${state.azimuth}"></div>
 
-    <div class="row"><label>Sky Exposure</label><input id="skyExposure" type="range" min="0.0" max="2.5" step="0.01" value="${state.skyExposure}"></div>
-    <div class="row"><label>Terrain Light Exposure</label><input id="lightingExposure" type="range" min="0.2" max="3.0" step="0.01" value="${state.lightingExposure}"></div>
+    <div class="row"><label>Sky Exposure</label><input id="skyExposure" type="range" min="0.0" max="3.0" step="0.01" value="\${state.skyExposure}"></div>
+    <div class="row"><label>Terrain Light Exposure</label><input id="lightingExposure" type="range" min="0.2" max="4.0" step="0.01" value="\${state.lightingExposure}"></div>
 
-    <div class="row"><label>Global Exposure</label><input id="exposure" type="range" min="0.2" max="3" step="0.01" value="${state.exposure}"></div>
+    <div class="row"><label>Global Exposure</label><input id="exposure" type="range" min="0.2" max="4" step="0.01" value="\${state.exposure}"></div>
   </div>
 
   <div class="section">Stars</div>
   <div class="grid">
-    <div class="row"><label>Star Count</label><input id="starCount" type="range" min="0" max="15000" step="100" value="${state.starCount}"></div>
-    <div class="row"><label>Star Size (px)</label><input id="starSize" type="range" min="0.5" max="6" step="0.1" value="${state.starSize}"></div>
-    <div class="row"><label>Twinkle Speed</label><input id="starTwinkleSpeed" type="range" min="0" max="4" step="0.05" value="${state.starTwinkleSpeed}"></div>
+    <div class="row"><label>Star Count</label><input id="starCount" type="range" min="0" max="15000" step="100" value="\${state.starCount}"></div>
+    <div class="row"><label>Star Size (px)</label><input id="starSize" type="range" min="0.5" max="6" step="0.1" value="\${state.starSize}"></div>
+    <div class="row"><label>Twinkle Speed</label><input id="starTwinkleSpeed" type="range" min="0" max="4" step="0.05" value="\${state.starTwinkleSpeed}"></div>
   </div>
 
   <div class="section">Terrain</div>
   <div class="grid">
-    <div class="row"><label>Displacement</label><input id="terrainDisplacement" type="range" min="0" max="3" step="0.01" value="${state.terrainDisplacement}"></div>
-    <div class="row"><label>Roughness</label><input id="terrainRoughness" type="range" min="0" max="1" step="0.01" value="${state.terrainRoughness}"></div>
-    <div class="row"><label>Texture Repeat</label><input id="terrainRepeat" type="range" min="4" max="200" step="1" value="${state.terrainRepeat}"></div>
-    <div class="row"><label>Sand Tint</label><input id="terrainTint" type="color" value="${state.terrainTint}"></div>
-    <div class="row"><label>Saturation</label><input id="terrainSaturation" type="range" min="0" max="1.5" step="0.01" value="${state.terrainSaturation}"></div>
+    <div class="row"><label>Displacement</label><input id="terrainDisplacement" type="range" min="0" max="3" step="0.01" value="\${state.terrainDisplacement}"></div>
+    <div class="row"><label>Roughness</label><input id="terrainRoughness" type="range" min="0" max="1" step="0.01" value="\${state.terrainRoughness}"></div>
+    <div class="row"><label>Texture Repeat</label><input id="terrainRepeat" type="range" min="4" max="200" step="1" value="\${state.terrainRepeat}"></div>
+    <div class="row"><label>Tint</label><input id="terrainTint" type="color" value="\${state.terrainTint}"></div>
+    <div class="row"><label>Saturation</label><input id="terrainSaturation" type="range" min="0" max="1.5" step="0.01" value="\${state.terrainSaturation}"></div>
 
     <!-- Placeholders for future blending (no-ops in current terrain.js) -->
-    <div class="row"><label>Blend Height Min</label><input id="blendHeightMin" type="range" min="-10" max="30" step="0.1" value="${state.blendHeightMin}"></div>
-    <div class="row"><label>Blend Height Max</label><input id="blendHeightMax" type="range" min="-10" max="30" step="0.1" value="${state.blendHeightMax}"></div>
-    <div class="row"><label>Slope Bias</label><input id="blendSlopeBias" type="range" min="0.2" max="4" step="0.05" value="${state.blendSlopeBias}"></div>
-    <div class="row"><label>Weight Low (sand)</label><input id="wLow" type="range" min="0" max="2" step="0.01" value="${state.wLow}"></div>
-    <div class="row"><label>Weight High</label><input id="wHigh" type="range" min="0" max="2" step="0.01" value="${state.wHigh}"></div>
-    <div class="row"><label>Weight Slope (rock)</label><input id="wSlope" type="range" min="0" max="2" step="0.01" value="${state.wSlope}"></div>
+    <div class="row"><label>Blend Height Min</label><input id="blendHeightMin" type="range" min="-10" max="30" step="0.1" value="\${state.blendHeightMin}"></div>
+    <div class="row"><label>Blend Height Max</label><input id="blendHeightMax" type="range" min="-10" max="30" step="0.1" value="\${state.blendHeightMax}"></div>
+    <div class="row"><label>Slope Bias</label><input id="blendSlopeBias" type="range" min="0.2" max="4" step="0.05" value="\${state.blendSlopeBias}"></div>
+    <div class="row"><label>Weight Low (sand)</label><input id="wLow" type="range" min="0" max="2" step="0.01" value="\${state.wLow}"></div>
+    <div class="row"><label>Weight High</label><input id="wHigh" type="range" min="0" max="2" step="0.01" value="\${state.wHigh}"></div>
+    <div class="row"><label>Weight Slope (rock)</label><input id="wSlope" type="range" min="0" max="2" step="0.01" value="\${state.wSlope}"></div>
   </div>
 
   <button id="copyParams" type="button">Copy current parameters</button>
 `;
 
+// simple binder
 function bind(id, onChange) {
   const el = document.getElementById(id);
   if (!el) return;
@@ -219,6 +224,7 @@ bind('terrainRepeat', v => { state.terrainRepeat = v; terrainAPI.setRepeat(v); }
 bind('terrainTint', v => { state.terrainTint = v; terrainAPI.setTintColor(v); });
 bind('terrainSaturation', v => { state.terrainSaturation = v; terrainAPI.setSaturation(v); });
 
+// Future-blend placeholders
 bind('blendHeightMin', v => { state.blendHeightMin = v; terrainAPI.setHeightRange(state.blendHeightMin, state.blendHeightMax); });
 bind('blendHeightMax', v => { state.blendHeightMax = v; terrainAPI.setHeightRange(state.blendHeightMin, state.blendHeightMax); });
 bind('blendSlopeBias', v => { state.blendSlopeBias = v; terrainAPI.setSlopeBias(v); });
