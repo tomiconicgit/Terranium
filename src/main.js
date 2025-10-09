@@ -21,6 +21,10 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
 renderer.setSize(window.innerWidth, window.innerHeight, false);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.shadowMap.enabled = true;
+// IMPORTANT: keep tone mapping exposure neutral so sky doesn’t change
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.0;
+
 document.body.appendChild(renderer.domElement);
 
 // Loading UX
@@ -68,19 +72,19 @@ window.addEventListener('orientationchange', () => setTimeout(resize, 100));
 /* --------------------------
    Tuner UI
    -------------------------- */
-// Locked-in preset (+ terrainSaturation) — your values
+// Your latest preset — “exposure” now means **terrain-only exposure**
 const defaults = {
   turbidity: 0,
-  rayleigh: 0.001,
+  rayleigh: 0.03,
   mieCoefficient: 0.047,
   mieDirectionalG: 0.01,
-  elevation: 14.5,
+  elevation: 12.0,
   azimuth: 360,
 
   // Exposures (separated)
-  skyExposure: 2.25,
+  skyExposure: 2.5,
   lightingExposure: 3,
-  exposure: 2.48, // global tone-map (same as exposureGlobal)
+  exposure: 2.48, // 👉 terrain-only exposure now
 
   // Stars
   starCount: 10000,
@@ -90,9 +94,9 @@ const defaults = {
   // Terrain
   terrainDisplacement: 0.55,
   terrainRoughness: 1,
-  terrainRepeat: 4,
+  terrainRepeat: 48,
   terrainTint: '#f5f7ff',
-  terrainSaturation: 0, // moon-white (desaturated)
+  terrainSaturation: 0,
 
   // Placeholders (no-ops in current terrain.js)
   blendHeightMin: 0,
@@ -102,7 +106,7 @@ const defaults = {
   wHigh: 0.7,
   wSlope: 0.8,
 
-  // informational/duplicates
+  // informational
   exposureGlobal: 2.48,
   sunIntensity: 4.5,
   ambientIntensity: 0.5698767642386944,
@@ -124,7 +128,9 @@ function applyAll() {
   // Exposures
   skyAPI.setSkyExposure(state.skyExposure);
   skyAPI.setLightingExposure(state.lightingExposure);
-  skyAPI.setExposureGlobal(state.exposure);
+  // DO NOT change renderer.toneMappingExposure here anymore.
+  // Apply terrain-only exposure instead:
+  terrainAPI.setExposure(state.exposure);
 
   // Stars
   skyAPI.setStarCount(state.starCount);
@@ -161,7 +167,7 @@ panel.innerHTML = `
     <div class="row"><label>Sky Exposure</label><input id="skyExposure" type="range" min="0.0" max="3.0" step="0.01" value="\${state.skyExposure}"></div>
     <div class="row"><label>Terrain Light Exposure</label><input id="lightingExposure" type="range" min="0.2" max="4.0" step="0.01" value="\${state.lightingExposure}"></div>
 
-    <div class="row"><label>Global Exposure</label><input id="exposure" type="range" min="0.2" max="4" step="0.01" value="\${state.exposure}"></div>
+    <div class="row"><label>Terrain Exposure (only terrain)</label><input id="exposure" type="range" min="0.2" max="4" step="0.01" value="\${state.exposure}"></div>
   </div>
 
   <div class="section">Stars</div>
@@ -179,7 +185,7 @@ panel.innerHTML = `
     <div class="row"><label>Tint</label><input id="terrainTint" type="color" value="\${state.terrainTint}"></div>
     <div class="row"><label>Saturation</label><input id="terrainSaturation" type="range" min="0" max="1.5" step="0.01" value="\${state.terrainSaturation}"></div>
 
-    <!-- Placeholders for future blending (no-ops in current terrain.js) -->
+    <!-- Placeholders (no-ops) -->
     <div class="row"><label>Blend Height Min</label><input id="blendHeightMin" type="range" min="-10" max="30" step="0.1" value="\${state.blendHeightMin}"></div>
     <div class="row"><label>Blend Height Max</label><input id="blendHeightMax" type="range" min="-10" max="30" step="0.1" value="\${state.blendHeightMax}"></div>
     <div class="row"><label>Slope Bias</label><input id="blendSlopeBias" type="range" min="0.2" max="4" step="0.05" value="\${state.blendSlopeBias}"></div>
@@ -191,7 +197,7 @@ panel.innerHTML = `
   <button id="copyParams" type="button">Copy current parameters</button>
 `;
 
-// simple binder
+// binder
 function bind(id, onChange) {
   const el = document.getElementById(id);
   if (!el) return;
@@ -210,7 +216,9 @@ bind('azimuth', v => { state.azimuth = v; skyAPI.setAzimuth(v); });
 
 bind('skyExposure', v => { state.skyExposure = v; skyAPI.setSkyExposure(v); });
 bind('lightingExposure', v => { state.lightingExposure = v; skyAPI.setLightingExposure(v); });
-bind('exposure', v => { state.exposure = v; skyAPI.setExposureGlobal(v); });
+
+// Terrain-only exposure here:
+bind('exposure', v => { state.exposure = v; terrainAPI.setExposure(v); });
 
 // Stars binds
 bind('starCount', v => { state.starCount = v; skyAPI.setStarCount(v); });
@@ -224,7 +232,7 @@ bind('terrainRepeat', v => { state.terrainRepeat = v; terrainAPI.setRepeat(v); }
 bind('terrainTint', v => { state.terrainTint = v; terrainAPI.setTintColor(v); });
 bind('terrainSaturation', v => { state.terrainSaturation = v; terrainAPI.setSaturation(v); });
 
-// Future-blend placeholders
+// Placeholders
 bind('blendHeightMin', v => { state.blendHeightMin = v; terrainAPI.setHeightRange(state.blendHeightMin, state.blendHeightMax); });
 bind('blendHeightMax', v => { state.blendHeightMax = v; terrainAPI.setHeightRange(state.blendHeightMin, state.blendHeightMax); });
 bind('blendSlopeBias', v => { state.blendSlopeBias = v; terrainAPI.setSlopeBias(v); });
