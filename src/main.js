@@ -4,66 +4,37 @@ import { createTerrain } from './terrain.js';
 import { createSky } from './sky.js';
 import { Controls } from './controls.js';
 
+// ----- scene / camera / renderer -----
 const scene = new THREE.Scene();
-scene.fog = new THREE.Fog(0x000000, 80, 300);
+scene.fog = new THREE.Fog(0x000000, 80, 500);
 
-const camera = new THREE.PerspectiveCamera(
-  100,
-  window.innerWidth / window.innerHeight,
-  0.1,
-  5000
-);
+const camera = new THREE.PerspectiveCamera(100, window.innerWidth / window.innerHeight, 0.1, 5000);
 camera.position.set(0, 10, 30);
 camera.lookAt(0, 0, 0);
-
-// If you previously used layer 1 for Earth, keep it enabled
-camera.layers.enable(1);
 
 const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
 renderer.setSize(window.innerWidth, window.innerHeight, false);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
-renderer.shadowMap.enabled = true;
 document.body.appendChild(renderer.domElement);
 
-// Loading UX
-const manager = new THREE.LoadingManager();
-manager.onProgress = (url, loaded, total) => {
-  const el = document.getElementById('loading');
-  if (el) el.innerText = `Loading: ${Math.floor((loaded / total) * 100)}%`;
-};
-manager.onLoad = () => {
-  const el = document.getElementById('loading');
-  if (el) el.style.display = 'none';
-  animate();
-};
+// hide loading label immediately (no async assets here)
+const loadingEl = document.getElementById('loading');
+if (loadingEl) loadingEl.style.display = 'none';
 
-// Terrain & Sky (new simple skybox/haze/IBL)
-const terrainAPI = createTerrain(manager);
+// ----- sky (stars + haze) -----
+const skyAPI = createSky(scene);
+
+// ----- terrain (procedural) -----
+const terrainAPI = createTerrain();
 scene.add(terrainAPI.mesh);
 
-const skyAPI = createSky(scene, renderer);
-
-// Controls
+// ----- controls -----
 const controls = new Controls(camera, renderer.domElement, terrainAPI.mesh);
 controls.pitch = -0.35;
 controls.yaw = 0.0;
 
-// ---- Ambient loop (environment sound) ----
-try {
-  const listener = new THREE.AudioListener();
-  camera.add(listener);
-  const sound = new THREE.Audio(listener);
-  const audioLoader = new THREE.AudioLoader(manager);
-  audioLoader.load('src/assets/sounds/planetsound.wav', (buffer) => {
-    sound.setBuffer(buffer);
-    sound.setLoop(true);
-    sound.setVolume(0.35);
-    sound.play();
-  });
-} catch { /* ignore if blocked */ }
-
-// Tick
+// ----- loop -----
 const clock = new THREE.Clock();
 function animate() {
   requestAnimationFrame(animate);
@@ -72,6 +43,7 @@ function animate() {
   controls.update();
   renderer.render(scene, camera);
 }
+animate();
 
 function resize() {
   const w = window.innerWidth;
@@ -84,84 +56,11 @@ window.addEventListener('resize', resize);
 window.addEventListener('orientationchange', () => setTimeout(resize, 100));
 
 /* --------------------------
-   Tuner UI
+   TUNE PANEL (closed by default)
    -------------------------- */
-const defaults = {
-  // Stars
-  starCount: 10000,
-  starSize: 1.6,
-  starTwinkleSpeed: 0.9,
-
-  // Skybox colors
-  skyTopColor: '#000000',
-  skyBottomColor: '#000000',
-  skyContrast: 1.0,
-
-  // Horizon haze (rayleigh-ish)
-  hazeColor: '#223366',
-  hazeHeight: 40,
-  hazeRadius: 220,
-  hazeAlpha: 0.75,
-
-  // Environment IBL (the ONLY lighting)
-  envTopColor: '#222222',
-  envBottomColor: '#000000',
-  envShape: 1.0,       // coverage/steepness (higher = more top color)
-  envIntensity: 1.8,   // global IBL boost
-
-  // Terrain material tweaks
-  terrainDisplacement: 0.55,
-  terrainRoughness: 1.0,
-  terrainRepeat: 48,
-  terrainTint: '#f5f7ff',
-  terrainSaturation: 0.2,
-  terrainExposure: 1.0,      // material.color boost
-  terrainEnvMapIntensity: 1.0 // per-material envMapIntensity
-};
-
-const state = { ...defaults };
-applyAll();
-
-function applyAll() {
-  // Stars
-  skyAPI.setStarCount(state.starCount);
-  skyAPI.setStarSize(state.starSize);
-  skyAPI.setStarTwinkleSpeed(state.starTwinkleSpeed);
-
-  // Skybox
-  skyAPI.setSkyTopColor(state.skyTopColor);
-  skyAPI.setSkyBottomColor(state.skyBottomColor);
-  skyAPI.setSkyContrast(state.skyContrast);
-
-  // Haze
-  skyAPI.setHazeColor(state.hazeColor);
-  skyAPI.setHazeHeight(state.hazeHeight);
-  skyAPI.setHazeRadius(state.hazeRadius);
-  skyAPI.setHazeAlpha(state.hazeAlpha);
-
-  // Env light
-  skyAPI.setEnvTopColor(state.envTopColor);
-  skyAPI.setEnvBottomColor(state.envBottomColor);
-  skyAPI.setEnvShape(state.envShape);
-  skyAPI.setEnvIntensity(state.envIntensity);
-
-  // Terrain
-  terrainAPI.setDisplacementScale(state.terrainDisplacement);
-  terrainAPI.setRoughness(state.terrainRoughness);
-  terrainAPI.setRepeat(state.terrainRepeat);
-  terrainAPI.setTintColor(state.terrainTint);
-  terrainAPI.setSaturation(state.terrainSaturation);
-  if (terrainAPI.setExposure) terrainAPI.setExposure(state.terrainExposure);
-  if (terrainAPI.material) terrainAPI.material.envMapIntensity = state.terrainEnvMapIntensity;
-}
-
-/* ---------- UI (closed by default; opens with TUNE) ---------- */
 const panel = document.getElementById('tunePanel');
 panel.innerHTML = `
-  <header><h3>Skybox / Haze / Env Light / Terrain</h3></header>
-
-  <div class="section">Skybox</div>
-  <div class="grid" id="skyGrid"></div>
+  <header><h3>Space / Terrain</h3></header>
 
   <div class="section">Stars</div>
   <div class="grid" id="starGrid"></div>
@@ -169,15 +68,13 @@ panel.innerHTML = `
   <div class="section">Horizon Haze</div>
   <div class="grid" id="hazeGrid"></div>
 
-  <div class="section">Environment Light (IBL)</div>
-  <div class="grid" id="envGrid"></div>
-
   <div class="section">Terrain</div>
   <div class="grid" id="terrainGrid"></div>
 
   <button id="copyParams" type="button">Copy current parameters</button>
 `;
 
+// helper: build slider+number or color or checkbox
 function addRow(gridId, label, id, min, max, step, value, onChange, type='range') {
   const grid = document.getElementById(gridId);
   const rowLabel = document.createElement('div');
@@ -193,6 +90,12 @@ function addRow(gridId, label, id, min, max, step, value, onChange, type='range'
         <input id="${id}" type="color" value="${value}">
       </div>
     `;
+  } else if (type === 'checkbox') {
+    rowInput.innerHTML = `
+      <div class="pair">
+        <input id="${id}" type="checkbox" ${value ? 'checked' : ''}>
+      </div>
+    `;
   } else {
     rowInput.innerHTML = `
       <div class="pair">
@@ -201,6 +104,7 @@ function addRow(gridId, label, id, min, max, step, value, onChange, type='range'
       </div>
     `;
   }
+
   grid.appendChild(rowLabel);
   grid.appendChild(rowInput);
 
@@ -209,6 +113,10 @@ function addRow(gridId, label, id, min, max, step, value, onChange, type='range'
     const fire = () => onChange(c.value);
     c.addEventListener('input', fire, { passive: true });
     c.addEventListener('change', fire, { passive: true });
+  } else if (type === 'checkbox') {
+    const ch = document.getElementById(id);
+    const fire = () => onChange(ch.checked);
+    ch.addEventListener('change', fire);
   } else {
     const r = document.getElementById(id);
     const n = document.getElementById(id + 'Num');
@@ -223,59 +131,81 @@ function addRow(gridId, label, id, min, max, step, value, onChange, type='range'
   }
 }
 
-/* Skybox */
-addRow('skyGrid', 'Top Color',       'skyTopColor',    0,0,0, state.skyTopColor,    v => { state.skyTopColor = v; skyAPI.setSkyTopColor(v); }, 'color');
-addRow('skyGrid', 'Bottom Color',    'skyBottomColor', 0,0,0, state.skyBottomColor, v => { state.skyBottomColor = v; skyAPI.setSkyBottomColor(v); }, 'color');
-addRow('skyGrid', 'Contrast',        'skyContrast',  0.1, 3, 0.01, state.skyContrast, v => { state.skyContrast = v; skyAPI.setSkyContrast(v); });
+/* ---- Stars ---- */
+let starState = {
+  starCount: 8000,
+  starSize: 1.6,
+  starTwinkleSpeed: 0.9
+};
+addRow('starGrid', 'Star Count',       'starCount',        0, 15000, 100, starState.starCount,       v => { starState.starCount = v; skyAPI.setStarCount(v); });
+addRow('starGrid', 'Star Size (px)',   'starSize',       0.2,     6, 0.1, starState.starSize,        v => { starState.starSize = v; skyAPI.setStarSize(v); });
+addRow('starGrid', 'Twinkle Speed',    'starTwinkle',      0,     4, 0.01, starState.starTwinkleSpeed, v => { starState.starTwinkleSpeed = v; skyAPI.setStarTwinkleSpeed(v); });
 
-/* Stars */
-addRow('starGrid', 'Star Count',      'starCount',        0, 15000, 100,  state.starCount,       v => { state.starCount = v; skyAPI.setStarCount(v); });
-addRow('starGrid', 'Star Size (px)',  'starSize',       0.5,     6, 0.1,  state.starSize,        v => { state.starSize = v; skyAPI.setStarSize(v); });
-addRow('starGrid', 'Twinkle Speed',   'starTwinkleSpeed', 0,     4, 0.01, state.starTwinkleSpeed,v => { state.starTwinkleSpeed = v; skyAPI.setStarTwinkleSpeed(v); });
+/* ---- Haze ---- */
+let hazeState = {
+  hazeColor: '#223366',
+  hazeHeight: 40,
+  hazeRadius: 220,
+  hazeAlpha: 0.6
+};
+addRow('hazeGrid', 'Color',   'hazeColor', 0,0,0, hazeState.hazeColor, v => { hazeState.hazeColor = v; skyAPI.setHazeColor(v); }, 'color');
+addRow('hazeGrid', 'Height',  'hazeHeight',  2, 400, 1, hazeState.hazeHeight, v => { hazeState.hazeHeight = v; skyAPI.setHazeHeight(v); });
+addRow('hazeGrid', 'Radius',  'hazeRadius', 20, 800, 1, hazeState.hazeRadius, v => { hazeState.hazeRadius = v; skyAPI.setHazeRadius(v); });
+addRow('hazeGrid', 'Opacity', 'hazeAlpha',   0,   1, 0.01, hazeState.hazeAlpha, v => { hazeState.hazeAlpha = v; skyAPI.setHazeAlpha(v); });
 
-/* Horizon Haze */
-addRow('hazeGrid', 'Haze Color',  'hazeColor', 0,0,0, state.hazeColor, v => { state.hazeColor = v; skyAPI.setHazeColor(v); }, 'color');
-addRow('hazeGrid', 'Height',      'hazeHeight',  2, 400, 1, state.hazeHeight, v => { state.hazeHeight = v; skyAPI.setHazeHeight(v); });
-addRow('hazeGrid', 'Radius',      'hazeRadius',  50, 800, 1, state.hazeRadius, v => { state.hazeRadius = v; skyAPI.setHazeRadius(v); });
-addRow('hazeGrid', 'Opacity',     'hazeAlpha',    0, 1, 0.01, state.hazeAlpha,  v => { state.hazeAlpha = v; skyAPI.setHazeAlpha(v); });
+/* ---- Terrain ---- */
+let tState = {
+  size: 50,
+  segments: 128,
+  height: 6,
+  scale: 0.04,
+  octaves: 4,
+  lacunarity: 2.0,
+  persistence: 0.5,
+  colorLow: '#dfe5ee',
+  colorMid: '#bfc7d3',
+  colorHigh: '#9aa3b1',
+  midPoint: 0.45,
+  wireframe: false
+};
 
-/* Environment Light (IBL) */
-addRow('envGrid',  'Top Color',     'envTopColor',    0,0,0, state.envTopColor,    v => { state.envTopColor = v; skyAPI.setEnvTopColor(v); }, 'color');
-addRow('envGrid',  'Bottom Color',  'envBottomColor', 0,0,0, state.envBottomColor, v => { state.envBottomColor = v; skyAPI.setEnvBottomColor(v); }, 'color');
-addRow('envGrid',  'Coverage/Shape','envShape',     0.1, 5, 0.01, state.envShape,      v => { state.envShape = v; skyAPI.setEnvShape(v); });
-addRow('envGrid',  'Intensity',     'envIntensity',  0, 4, 0.01,  state.envIntensity,  v => {
-  state.envIntensity = v;
-  skyAPI.setEnvIntensity(v);
-  // Also scale terrain's envMap response if present
-  if (terrainAPI.material) terrainAPI.material.envMapIntensity = state.terrainEnvMapIntensity * v;
-});
+addRow('terrainGrid', 'Size',        'tSize',       5, 2000, 1,    tState.size,       v => { tState.size = v; terrainAPI.setSize(v); });
+addRow('terrainGrid', 'Segments',    'tSegs',      16, 1024, 1,    tState.segments,   v => { tState.segments = v; terrainAPI.setSegments(v); controls.terrain = terrainAPI.mesh; });
+addRow('terrainGrid', 'Max Height',  'tHeight',      0, 200, 0.1,  tState.height,     v => { tState.height = v; terrainAPI.setHeight(v); });
+addRow('terrainGrid', 'Noise Scale', 'tScale',   0.0005, 0.2, 0.0001, tState.scale,    v => { tState.scale = v; terrainAPI.setScale(v); });
+addRow('terrainGrid', 'Octaves',     'tOct',         1, 12, 1,     tState.octaves,    v => { tState.octaves = v; terrainAPI.setOctaves(v); });
+addRow('terrainGrid', 'Lacunarity',  'tLac',       0.5, 4.0, 0.01, tState.lacunarity, v => { tState.lacunarity = v; terrainAPI.setLacunarity(v); });
+addRow('terrainGrid', 'Persistence', 'tPer',        0.1, 0.99, 0.01, tState.persistence, v => { tState.persistence = v; terrainAPI.setPersistence(v); });
 
-/* Terrain */
-addRow('terrainGrid', 'Displacement', 'terrainDisplacement', 0, 3, 0.01, state.terrainDisplacement, v => { state.terrainDisplacement = v; terrainAPI.setDisplacementScale(v); });
-addRow('terrainGrid', 'Roughness',    'terrainRoughness',     0, 1, 0.01, state.terrainRoughness,    v => { state.terrainRoughness = v; terrainAPI.setRoughness(v); });
-addRow('terrainGrid', 'Texture Repeat','terrainRepeat',        4,200, 1,   state.terrainRepeat,       v => { state.terrainRepeat = v; terrainAPI.setRepeat(v); });
-addRow('terrainGrid', 'Tint',         'terrainTint',           0,0,0,       state.terrainTint,         v => { state.terrainTint = v; terrainAPI.setTintColor(v); }, 'color');
-addRow('terrainGrid', 'Saturation',   'terrainSaturation',     0,1.5,0.01,  state.terrainSaturation,   v => { state.terrainSaturation = v; terrainAPI.setSaturation(v); });
-addRow('terrainGrid', 'Exposure',     'terrainExposure',       0.1,4,0.01,  state.terrainExposure,     v => { state.terrainExposure = v; terrainAPI.setExposure(v); });
-addRow('terrainGrid', 'EnvMap Intensity','terrainEnvMapIntensity', 0,4,0.01, state.terrainEnvMapIntensity, v => {
-  state.terrainEnvMapIntensity = v;
-  if (terrainAPI.material) terrainAPI.material.envMapIntensity = v * skyAPI.getEnvIntensity();
-});
+addRow('terrainGrid', 'Low Color',   'tLow',   0,0,0, tState.colorLow,  v => { tState.colorLow = v; terrainAPI.setColors(tState.colorLow, tState.colorMid, tState.colorHigh); }, 'color');
+addRow('terrainGrid', 'Mid Color',   'tMid',   0,0,0, tState.colorMid,  v => { tState.colorMid = v; terrainAPI.setColors(tState.colorLow, tState.colorMid, tState.colorHigh); }, 'color');
+addRow('terrainGrid', 'High Color',  'tHigh',  0,0,0, tState.colorHigh, v => { tState.colorHigh = v; terrainAPI.setColors(tState.colorLow, tState.colorMid, tState.colorHigh); }, 'color');
+addRow('terrainGrid', 'Midpoint',    'tMidPt',  0.01, 0.99, 0.01, tState.midPoint, v => { tState.midPoint = v; terrainAPI.setMidPoint(v); });
+addRow('terrainGrid', 'Wireframe',   'tWire',   0,0,0, tState.wireframe, v => { tState.wireframe = v; terrainAPI.setWireframe(v); }, 'checkbox');
 
-// Copy params
+// copy params
 document.getElementById('copyParams').addEventListener('click', async () => {
-  const snapshot = { ...state, ...skyAPI._getCurrent?.(), ...terrainAPI._getCurrent?.() };
+  const snapshot = {
+    stars: { ...starState },
+    haze: { ...hazeState },
+    terrain: terrainAPI._getParams()
+  };
   const text = JSON.stringify(snapshot, null, 2);
-  try { await navigator.clipboard.writeText(text); toast('Parameters copied to clipboard.'); }
-  catch { prompt('Copy parameters:', text); }
+  try {
+    await navigator.clipboard.writeText(text);
+    toast('Parameters copied.');
+  } catch {
+    prompt('Copy parameters:', text);
+  }
 });
 
+// toast
 function toast(msg) {
   const n = document.createElement('div');
   n.textContent = msg;
   n.style.cssText = `
     position:fixed;left:50%;transform:translateX(-50%);
-    bottom:calc(80px + var(--safe-bottom));z-index:200;
+    bottom:calc(80px + env(safe-area-inset-bottom, 0px));z-index:200;
     background:rgba(20,22,26,.9);color:#fff;border:1px solid rgba(255,255,255,.2);
     padding:10px 12px;border-radius:12px;font-weight:600;
     box-shadow:0 10px 24px rgba(0,0,0,.4)
@@ -284,7 +214,7 @@ function toast(msg) {
   setTimeout(() => n.remove(), 1500);
 }
 
-// Toggle panel (closed by default)
+// toggle panel (stays closed until you press TUNE)
 const tuneBtn = document.getElementById('tuneBtn');
 let panelOpen = false;
 tuneBtn.addEventListener('click', () => {
