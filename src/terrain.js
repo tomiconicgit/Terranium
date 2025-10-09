@@ -15,7 +15,8 @@ export function createTerrain() {
     colorMid: '#bfc7d3',
     colorHigh: '#9aa3b1',
     midPoint: 0.45,
-    wireframe: false
+    wireframe: false,
+    gain: 1.0            // brightness multiplier (acts like “light”)
   };
 
   // -------------- Noise GLSL --------------
@@ -62,7 +63,8 @@ export function createTerrain() {
     uColorLow:     { value: new THREE.Color(params.colorLow) },
     uColorMid:     { value: new THREE.Color(params.colorMid) },
     uColorHigh:    { value: new THREE.Color(params.colorHigh) },
-    uMidPoint:     { value: params.midPoint }
+    uMidPoint:     { value: params.midPoint },
+    uGain:         { value: params.gain }
   };
 
   const vert = `
@@ -106,6 +108,7 @@ export function createTerrain() {
     uniform vec3 uColorMid;
     uniform vec3 uColorHigh;
     uniform float uMidPoint;
+    uniform float uGain;
     varying float vH;
 
     void main(){
@@ -117,6 +120,7 @@ export function createTerrain() {
         float t = clamp((vH - uMidPoint) / max(0.0001, (1.0 - uMidPoint)), 0.0, 1.0);
         col = mix(uColorMid, uColorHigh, t);
       }
+      col *= uGain; // brightness multiplier (acts like terrain light)
       gl_FragColor = vec4(col, 1.0);
     }
   `;
@@ -165,6 +169,7 @@ export function createTerrain() {
     },
     setMidPoint(v){ uniforms.uMidPoint.value = Math.max(0.01, Math.min(0.99, v)); },
     setWireframe(on){ material.wireframe = !!on; },
+    setBrightness(v){ params.gain = Math.max(0, v); uniforms.uGain.value = params.gain; },
 
     _getParams(){ return { ...params }; }
   };
