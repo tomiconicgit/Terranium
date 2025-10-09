@@ -16,11 +16,25 @@ const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
 renderer.setSize(window.innerWidth, window.innerHeight, false);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;     // harmless with our custom shaders
+renderer.setClearColor(0x000000, 1);
 document.body.appendChild(renderer.domElement);
 
-// hide loading label immediately (no async assets here)
+// if a shader fails to compile, three will now log it loudly
+renderer.debug.checkShaderErrors = true;
+
+// hide loading label (no async assets here)
 const loadingEl = document.getElementById('loading');
 if (loadingEl) loadingEl.style.display = 'none';
+
+// graceful handling if WebGL context ever drops
+renderer.domElement.addEventListener('webglcontextlost', (e) => {
+  e.preventDefault();
+  console.error('WebGL context lost');
+});
+renderer.domElement.addEventListener('webglcontextrestored', () => {
+  console.warn('WebGL context restored');
+});
 
 // ----- sky (stars + haze) -----
 const skyAPI = createSky(scene);
