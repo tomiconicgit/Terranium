@@ -28,20 +28,20 @@ export function createSky(scene, renderer) {
   const ambient = new THREE.AmbientLight(0x223344, 0.25);
   scene.add(ambient);
 
-  // Two independent sky-only exposure multipliers:
-  //  - uSkyExposure: your existing sky brightness control
-  //  - uSkyGlobalExposure: NEW "sky global exposure" (also sky-only)
+  // Two sky-only exposure multipliers
   const skyExposureUniform = { value: 1.0 };
   const skyGlobalExposureUniform = { value: 1.0 };
 
+  // Make the exposure patch tolerant to shader changes (color/skyColor/whatever)
   sky.material.onBeforeCompile = (shader) => {
     shader.uniforms.uSkyExposure = skyExposureUniform;
     shader.uniforms.uSkyGlobalExposure = skyGlobalExposureUniform;
 
-    // multiply final sky color by both exposures (terrain unaffected)
+    // Multiply the final RGB written to gl_FragColor by our exposures.
+    // Works whether the shader ends with vec4(color,1.0) or vec4(skyColor,1.0) etc.
     shader.fragmentShader = shader.fragmentShader.replace(
-      /gl_FragColor\s*=\s*vec4\(\s*skyColor\s*,\s*1\.0\s*\)\s*;/,
-      'gl_FragColor = vec4(skyColor * uSkyExposure * uSkyGlobalExposure, 1.0);'
+      /gl_FragColor\s*=\s*vec4\s*\(\s*([^,]+?)\s*,\s*1\.0\s*\)\s*;/,
+      'gl_FragColor = vec4(($1) * uSkyExposure * uSkyGlobalExposure, 1.0);'
     );
   };
   sky.material.needsUpdate = true;
@@ -50,12 +50,16 @@ export function createSky(scene, renderer) {
   const sun = new THREE.Vector3();
   let elevation = 15.5;
   let azimuth = 360;
+
   function updateSun() {
     const phi = THREE.MathUtils.degToRad(90 - elevation);
     const theta = THREE.MathUtils.degToRad(azimuth);
     sun.setFromSphericalCoords(1, phi, theta);
+
+    // Sky shader sun
     U.sunPosition.value.copy(sun);
 
+    // Match the DirectionalLight to the same direction
     const dist = 1000;
     sunDir.position.set(sun.x * dist, sun.y * dist, sun.z * dist);
     sunDir.target.position.set(0, 0, 0);
@@ -63,7 +67,7 @@ export function createSky(scene, renderer) {
   }
   updateSun();
 
-  // Tone mapping (keep neutral so sky is controlled only by uniforms above)
+  // Keep renderer global exposure neutral; you’re driving exposures separately
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.0;
 
@@ -131,9 +135,9 @@ export function createSky(scene, renderer) {
     setElevation(deg) { elevation = deg; updateSun(); },
     setAzimuth(deg) { azimuth = deg; updateSun(); },
 
-    // Sky-only exposure controls
-    setSkyExposure(v) { skyExposureUniform.value = v; sky.material.needsUpdate = true; },
-    setSkyGlobalExposure(v) { skyGlobalExposureUniform.value = v; sky.material.needsUpdate = true; },
+    // Sky-only exposure controls (both affect only the dome)
+    setSkyExposure(v) { skyExposureUniform.value = v; /* no recompile needed */ },
+    setSkyGlobalExposure(v) { skyGlobalExposureUniform.value = v; /* no recompile needed */ },
 
     // Terrain lighting exposure (directional + ambient)
     setLightingExposure(v) {
@@ -141,7 +145,7 @@ export function createSky(scene, renderer) {
       ambient.intensity = baseAmb * Math.pow(v, 0.75);
     },
 
-    // Optional (not used now): renderer exposure — avoid changing to keep sky isolated
+    // Optional: renderer exposure (kept neutral in your flow)
     setExposureGlobal(v) { renderer.toneMappingExposure = v; },
 
     // Lighting tweaks
