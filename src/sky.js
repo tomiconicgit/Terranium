@@ -8,10 +8,10 @@ export function createSky(scene, renderer) {
   scene.add(sky);
 
   const U = sky.material.uniforms;
-  U.turbidity.value = 2.0;
-  U.rayleigh.value = 0.3;
+  U.turbidity.value = 0;
+  U.rayleigh.value = 0.03;
   U.mieCoefficient.value = 0.005;
-  U.mieDirectionalG.value = 0.8;
+  U.mieDirectionalG.value = 0.03;
 
   // Real lighting for terrain
   const sunDir = new THREE.DirectionalLight(0xffffff, 1.5);
@@ -41,8 +41,8 @@ export function createSky(scene, renderer) {
 
   // Sun position from elevation/azimuth
   const sun = new THREE.Vector3();
-  let elevation = 6;
-  let azimuth = 180;
+  let elevation = 15.5;
+  let azimuth = 360;
 
   function updateSun() {
     const phi = THREE.MathUtils.degToRad(90 - elevation);
