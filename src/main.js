@@ -71,14 +71,14 @@ window.addEventListener('orientationchange', () => setTimeout(resize, 100));
 // Locked-in preset (+ terrainSaturation) — your values
 const defaults = {
   turbidity: 0,
-  rayleigh: 0.02,
+  rayleigh: 0.001,
   mieCoefficient: 0.047,
   mieDirectionalG: 0.01,
-  elevation: 16.5,
+  elevation: 14.5,
   azimuth: 360,
 
   // Exposures (separated)
-  skyExposure: 2.5,
+  skyExposure: 2.25,
   lightingExposure: 3,
   exposure: 2.48, // global tone-map (same as exposureGlobal)
 
@@ -90,7 +90,7 @@ const defaults = {
   // Terrain
   terrainDisplacement: 0.55,
   terrainRoughness: 1,
-  terrainRepeat: 48,
+  terrainRepeat: 4,
   terrainTint: '#f5f7ff',
   terrainSaturation: 0, // moon-white (desaturated)
 
