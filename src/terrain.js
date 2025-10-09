@@ -19,9 +19,8 @@ export function createTerrain() {
     gain: 1.0            // brightness multiplier (acts like “light”)
   };
 
-  // -------------- Noise GLSL --------------
+  // -------------- Noise GLSL (NO precision here) --------------
   const NOISE = `
-  precision highp float;
   vec3 mod289(vec3 x){return x - floor(x * (1.0/289.0)) * 289.0;}
   vec2 mod289(vec2 x){return x - floor(x * (1.0/289.0)) * 289.0;}
   vec3 permute(vec3 x){return mod289(((x*34.0)+1.0)*x);}
@@ -123,14 +122,15 @@ export function createTerrain() {
       col *= uGain; // brightness multiplier (acts like terrain light)
       gl_FragColor = vec4(col, 1.0);
     }
-  `;
+  '';
 
   let material = new THREE.ShaderMaterial({
     uniforms,
     vertexShader: vert,
     fragmentShader: frag,
     wireframe: params.wireframe,
-    fog: true
+    fog: true,
+    side: THREE.DoubleSide // extra safety (shouldn't be necessary, but avoids culling surprises)
   });
 
   function makeMesh(size, segs) {
