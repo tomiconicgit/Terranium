@@ -16,25 +16,16 @@ const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
 renderer.setSize(window.innerWidth, window.innerHeight, false);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
-renderer.toneMapping = THREE.ACESFilmicToneMapping;     // harmless with our custom shaders
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.setClearColor(0x000000, 1);
 document.body.appendChild(renderer.domElement);
 
-// if a shader fails to compile, three will now log it loudly
-renderer.debug.checkShaderErrors = true;
+// ensure canvas sits UNDER the UI; UI has z-index:100 in CSS
+renderer.domElement.style.zIndex = '0';
 
 // hide loading label (no async assets here)
 const loadingEl = document.getElementById('loading');
 if (loadingEl) loadingEl.style.display = 'none';
-
-// graceful handling if WebGL context ever drops
-renderer.domElement.addEventListener('webglcontextlost', (e) => {
-  e.preventDefault();
-  console.error('WebGL context lost');
-});
-renderer.domElement.addEventListener('webglcontextrestored', () => {
-  console.warn('WebGL context restored');
-});
 
 // ----- sky (stars + haze) -----
 const skyAPI = createSky(scene);
@@ -87,6 +78,15 @@ panel.innerHTML = `
 
   <button id="copyParams" type="button">Copy current parameters</button>
 `;
+
+// prevent UI taps/clicks from bubbling to the canvas controls
+['pointerdown','touchstart','mousedown','click'].forEach(ev => {
+  panel.addEventListener(ev, e => e.stopPropagation());
+});
+const tuneBtn = document.getElementById('tuneBtn');
+['pointerdown','touchstart','mousedown','click'].forEach(ev => {
+  tuneBtn.addEventListener(ev, e => e.stopPropagation());
+});
 
 // helper: build slider+number or color or checkbox
 function addRow(gridId, label, id, min, max, step, value, onChange, type='range') {
@@ -180,7 +180,8 @@ let tState = {
   colorMid: '#bfc7d3',
   colorHigh: '#9aa3b1',
   midPoint: 0.45,
-  wireframe: false
+  wireframe: false,
+  brightness: 1.0
 };
 
 addRow('terrainGrid', 'Size',        'tSize',       5, 2000, 1,    tState.size,       v => { tState.size = v; terrainAPI.setSize(v); });
@@ -196,12 +197,12 @@ addRow('terrainGrid', 'Mid Color',   'tMid',   0,0,0, tState.colorMid,  v => { t
 addRow('terrainGrid', 'High Color',  'tHigh',  0,0,0, tState.colorHigh, v => { tState.colorHigh = v; terrainAPI.setColors(tState.colorLow, tState.colorMid, tState.colorHigh); }, 'color');
 addRow('terrainGrid', 'Midpoint',    'tMidPt',  0.01, 0.99, 0.01, tState.midPoint, v => { tState.midPoint = v; terrainAPI.setMidPoint(v); });
 addRow('terrainGrid', 'Wireframe',   'tWire',   0,0,0, tState.wireframe, v => { tState.wireframe = v; terrainAPI.setWireframe(v); }, 'checkbox');
+addRow('terrainGrid', 'Brightness',  'tGain',    0,   5, 0.01, tState.brightness, v => { tState.brightness = v; terrainAPI.setBrightness(v); });
 
 // copy params
 document.getElementById('copyParams').addEventListener('click', async () => {
   const snapshot = {
-    stars: { ...starState },
-    haze: { ...hazeState },
+    stars: skyAPI._getCurrent?.() || {},
     terrain: terrainAPI._getParams()
   };
   const text = JSON.stringify(snapshot, null, 2);
@@ -229,7 +230,6 @@ function toast(msg) {
 }
 
 // toggle panel (stays closed until you press TUNE)
-const tuneBtn = document.getElementById('tuneBtn');
 let panelOpen = false;
 tuneBtn.addEventListener('click', () => {
   panelOpen = !panelOpen;
