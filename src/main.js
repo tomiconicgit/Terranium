@@ -38,7 +38,7 @@ manager.onLoad = () => {
 // Terrain & Sky
 const terrainAPI = createTerrain(manager);
 scene.add(terrainAPI.mesh);
-const skyAPI = createSky(scene, renderer, manager); // now loads Earth, stars, sunSphere
+const skyAPI = createSky(scene, renderer, manager); // stars + sky shader + Earth
 
 // --- Dedicated terrain lighting (independent of sky) ---
 const terrainSun = new THREE.DirectionalLight(0xffffff, 3.0);
@@ -86,38 +86,42 @@ window.addEventListener('orientationchange', () => setTimeout(resize, 100));
    Tuner UI
    -------------------------- */
 const defaults = {
-  // Sky
+  // Sky (physical model)
   turbidity: 0,
   rayleigh: 0.08,
   mieCoefficient: 0.047,
   mieDirectionalG: 0.01,
   elevation: 16.5,
   azimuth: 360,
-  skyExposure: 2.5,
-  sunSize: 7.0,
+
+  // Sky color grading (new)
+  skyTopColor: '#88aaff',
+  skyCoeffColor: '#ffffff',
+  skyBottomColor: '#000011',
+  skyContrast: 1.0,
 
   // Stars
   starCount: 10000,
   starSize: 1.6,
   starTwinkleSpeed: 0.9,
 
-  // Terrain lighting (independent)
+  // Terrain lighting
   terrainDirIntensity: 3.0,
   terrainAmbIntensity: 0.55,
 
-  // Terrain material (from your terrain.js API)
+  // Terrain material
   terrainDisplacement: 0.55,
   terrainRoughness: 1,
   terrainRepeat: 48,
   terrainTint: '#f5f7ff',
   terrainSaturation: 0,
 
-  // Earth (GLB, unlit)
-  earthScale: 12,
-  earthPosX: 180,
-  earthPosY: 30,
-  earthPosZ: -260,
-  earthBrightness: 1.0
+  // Earth (GLB, visual-only)
+  earthScale: 120,
+  earthPosX: 0,
+  earthPosY: 80,
+  earthPosZ: -220,
+  earthBrightness: 1.2
 };
 
 const state = { ...defaults };
@@ -125,15 +129,19 @@ applyAll();
 
 /* ---------- helpers to apply state ---------- */
 function applyAll() {
-  // Sky
+  // Sky params
   skyAPI.setTurbidity(state.turbidity);
   skyAPI.setRayleigh(state.rayleigh);
   skyAPI.setMieCoefficient(state.mieCoefficient);
   skyAPI.setMieDirectionalG(state.mieDirectionalG);
   skyAPI.setElevation(state.elevation);
   skyAPI.setAzimuth(state.azimuth);
-  skyAPI.setSkyExposure(state.skyExposure);
-  skyAPI.setSunSize(state.sunSize);
+
+  // Sky grading
+  skyAPI.setSkyTopColor(state.skyTopColor);
+  skyAPI.setSkyCoeffColor(state.skyCoeffColor);
+  skyAPI.setSkyBottomColor(state.skyBottomColor);
+  skyAPI.setSkyContrast(state.skyContrast);
 
   // Stars
   skyAPI.setStarCount(state.starCount);
@@ -151,7 +159,7 @@ function applyAll() {
   terrainAPI.setTintColor(state.terrainTint);
   if (terrainAPI.setSaturation) terrainAPI.setSaturation(state.terrainSaturation);
 
-  // Earth (if loaded the setters will apply)
+  // Earth
   skyAPI.setEarthScale(state.earthScale);
   skyAPI.setEarthPosition(state.earthPosX, state.earthPosY, state.earthPosZ);
   skyAPI.setEarthBrightness(state.earthBrightness);
@@ -165,7 +173,17 @@ function row(label, id, min, max, step, value) {
       <label for="${id}">${label}</label>
       <div class="pair">
         <input id="${id}" type="range" min="${min}" max="${max}" step="${s}" value="${value}">
-        <input id="${id}Num" type="number" min="${min}" max="${max}" step="${s}" value="${value}">
+        <input id="${id}Num" type="number" min="${min}" max="${max}" step="${s}" value="${value}" style="width:90px;margin-left:8px">
+      </div>
+    </div>
+  `;
+}
+function colorRow(label, id, value) {
+  return `
+    <div class="row">
+      <label for="${id}">${label}</label>
+      <div class="pair">
+        <input id="${id}" type="color" value="${value}">
       </div>
     </div>
   `;
@@ -222,8 +240,11 @@ panel.innerHTML = `
     ${row('Mie Directional G', 'mieDirectionalG', 0, 1, 0.0001, state.mieDirectionalG)}
     ${row('Elevation (°)', 'elevation', -5, 89, 0.0001, state.elevation)}
     ${row('Azimuth (°)', 'azimuth', 0, 360, 0.0001, state.azimuth)}
-    ${row('Sky Exposure', 'skyExposure', 0.0, 5.0, 0.0001, state.skyExposure)}
-    ${row('Sun Size (visual)', 'sunSize', 0.1, 50, 0.0001, state.sunSize)}
+
+    ${colorRow('Sky Top Color', 'skyTopColor', state.skyTopColor)}
+    ${colorRow('Sky Coeff Color', 'skyCoeffColor', state.skyCoeffColor)}
+    ${colorRow('Sky Bottom Color', 'skyBottomColor', state.skyBottomColor)}
+    ${row('Sky Contrast', 'skyContrast', 0, 5, 0.0001, state.skyContrast)}
   </div>
 
   <div class="section">Stars</div>
@@ -244,20 +265,16 @@ panel.innerHTML = `
     ${row('Displacement', 'terrainDisplacement', 0, 3, 0.0001, state.terrainDisplacement)}
     ${row('Roughness', 'terrainRoughness', 0, 1, 0.0001, state.terrainRoughness)}
     ${row('Texture Repeat', 'terrainRepeat', 4, 200, 1, state.terrainRepeat)}
-    <div class="row"><label>Sand Tint</label>
-      <div class="pair">
-        <input id="terrainTint" type="color" value="${state.terrainTint}">
-      </div>
-    </div>
+    ${colorRow('Sand Tint', 'terrainTint', state.terrainTint)}
     ${row('Saturation', 'terrainSaturation', 0, 1.5, 0.0001, state.terrainSaturation)}
   </div>
 
   <div class="section">Earth (GLB)</div>
   <div class="grid">
-    ${row('Earth Scale', 'earthScale', 0.1, 200, 0.0001, state.earthScale)}
-    ${row('Earth X', 'earthPosX', -1000, 1000, 0.0001, state.earthPosX)}
-    ${row('Earth Y', 'earthPosY', -1000, 1000, 0.0001, state.earthPosY)}
-    ${row('Earth Z', 'earthPosZ', -2000, 2000, 0.0001, state.earthPosZ)}
+    ${row('Earth Scale', 'earthScale', 0.1, 500, 0.0001, state.earthScale)}
+    ${row('Earth X', 'earthPosX', -2000, 2000, 0.0001, state.earthPosX)}
+    ${row('Earth Y', 'earthPosY', -2000, 2000, 0.0001, state.earthPosY)}
+    ${row('Earth Z', 'earthPosZ', -4000, 4000, 0.0001, state.earthPosZ)}
     ${row('Earth Brightness', 'earthBrightness', 0, 5, 0.0001, state.earthBrightness)}
   </div>
 
@@ -265,17 +282,21 @@ panel.innerHTML = `
 `;
 
 /* ---------- Wire inputs ---------- */
-// Sky binds
+// Sky params
 bindPair('turbidity', v => { state.turbidity = v; skyAPI.setTurbidity(v); });
 bindPair('rayleigh', v => { state.rayleigh = v; skyAPI.setRayleigh(v); });
 bindPair('mieCoefficient', v => { state.mieCoefficient = v; skyAPI.setMieCoefficient(v); });
 bindPair('mieDirectionalG', v => { state.mieDirectionalG = v; skyAPI.setMieDirectionalG(v); });
 bindPair('elevation', v => { state.elevation = v; skyAPI.setElevation(v); });
 bindPair('azimuth', v => { state.azimuth = v; skyAPI.setAzimuth(v); });
-bindPair('skyExposure', v => { state.skyExposure = v; skyAPI.setSkyExposure(v); });
-bindPair('sunSize', v => { state.sunSize = v; skyAPI.setSunSize(v); });
 
-// Stars binds
+// Sky grading
+bindColor('skyTopColor', v => { state.skyTopColor = v; skyAPI.setSkyTopColor(v); });
+bindColor('skyCoeffColor', v => { state.skyCoeffColor = v; skyAPI.setSkyCoeffColor(v); });
+bindColor('skyBottomColor', v => { state.skyBottomColor = v; skyAPI.setSkyBottomColor(v); });
+bindPair('skyContrast', v => { state.skyContrast = v; skyAPI.setSkyContrast(v); });
+
+// Stars
 bindPair('starCount', v => { state.starCount = v; skyAPI.setStarCount(v); });
 bindPair('starSize', v => { state.starSize = v; skyAPI.setStarSize(v); });
 bindPair('starTwinkleSpeed', v => { state.starTwinkleSpeed = v; skyAPI.setStarTwinkleSpeed(v); });
@@ -291,7 +312,7 @@ bindPair('terrainRepeat', v => { state.terrainRepeat = v; terrainAPI.setRepeat(v
 bindColor('terrainTint', v => { state.terrainTint = v; terrainAPI.setTintColor(v); });
 bindPair('terrainSaturation', v => { state.terrainSaturation = v; if (terrainAPI.setSaturation) terrainAPI.setSaturation(v); });
 
-// Earth binds
+// Earth
 bindPair('earthScale', v => { state.earthScale = v; skyAPI.setEarthScale(v); });
 bindPair('earthPosX', v => { state.earthPosX = v; skyAPI.setEarthPosition(state.earthPosX, state.earthPosY, state.earthPosZ); });
 bindPair('earthPosY', v => { state.earthPosY = v; skyAPI.setEarthPosition(state.earthPosX, state.earthPosY, state.earthPosZ); });
