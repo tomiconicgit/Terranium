@@ -8,12 +8,13 @@ export function createSky(scene, renderer) {
   scene.add(sky);
 
   const U = sky.material.uniforms;
-  U.turbidity.value = 0;
+  // You can change these via UI; just defaults here.
+  U.turbidity.value = 0.0;
   U.rayleigh.value = 0.03;
   U.mieCoefficient.value = 0.005;
   U.mieDirectionalG.value = 0.03;
 
-  // Real lighting for terrain
+  // Terrain lighting
   const sunDir = new THREE.DirectionalLight(0xffffff, 1.5);
   sunDir.castShadow = true;
   sunDir.shadow.mapSize.set(1024, 1024);
@@ -28,21 +29,41 @@ export function createSky(scene, renderer) {
   const ambient = new THREE.AmbientLight(0x223344, 0.25);
   scene.add(ambient);
 
-  // Two sky-only exposure multipliers
+  // Keep renderer exposure neutral; you drive exposures separately
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.0;
+
+  // SKY-ONLY exposures (two knobs)
   const skyExposureUniform = { value: 1.0 };
   const skyGlobalExposureUniform = { value: 1.0 };
 
-  // Make the exposure patch tolerant to shader changes (color/skyColor/whatever)
   sky.material.onBeforeCompile = (shader) => {
     shader.uniforms.uSkyExposure = skyExposureUniform;
     shader.uniforms.uSkyGlobalExposure = skyGlobalExposureUniform;
 
-    // Multiply the final RGB written to gl_FragColor by our exposures.
-    // Works whether the shader ends with vec4(color,1.0) or vec4(skyColor,1.0) etc.
-    shader.fragmentShader = shader.fragmentShader.replace(
-      /gl_FragColor\s*=\s*vec4\s*\(\s*([^,]+?)\s*,\s*1\.0\s*\)\s*;/,
-      'gl_FragColor = vec4(($1) * uSkyExposure * uSkyGlobalExposure, 1.0);'
+    // Detect output variable: gl_FragColor (WebGL1) OR "out vec4 <name>;"
+    let outVar = 'gl_FragColor';
+    const m = shader.fragmentShader.match(/^\s*out\s+vec4\s+(\w+)\s*;/m);
+    if (m) outVar = m[1];
+
+    // 1) Try to hook the final assignment to the output variable and multiply RGB.
+    // This is tolerant of "vec4(expr,1.0)" with any spacing.
+    const assignRegex = new RegExp(
+      String.raw`${outVar}\s*=\s*vec4\s*$begin:math:text$\\s*([^;]+?)\\s*$end:math:text$\s*;`
     );
+
+    if (assignRegex.test(shader.fragmentShader)) {
+      shader.fragmentShader = shader.fragmentShader.replace(
+        assignRegex,
+        `${outVar} = vec4($1); ${outVar}.rgb *= uSkyExposure * uSkyGlobalExposure;`
+      );
+    } else {
+      // 2) Fallback: append multiply before the end of main()
+      shader.fragmentShader = shader.fragmentShader.replace(
+        /}\s*$/m,
+        `  ${outVar}.rgb *= uSkyExposure * uSkyGlobalExposure;\n}\n`
+      );
+    }
   };
   sky.material.needsUpdate = true;
 
@@ -56,20 +77,16 @@ export function createSky(scene, renderer) {
     const theta = THREE.MathUtils.degToRad(azimuth);
     sun.setFromSphericalCoords(1, phi, theta);
 
-    // Sky shader sun
+    // Sky shader
     U.sunPosition.value.copy(sun);
 
-    // Match the DirectionalLight to the same direction
+    // Directional light
     const dist = 1000;
     sunDir.position.set(sun.x * dist, sun.y * dist, sun.z * dist);
     sunDir.target.position.set(0, 0, 0);
     sunDir.target.updateMatrixWorld();
   }
   updateSun();
-
-  // Keep renderer global exposure neutral; you’re driving exposures separately
-  renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 1.0;
 
   // Stars
   const maxStars = 15000;
@@ -120,10 +137,11 @@ export function createSky(scene, renderer) {
   const stars = new THREE.Points(starGeo, starMat);
   scene.add(stars);
 
-  // Base intensities for exposure scaling
+  // Base intensities for lighting exposure scaling
   const baseSun = sunDir.intensity;
   const baseAmb = ambient.intensity;
 
+  // Public API
   const api = {
     update(dt) { starUniforms.uTime.value += dt; },
 
@@ -135,17 +153,17 @@ export function createSky(scene, renderer) {
     setElevation(deg) { elevation = deg; updateSun(); },
     setAzimuth(deg) { azimuth = deg; updateSun(); },
 
-    // Sky-only exposure controls (both affect only the dome)
-    setSkyExposure(v) { skyExposureUniform.value = v; /* no recompile needed */ },
-    setSkyGlobalExposure(v) { skyGlobalExposureUniform.value = v; /* no recompile needed */ },
+    // Sky exposures (affect sky dome only)
+    setSkyExposure(v) { skyExposureUniform.value = v; },
+    setSkyGlobalExposure(v) { skyGlobalExposureUniform.value = v; },
 
-    // Terrain lighting exposure (directional + ambient)
+    // Terrain lighting exposure
     setLightingExposure(v) {
       sunDir.intensity = baseSun * v;
       ambient.intensity = baseAmb * Math.pow(v, 0.75);
     },
 
-    // Optional: renderer exposure (kept neutral in your flow)
+    // (Optional) renderer exposure; keep at 1.0 if you only want terrain via lights
     setExposureGlobal(v) { renderer.toneMappingExposure = v; },
 
     // Lighting tweaks
