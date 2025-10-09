@@ -20,6 +20,7 @@ export function createTerrain() {
 
   // -------------- Noise GLSL --------------
   const NOISE = `
+  precision highp float;
   vec3 mod289(vec3 x){return x - floor(x * (1.0/289.0)) * 289.0;}
   vec2 mod289(vec2 x){return x - floor(x * (1.0/289.0)) * 289.0;}
   vec3 permute(vec3 x){return mod289(((x*34.0)+1.0)*x);}
@@ -65,6 +66,7 @@ export function createTerrain() {
   };
 
   const vert = `
+    precision highp float;
     ${NOISE}
     uniform float uHeight;
     uniform float uScale;
@@ -99,6 +101,7 @@ export function createTerrain() {
   `;
 
   const frag = `
+    precision highp float;
     uniform vec3 uColorLow;
     uniform vec3 uColorMid;
     uniform vec3 uColorHigh;
