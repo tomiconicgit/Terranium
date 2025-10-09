@@ -16,7 +16,7 @@ export function createTerrain() {
     colorHigh: '#9aa3b1',
     midPoint: 0.45,
     wireframe: false,
-    gain: 1.0            // brightness multiplier (acts like “light”)
+    gain: 1.0            // brightness multiplier (acts like "light")
   };
 
   // -------------- Noise GLSL (NO precision here) --------------
@@ -122,7 +122,7 @@ export function createTerrain() {
       col *= uGain; // brightness multiplier (acts like terrain light)
       gl_FragColor = vec4(col, 1.0);
     }
-  '';
+  `;
 
   let material = new THREE.ShaderMaterial({
     uniforms,
