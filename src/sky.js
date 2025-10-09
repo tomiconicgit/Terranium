@@ -3,78 +3,35 @@ import { Sky } from 'three/addons/objects/Sky.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
 export function createSky(scene, renderer, manager) {
-  // --- Sky dome (visual only; does not light terrain) ---
+  // Sky dome (visual)
   const sky = new Sky();
   sky.scale.setScalar(450000);
   scene.add(sky);
 
-  // Native sky uniforms
   const U = sky.material.uniforms;
-  U.turbidity.value = 0.0;
-  U.rayleigh.value = 0.03;
+  U.turbidity.value = 2.0;
+  U.rayleigh.value = 1.2;
   U.mieCoefficient.value = 0.005;
-  U.mieDirectionalG.value = 0.03;
+  U.mieDirectionalG.value = 0.8;
 
-  // Add grading uniforms: top/bottom/coeff colors + contrast
-  const uTopColor    = { value: new THREE.Color('#88aaff') };
-  const uBottomColor = { value: new THREE.Color('#000011') };
-  const uCoeffColor  = { value: new THREE.Color('#ffffff') };
-  const uContrast    = { value: 1.0 };
-
-  // Inject grading after physical sky color is computed
-  sky.material.onBeforeCompile = (shader) => {
-    shader.uniforms.uTopColor    = uTopColor;
-    shader.uniforms.uBottomColor = uBottomColor;
-    shader.uniforms.uCoeffColor  = uCoeffColor;
-    shader.uniforms.uContrast    = uContrast;
-
-    // add uniforms
-    shader.fragmentShader = shader.fragmentShader.replace(
-      '#include <common>',
-      `#include <common>
-       uniform vec3 uTopColor;
-       uniform vec3 uBottomColor;
-       uniform vec3 uCoeffColor;
-       uniform float uContrast;`
-    );
-
-    // apply grading & contrast in final color
-    shader.fragmentShader = shader.fragmentShader.replace(
-      'gl_FragColor = vec4( skyColor, 1.0 );',
-      `
-      // gradient factor from world direction
-      vec3 dir = normalize( vWorldPosition );
-      float t = clamp(dir.y * 0.5 + 0.5, 0.0, 1.0);
-      vec3 grad = mix(uBottomColor, uTopColor, t);
-      skyColor *= (uCoeffColor * grad);
-
-      // contrast around mid-gray (0.5)
-      skyColor = (skyColor - 0.5) * uContrast + 0.5;
-
-      gl_FragColor = vec4( skyColor, 1.0 );
-      `
-    );
-  };
-  sky.material.needsUpdate = true;
-
-  // Sun direction (visual in shader only)
-  const sunVec = new THREE.Vector3();
-  let elevation = 16.5;
-  let azimuth = 360;
+  // Sun position from elevation/azimuth
+  const sun = new THREE.Vector3();
+  let elevation = 25.4;
+  let azimuth = 180;
 
   function updateSun() {
     const phi = THREE.MathUtils.degToRad(90 - elevation);
     const theta = THREE.MathUtils.degToRad(azimuth);
-    sunVec.setFromSphericalCoords(1, phi, theta);
-    U.sunPosition.value.copy(sunVec); // shader uses this; no extra mesh added
+    sun.setFromSphericalCoords(1, phi, theta);
+    U.sunPosition.value.copy(sun);
   }
   updateSun();
 
-  // Tone mapping stays standard (terrain lights control terrain brightness)
+  // Tone mapping
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.0;
 
-  // --- Starfield ---
+  // Stars
   const maxStars = 15000;
   const starGeo = new THREE.BufferGeometry();
   const starPos = new Float32Array(maxStars * 3);
@@ -123,71 +80,81 @@ export function createSky(scene, renderer, manager) {
   const stars = new THREE.Points(starGeo, starMat);
   scene.add(stars);
 
-  // --- Earth (GLB) — visual-only, unlit, independent of sky sun ---
+  // --- Earth (GLB) — ORIGINAL materials, own lights, separate layer ---
+  const EARTH_LAYER = 1;
+
   const earthGroup = new THREE.Group();
+  earthGroup.layers.set(EARTH_LAYER);
   scene.add(earthGroup);
 
-  const loader = new GLTFLoader(manager);
-  loader.load('src/assets/models/earth/earth.glb', (gltf) => {
+  // Lights that only affect Earth
+  const earthDir = new THREE.DirectionalLight(0xffffff, 1.2);
+  earthDir.position.set(100, 150, -90);
+  earthDir.layers.set(EARTH_LAYER);
+  scene.add(earthDir);
+
+  const earthAmb = new THREE.AmbientLight(0xffffff, 0.4);
+  earthAmb.layers.set(EARTH_LAYER);
+  scene.add(earthAmb);
+
+  const gltfLoader = new GLTFLoader(manager);
+  gltfLoader.load('src/assets/models/earth/earth.glb', (gltf) => {
     const root = gltf.scene || gltf.scenes[0];
-    // normalize root transform, we control via group
-    root.position.set(0, 0, 0);
-    root.rotation.set(0, 0, 0);
-    root.scale.set(1, 1, 1);
 
     root.traverse((obj) => {
       if (obj.isMesh) {
-        const old = obj.material;
-        const basic = new THREE.MeshBasicMaterial({ color: 0xffffff });
-        if (old && old.map) basic.map = old.map;
-        if (old && old.emissiveMap) basic.map = basic.map || old.emissiveMap;
-        basic.transparent = !!(old && old.transparent);
-        basic.side = THREE.FrontSide;
-        obj.material = basic;
+        // Keep the original PBR materials & textures
+        obj.layers.set(EARTH_LAYER);
+        obj.castShadow = false;
+        obj.receiveShadow = false;
       }
     });
 
+    root.position.set(0, 0, 0);
+    root.rotation.set(0, 0, 0);
+    root.scale.set(1, 1, 1);
     earthGroup.add(root);
 
-    // sensible defaults (also settable via API)
+    // Defaults (can be changed via UI)
     earthGroup.scale.setScalar(120);
     earthGroup.position.set(0, 80, -220);
+
+    // Aim the directional at Earth
+    earthDir.target.position.copy(earthGroup.position);
+    earthDir.target.updateMatrixWorld();
   });
 
   // --- Public API ---
   const api = {
     update(dt) { starUniforms.uTime.value += dt; },
 
-    // Physical sky params
-    setTurbidity(v)       { U.turbidity.value = v; },
-    setRayleigh(v)        { U.rayleigh.value = v; },
-    setMieCoefficient(v)  { U.mieCoefficient.value = v; },
+    // Sky params
+    setTurbidity(v) { U.turbidity.value = v; },
+    setRayleigh(v) { U.rayleigh.value = v; },
+    setMieCoefficient(v) { U.mieCoefficient.value = v; },
     setMieDirectionalG(v) { U.mieDirectionalG.value = v; },
-    setElevation(deg)     { elevation = deg; updateSun(); },
-    setAzimuth(deg)       { azimuth = deg; updateSun(); },
-
-    // Sky grading
-    setSkyTopColor(hex)    { uTopColor.value.set(hex); sky.material.needsUpdate = true; },
-    setSkyCoeffColor(hex)  { uCoeffColor.value.set(hex); sky.material.needsUpdate = true; },
-    setSkyBottomColor(hex) { uBottomColor.value.set(hex); sky.material.needsUpdate = true; },
-    setSkyContrast(v)      { uContrast.value = Math.max(0.0, v); },
+    setElevation(deg) { elevation = deg; updateSun(); },
+    setAzimuth(deg) { azimuth = deg; updateSun(); },
 
     // Stars
-    setStarCount(n)        { starGeo.setDrawRange(0, Math.max(0, Math.min(maxStars, Math.floor(n)))); },
-    setStarSize(px)        { starUniforms.uSize.value = px; },
+    setStarCount(n) { starGeo.setDrawRange(0, Math.max(0, Math.min(maxStars, Math.floor(n)))); },
+    setStarSize(px) { starUniforms.uSize.value = px; },
     setStarTwinkleSpeed(s) { starUniforms.uSpeed.value = s; },
 
-    // Earth
-    setEarthScale(s)       { const sc = Math.max(0.01, s); earthGroup.scale.set(sc, sc, sc); },
-    setEarthPosition(x,y,z){ earthGroup.position.set(x||0, y||0, z||0); },
-    setEarthBrightness(b)  {
+    // Earth controls
+    setEarthScale(s) {
+      const sc = Math.max(0.01, s);
+      earthGroup.scale.set(sc, sc, sc);
+    },
+    setEarthPosition(x, y, z) {
+      earthGroup.position.set(x || 0, y || 0, z || 0);
+      earthDir.target.position.copy(earthGroup.position);
+      earthDir.target.updateMatrixWorld();
+    },
+    setEarthBrightness(b) {
       const k = Math.max(0, b);
-      earthGroup.traverse((o) => {
-        if (o.isMesh && o.material && o.material.isMeshBasicMaterial) {
-          o.material.color.setScalar(k);
-          o.material.needsUpdate = true;
-        }
-      });
+      earthDir.intensity = 0.9 * k;
+      earthAmb.intensity = 0.3 * Math.pow(k, 0.9);
     },
 
     _getCurrent: () => ({
@@ -195,7 +162,10 @@ export function createSky(scene, renderer, manager) {
       rayleigh: U.rayleigh.value,
       mieCoefficient: U.mieCoefficient.value,
       mieDirectionalG: U.mieDirectionalG.value,
-      elevation, azimuth
+      elevation, azimuth,
+      starCount: starGeo.drawRange.count,
+      starSize: starUniforms.uSize.value,
+      starTwinkleSpeed: starUniforms.uSpeed.value
     })
   };
 
