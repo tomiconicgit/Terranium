@@ -11,7 +11,6 @@ export function createSky(scene) {
   const positions = new Float32Array(MAX_STARS * 3);
   const phase = new Float32Array(MAX_STARS);
 
-  // positions on a sphere shell
   function fillStars() {
     for (let i = 0; i < MAX_STARS; i++) {
       const r = 1800 + Math.random() * 1200;
@@ -26,7 +25,7 @@ export function createSky(scene) {
     }
     starGeo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
     starGeo.setAttribute('phase', new THREE.BufferAttribute(phase, 1));
-    starGeo.setDrawRange(0, 8000); // default visible count
+    starGeo.setDrawRange(0, 8000); // default
   }
   fillStars();
 
@@ -41,17 +40,21 @@ export function createSky(scene) {
     depthWrite: false,
     uniforms: starUniforms,
     vertexShader: `
+      precision highp float;
       attribute float phase;
       uniform float uTime, uSize, uSpeed;
       varying float vAlpha;
       void main(){
         float tw = 0.72 + 0.28 * sin(uTime * uSpeed + phase);
         vAlpha = tw;
-        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        vec4 mv = modelViewMatrix * vec4(position, 1.0);
+        gl_Position = projectionMatrix * mv;
+        // keep constant-ish size; tweak if you want distance attenuation
         gl_PointSize = uSize;
       }
     `,
     fragmentShader: `
+      precision highp float;
       varying float vAlpha;
       void main(){
         vec2 uv = gl_PointCoord - 0.5;
@@ -78,35 +81,34 @@ export function createSky(scene) {
     depthWrite: false,
     transparent: true,
     side: THREE.DoubleSide,
+    fog: false,
     vertexShader: `
+      precision highp float;
       varying float vH;
       void main(){
-        vec3 p = position;
-        vH = position.y;         // use height for gradient
-        gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0);
+        vH = position.y;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
       }
     `,
     fragmentShader: `
+      precision highp float;
       uniform vec3 uColor;
       uniform float uHeight;
       uniform float uAlpha;
       varying float vH;
       void main(){
         float t = clamp(vH / max(0.0001, uHeight), 0.0, 1.0);
-        float a = (1.0 - t);              // fade out with height
-        a = pow(a, 1.8) * uAlpha;         // softness + global opacity
+        float a = pow(1.0 - t, 1.8) * uAlpha;
         gl_FragColor = vec4(uColor, a);
       }
     `
   });
 
-  // geometry created to match uniforms; we rebuild on param change if needed
   let hazeMesh = buildHazeMesh(hazeUniforms.uRadius.value, hazeUniforms.uHeight.value);
   scene.add(hazeMesh);
 
   function buildHazeMesh(radius, height) {
     const geo = new THREE.CylinderGeometry(radius, radius, height, 64, 1, true);
-    // lift so base sits at y=0
     geo.translate(0, height * 0.5, 0);
     return new THREE.Mesh(geo, hazeMat);
   }
