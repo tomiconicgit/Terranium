@@ -4,7 +4,7 @@ import * as THREE from 'three';
 export function createTerrain(manager) {
   const loader = new THREE.TextureLoader(manager);
 
-  const diffuse = loader.load('src/assets/textures/moon/moonnormal/moonnornal-diffuse.jpg', onDiffuseLoaded);
+  const diffuse = loader.load('src/assets/textures/moon/moonnormal/moonnormal-diffuse.jpg', onDiffuseLoaded);
   const displacement = loader.load('src/assets/textures/moon/moonnormal/moonnormal-displacement.png');
 
   diffuse.colorSpace = THREE.SRGBColorSpace;
