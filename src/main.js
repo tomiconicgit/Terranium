@@ -83,7 +83,10 @@ panel.innerHTML = `
 ['pointerdown','touchstart','mousedown','click'].forEach(ev => {
   panel.addEventListener(ev, e => e.stopPropagation());
 });
+
+// ✅ CORRECTED: This line defines the tuneBtn variable before it's used.
 const tuneBtn = document.getElementById('tuneBtn');
+
 ['pointerdown','touchstart','mousedown','click'].forEach(ev => {
   tuneBtn.addEventListener(ev, e => e.stopPropagation());
 });
