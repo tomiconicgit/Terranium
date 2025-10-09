@@ -42,7 +42,10 @@ manager.onLoad = () => {
 const terrainAPI = createTerrain(manager);
 scene.add(terrainAPI.mesh);
 
-const skyAPI = createSky(scene, renderer); // visual sky only (no lighting)
+const skyAPI = createSky(scene, renderer); // visual sky + stars + earth (no terrain lighting)
+
+// Camera should render both default layer (0) and sky's “earth layer” (1)
+camera.layers.enable(1);
 
 // --------------------
 // Terrain lighting (independent from sky)
@@ -63,20 +66,19 @@ const ambient = new THREE.AmbientLight(0x223344, 0.25);
 scene.add(ambient);
 
 // --------------------
-// Ambient looped sound (separate loader, so it can't block the manager)
+// Ambient looped sound
 // --------------------
 const listener = new THREE.AudioListener();
 camera.add(listener);
 
 const ambientSound = new THREE.Audio(listener);
-const audioLoader = new THREE.AudioLoader(); // separate from the manager
+const audioLoader = new THREE.AudioLoader(); // separate from manager
 audioLoader.load(
-  'assets/sounds/planetsound.wav', // adjust if your file lives elsewhere
+  'assets/sounds/planetsound.wav',
   (buffer) => {
     ambientSound.setBuffer(buffer);
     ambientSound.setLoop(true);
     ambientSound.setVolume(0.35);
-    // Autoplay policy might block; user gesture will start it in many cases.
     try { ambientSound.play(); } catch {}
   },
   undefined,
@@ -101,7 +103,6 @@ function animate() {
   controls.update();
   renderer.render(scene, camera);
 }
-// Start immediately (do NOT wait for manager.onLoad)
 animate();
 
 function resize() {
@@ -117,35 +118,44 @@ window.addEventListener('orientationchange', () => setTimeout(resize, 100));
 /* --------------------------
    Tuner UI
    -------------------------- */
-// Your latest preset (and a couple of extras)
+// Preset (with Earth controls)
 const defaults = {
+  // Sky
   turbidity: 0,
   rayleigh: 0.08,
   mieCoefficient: 0.047,
   mieDirectionalG: 0.01,
   elevation: 16.5,
   azimuth: 360,
+  skyExposure: 2.5,          // sky material only (not tone mapped)
 
-  skyExposure: 2.5,          // affects sky only (via shader uniform)
-  skySunSize: 35,            // apparent disc size (sprite size in world units)
+  // Sun & Stars (visual)
+  skySunSize: 35,
   starCount: 10000,
   starSize: 1.6,
   starTwinkleSpeed: 0.9,
 
-  // Terrain lighting exposure scaler (multiplies real lights)
-  lightingExposure: 3.0,
+  // Terrain lighting & exposure
+  lightingExposure: 3.0,     // multiplies terrain lights
+  exposure: 2.48,            // renderer tone mapping (terrain only)
 
-  // Global exposure (tone mapping) – affects terrain only; sky is toneMapped = false
-  exposure: 2.48,
-
-  // Terrain params
+  // Terrain material
   terrainDisplacement: 0.55,
   terrainRoughness: 1,
   terrainRepeat: 48,
   terrainTint: '#f5f7ff',
-  terrainSaturation: 0.0,     // 0 = gray, 1 = original
+  terrainSaturation: 0.0,
 
-  // Informational mirrors
+  // Earth (GLB) — on its own lighting layer
+  earthVisible: true,
+  earthScale: 30,
+  earthX: 800,
+  earthY: 200,
+  earthZ: -600,
+  earthSunIntensity: 2.0,      // directional on layer 1
+  earthAmbientIntensity: 0.4,  // ambient “fade” on layer 1
+
+  // informational mirrors
   exposureGlobal: 2.48,
   sunIntensity: 4.5,
   ambientIntensity: 0.57,
@@ -153,21 +163,21 @@ const defaults = {
 };
 
 const state = { ...defaults };
-applyAll();
 
-// Panel build (kept simple here; if you already inject elsewhere, feel free to merge)
+// Build panel (CLOSED by default; TUNE button toggles)
 const panel = document.getElementById('tunePanel');
-panel.style.display = 'block'; // open by default
-panel.setAttribute('aria-hidden', 'false');
+panel.style.display = 'none';
+panel.setAttribute('aria-hidden', 'true');
 
-// helper to make a slider + number
+// helper to make a slider + number (step=any to allow 0.0045 etc)
 function row(label, id, min, max, step, value) {
+  const s = step === undefined ? 'any' : step;
   return `
     <div class="row">
       <label for="${id}">${label}</label>
       <div style="display:flex; gap:6px; align-items:center">
-        <input id="${id}" type="range" min="${min}" max="${max}" step="${step}" value="${value}">
-        <input id="${id}Num" type="number" min="${min}" max="${max}" step="${step}" value="${value}" style="width:90px">
+        <input id="${id}" type="range" min="${min}" max="${max}" step="${s}" value="${value}">
+        <input id="${id}Num" type="number" min="${min}" max="${max}" step="${s}" value="${value}" style="width:110px">
       </div>
     </div>
   `;
@@ -178,57 +188,86 @@ panel.innerHTML = `
 
   <div class="section">Sky (three.js Sky)</div>
   <div class="grid">
-    ${row('Turbidity', 'turbidity', 0, 20, 0.01, state.turbidity)}
-    ${row('Rayleigh', 'rayleigh', 0, 4, 0.001, state.rayleigh)}
-    ${row('Mie Coefficient', 'mieCoefficient', 0, 0.1, 0.001, state.mieCoefficient)}
-    ${row('Mie Directional G', 'mieDirectionalG', 0, 1, 0.001, state.mieDirectionalG)}
-    ${row('Elevation (°)', 'elevation', -5, 89, 0.1, state.elevation)}
-    ${row('Azimuth (°)', 'azimuth', 0, 360, 0.1, state.azimuth)}
-    ${row('Sky Exposure', 'skyExposure', 0.0, 5.0, 0.01, state.skyExposure)}
-    ${row('Sun Disc Size', 'skySunSize', 1, 200, 1, state.skySunSize)}
+    ${row('Turbidity', 'turbidity', 0, 20, 'any', state.turbidity)}
+    ${row('Rayleigh', 'rayleigh', 0, 4, 'any', state.rayleigh)}
+    ${row('Mie Coefficient', 'mieCoefficient', 0, 0.1, 'any', state.mieCoefficient)}
+    ${row('Mie Directional G', 'mieDirectionalG', 0, 1, 'any', state.mieDirectionalG)}
+    ${row('Elevation (°)', 'elevation', -5, 89, 'any', state.elevation)}
+    ${row('Azimuth (°)', 'azimuth', 0, 360, 'any', state.azimuth)}
+    ${row('Sky Exposure', 'skyExposure', 0.0, 5.0, 'any', state.skyExposure)}
+    ${row('Sun Disc Size', 'skySunSize', 1, 400, 'any', state.skySunSize)}
   </div>
 
   <div class="section">Stars</div>
   <div class="grid">
-    ${row('Star Count', 'starCount', 0, 15000, 100, state.starCount)}
-    ${row('Star Size (px)', 'starSize', 0.5, 6, 0.1, state.starSize)}
-    ${row('Twinkle Speed', 'starTwinkleSpeed', 0, 4, 0.01, state.starTwinkleSpeed)}
+    ${row('Star Count', 'starCount', 0, 15000, 1, state.starCount)}
+    ${row('Star Size (px)', 'starSize', 0.1, 16, 'any', state.starSize)}
+    ${row('Twinkle Speed', 'starTwinkleSpeed', 0, 6, 'any', state.starTwinkleSpeed)}
   </div>
 
   <div class="section">Terrain Lighting & Exposure</div>
   <div class="grid">
-    ${row('Terrain Light Exposure', 'lightingExposure', 0.2, 5.0, 0.01, state.lightingExposure)}
-    ${row('Global Exposure (tone map)', 'exposure', 0.1, 5, 0.01, state.exposure)}
+    ${row('Terrain Light Exposure', 'lightingExposure', 0.0, 6.0, 'any', state.lightingExposure)}
+    ${row('Global Exposure (tone map)', 'exposure', 0.01, 8, 'any', state.exposure)}
   </div>
 
   <div class="section">Terrain Material</div>
   <div class="grid">
-    ${row('Displacement', 'terrainDisplacement', 0, 3, 0.01, state.terrainDisplacement)}
-    ${row('Roughness', 'terrainRoughness', 0, 1, 0.01, state.terrainRoughness)}
-    ${row('Texture Repeat', 'terrainRepeat', 4, 200, 1, state.terrainRepeat)}
+    ${row('Displacement', 'terrainDisplacement', 0, 3, 'any', state.terrainDisplacement)}
+    ${row('Roughness', 'terrainRoughness', 0, 1, 'any', state.terrainRoughness)}
+    ${row('Texture Repeat', 'terrainRepeat', 1, 400, 1, state.terrainRepeat)}
     <div class="row"><label>Sand Tint</label><input id="terrainTint" type="color" value="${state.terrainTint}"></div>
-    ${row('Saturation', 'terrainSaturation', 0, 1.5, 0.01, state.terrainSaturation)}
+    ${row('Saturation', 'terrainSaturation', 0, 2, 'any', state.terrainSaturation)}
+  </div>
+
+  <div class="section">Earth (GLB in sky)</div>
+  <div class="grid">
+    ${row('Visible (0=off,1=on)', 'earthVisible', 0, 1, 1, state.earthVisible ? 1 : 0)}
+    ${row('Scale', 'earthScale', 1, 400, 'any', state.earthScale)}
+    ${row('Position X', 'earthX', -5000, 5000, 'any', state.earthX)}
+    ${row('Position Y', 'earthY', -5000, 5000, 'any', state.earthY)}
+    ${row('Position Z', 'earthZ', -5000, 5000, 'any', state.earthZ)}
+    ${row('Earth Sun Intensity', 'earthSunIntensity', 0, 10, 'any', state.earthSunIntensity)}
+    ${row('Earth Ambient Intensity', 'earthAmbientIntensity', 0, 5, 'any', state.earthAmbientIntensity)}
   </div>
 
   <button id="copyParams" type="button">Copy current parameters</button>
 `;
 
+// TUNE button toggles the panel
+const tuneBtn = document.getElementById('tuneBtn');
+let panelOpen = false;
+tuneBtn.addEventListener('click', () => {
+  panelOpen = !panelOpen;
+  panel.style.display = panelOpen ? 'block' : 'none';
+  panel.setAttribute('aria-hidden', String(!panelOpen));
+});
+
+// helpers
 function bindPair(id, onChange) {
   const range = document.getElementById(id);
   const num = document.getElementById(id + 'Num');
-  if (!range) return;
+  if (!range && !num) return;
 
-  const sync = (v) => {
-    if (num) num.value = String(v);
-    range.value = String(v);
+  const getNum = () => {
+    const v = (num ? num.value : range.value);
+    // allow typed decimals like 0.0045
+    const parsed = parseFloat(v);
+    return Number.isFinite(parsed) ? parsed : 0;
   };
-  const handler = (v) => { sync(v); onChange(v); };
+  const setBoth = (v) => {
+    if (range) range.value = String(v);
+    if (num) num.value = String(v);
+  };
+  const handle = () => { const v = getNum(); setBoth(v); onChange(v); };
 
-  range.addEventListener('input', () => handler(Number(range.value)), { passive: true });
-  range.addEventListener('change', () => handler(Number(range.value)), { passive: true });
+  if (range) {
+    range.addEventListener('input', handle, { passive: true });
+    range.addEventListener('change', handle, { passive: true });
+  }
   if (num) {
-    num.addEventListener('input', () => handler(Number(num.value)), { passive: true });
-    num.addEventListener('change', () => handler(Number(num.value)), { passive: true });
+    num.addEventListener('input', handle, { passive: true });
+    num.addEventListener('change', handle, { passive: true });
   }
 }
 function bindColor(id, onChange) {
@@ -273,6 +312,15 @@ bindPair('terrainRepeat', v => { state.terrainRepeat = v; terrainAPI.setRepeat(v
 bindColor('terrainTint', v => { state.terrainTint = v; terrainAPI.setTintColor(v); });
 bindPair('terrainSaturation', v => { state.terrainSaturation = v; terrainAPI.setSaturation(v); });
 
+// Earth controls (proxied to skyAPI – earth lives in the sky module)
+bindPair('earthVisible', v => { state.earthVisible = !!v; skyAPI.setEarthVisible(!!v); });
+bindPair('earthScale', v => { state.earthScale = v; skyAPI.setEarthScale(v); });
+bindPair('earthX', v => { state.earthX = v; skyAPI.setEarthPosition(v, state.earthY, state.earthZ); });
+bindPair('earthY', v => { state.earthY = v; skyAPI.setEarthPosition(state.earthX, v, state.earthZ); });
+bindPair('earthZ', v => { state.earthZ = v; skyAPI.setEarthPosition(state.earthX, state.earthY, v); });
+bindPair('earthSunIntensity', v => { state.earthSunIntensity = v; skyAPI.setEarthSunIntensity(v); });
+bindPair('earthAmbientIntensity', v => { state.earthAmbientIntensity = v; skyAPI.setEarthAmbientIntensity(v); });
+
 // Copy params
 document.getElementById('copyParams').addEventListener('click', async () => {
   const snapshot = {
@@ -313,6 +361,13 @@ function applyAll() {
   skyAPI.setStarTwinkleSpeed(state.starTwinkleSpeed);
   skyAPI.setSunSize(state.skySunSize);
 
+  // Earth
+  skyAPI.setEarthVisible(state.earthVisible);
+  skyAPI.setEarthScale(state.earthScale);
+  skyAPI.setEarthPosition(state.earthX, state.earthY, state.earthZ);
+  skyAPI.setEarthSunIntensity(state.earthSunIntensity);
+  skyAPI.setEarthAmbientIntensity(state.earthAmbientIntensity);
+
   // Terrain lighting / exposure
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = state.exposure;
@@ -327,3 +382,4 @@ function applyAll() {
   terrainAPI.setTintColor(state.terrainTint);
   if (terrainAPI.setSaturation) terrainAPI.setSaturation(state.terrainSaturation);
 }
+applyAll();
