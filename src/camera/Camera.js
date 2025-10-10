@@ -6,13 +6,31 @@ export class Camera extends THREE.PerspectiveCamera {
         this.player = player;
         this.pitch = 0;
         this.eyeHeight = 1.6;
+
+        // Head bobbing properties
+        this.bobTimer = 0;
+        this.bobSpeed = 0.15;
+        this.bobAmount = 0.04;
+
         player.mesh.add(this);
         this.position.set(0, this.eyeHeight, 0);
     }
+
     update() {
+        // Look up/down
         this.rotation.order = 'YXZ';
-        // The Y rotation is inherited from the parent (player.mesh), so it's not set here
-        this.rotation.x = -this.pitch; // Negative for looking up
+        this.rotation.x = -this.pitch;
         this.rotation.z = 0;
+
+        // Head bobbing logic
+        const velocityLength = this.player.velocity.length();
+        if (velocityLength > 0.01) { // Player is moving
+            this.bobTimer += this.bobSpeed;
+            const bobOffset = Math.sin(this.bobTimer) * this.bobAmount;
+            this.position.y = this.eyeHeight + bobOffset;
+        } else { // Player is standing still
+            // Smoothly return to the default eye height
+            this.position.y = THREE.MathUtils.lerp(this.position.y, this.eyeHeight, 0.1);
+        }
     }
 }
