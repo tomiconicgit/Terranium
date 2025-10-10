@@ -6,7 +6,6 @@ import { Builder }    from './tools/Builder.js';
 import { initUI }     from './ui/Hotbar.js';
 
 (async function boot(){
-  // renderer
   const renderer = new THREE.WebGLRenderer({ antialias:true });
   if ('outputColorSpace' in renderer) renderer.outputColorSpace = THREE.SRGBColorSpace;
   else renderer.outputEncoding = THREE.sRGBEncoding;
@@ -15,20 +14,16 @@ import { initUI }     from './ui/Hotbar.js';
   renderer.setSize(innerWidth, innerHeight);
   document.body.appendChild(renderer.domElement);
 
-  // scene + camera
   const sceneRoot = new SceneRoot();
   const { scene, camera, groundRayMesh } = sceneRoot;
 
-  // controls
   const isMobile = 'ontouchstart' in window;
   const controls = isMobile ? new MobileFPV(camera, document.getElementById('joy'))
                             : new DesktopFPV(camera, renderer.domElement);
 
-  // builder
   const builder = new Builder(scene, camera, groundRayMesh);
-
-  // UI
-  initUI(builder);
+  const uiApi = initUI(builder);
+  builder.setUI(uiApi); // enable hotbar cycling from controller
 
   addEventListener('resize', ()=>{
     camera.aspect = innerWidth/innerHeight;
@@ -41,7 +36,7 @@ import { initUI }     from './ui/Hotbar.js';
     requestAnimationFrame(animate);
     const dt = Math.min(0.05, clock.getDelta());
     controls.update(dt);
-    builder.updateHover();
+    builder.update(dt);            // gamepad polling + hover from reticle
     renderer.render(scene, camera);
   })();
 })();
