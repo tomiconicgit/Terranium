@@ -1,142 +1,323 @@
-import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js';
+// Builder.js — controller-only placement/removal + smart orientation/snapping
+// R2 (7) = place, L2 (6) = destroy, R1 (5)/L1 (4) = hotbar next/prev
+// Ray is cast from screen center (reticle), highlight is aligned to snapped grid.
 
-export const PARTS = [
-  { id:'sand',     kind:'cube',   color:0xe4d3a5, label:'Sand' },
-  { id:'grass',    kind:'cube',   color:0x5da24d, label:'Grass' },
-  { id:'concrete', kind:'cube',   color:0xa9b0b7, label:'Concrete' },
-  { id:'metal',    kind:'cube',   color:0x8c99a6, label:'Metal' },
-  { id:'ironW',    kind:'cube',   color:0xf0f2f5, label:'Iron (white)' },
-  { id:'asphalt',  kind:'cube',   color:0x25272b, label:'Asphalt' },
-
-  { id:'slabC',    kind:'slab',   color:0xa9b0b7, label:'Slab Concrete' },
-  { id:'slabS',    kind:'slab',   color:0xe4d3a5, label:'Slab Sand' },
-  { id:'slabG',    kind:'slab',   color:0x5da24d, label:'Slab Grass' },
-
-  { id:'pipe',     kind:'pipe',   color:0xc8c59e, label:'Pipe' },
-  { id:'wire',     kind:'wire',   color:0xdddddd, label:'Wire' },
-  { id:'glass',    kind:'glass',  color:0x7fa0c4, label:'Window' },
-];
+import * as THREE from 'three';
 
 export class Builder {
-  constructor(scene, camera, groundRayMesh){
-    this.scene = scene; this.camera = camera;
-    this.ray = new THREE.Raycaster();
-    this.mouse = new THREE.Vector2(0,0); // reticle center
-    this.ground = groundRayMesh;
+  constructor(scene, camera, hotbar) {
+    this.scene = scene;
+    this.camera = camera;
+    this.hotbar = hotbar;
 
-    this.placed = []; // {_mesh,id,kind,x,y,z,rot}
-    this._activeId = 'concrete';
+    this.world = scene.getObjectByName('world');
+    if (!this.world) {
+      this.world = new THREE.Group(); this.world.name='world';
+      this.scene.add(this.world);
+    }
 
-    // hover box
-    this.hover = new THREE.Mesh(
-      new THREE.BoxGeometry(1.01,1.01,1.01),
-      new THREE.MeshBasicMaterial({ color:0xffffff, transparent:true, opacity:0.15 })
-    );
-    this.hover.visible=false; this.scene.add(this.hover);
+    this.grid = 1.0;
+    this.raycaster = new THREE.Raycaster();
+    this.tmpV = new THREE.Vector3();
+    this.tmpN = new THREE.Vector3();
 
-    // CONTROLLER ONLY:
-    this.prevButtons = [];
-    this.ui = null;
+    // highlight cube (aligned to where placement would occur)
+    const hlGeom = new THREE.BoxGeometry(this.grid, this.grid, this.grid);
+    const hlMat = new THREE.MeshBasicMaterial({ color: 0xffffff, opacity: 0.25, transparent: true, depthWrite:false });
+    this.highlight = new THREE.Mesh(hlGeom, hlMat);
+    this.highlight.visible = false;
+    this.scene.add(this.highlight);
+
+    // catalog
+    this.catalog = createCatalog();
+    this.hotbar.setCatalog(this.catalog);
+
+    // For button edges
+    this._lastButtons = [];
+
+    // Reuse common geometries / materials
+    this.cache = makeAssetCache();
   }
 
-  setUI(ui){ this.ui = ui; }
-  setActive(id){ this._activeId = id; }
-  getActive(){ return this._activeId; }
-
-  _intersections(){
-    const objs = [this.ground, ...this.placed.map(p=>p._mesh)];
-    this.mouse.set(0,0);
-    this.ray.setFromCamera(this.mouse, this.camera);
-    return this.ray.intersectObjects(objs, false);
+  getGamepad() {
+    const pads = navigator.getGamepads?.() || [];
+    for (const p of pads) if (p && p.connected) return p;
+    return null;
+  }
+  wasPressed(btnIndex) {
+    const gp = this.getGamepad();
+    if (!gp) return false;
+    const now = !!gp.buttons[btnIndex]?.pressed;
+    const before = !!this._lastButtons[btnIndex];
+    this._lastButtons[btnIndex] = now;
+    return now && !before;
+  }
+  isDown(btnIndex) {
+    const gp = this.getGamepad();
+    return gp ? !!gp.buttons[btnIndex]?.pressed : false;
   }
 
-  updateHover(){
-    const hit = this._intersections()[0];
-    if(!hit){ this.hover.visible=false; return; }
+  update(_dt) {
+    const gp = this.getGamepad();
 
-    let pos = new THREE.Vector3();
-    if (hit.object === this.ground){
-      const gx = Math.floor(hit.point.x)+0.5;
-      const gz = Math.floor(hit.point.z)+0.5;
-      pos.set(gx, 0.5, gz);
-    } else {
-      const normal = hit.face.normal.clone().round();
-      pos.copy(hit.object.position).add(normal);
-      if (hit.object.userData.kind==='slab' && normal.y===0){
-        pos.y = Math.round(pos.y*4)/4;
+    // Shoulders move hotbar selection
+    if (this.wasPressed(5)) this.hotbar.selectNext(); // R1
+    if (this.wasPressed(4)) this.hotbar.selectPrev(); // L1
+
+    // Cast from center of screen -> intersect world & ground
+    const ndc = new THREE.Vector2(0,0);
+    this.raycaster.setFromCamera(ndc, this.camera);
+
+    const hits = this.raycaster.intersectObjects([this.world, this.scene.getObjectByName('groundInstanced')], true);
+    if (hits.length) {
+      const hit = hits[0];
+      const faceN = hit.face?.normal?.clone()?.applyMatrix3(new THREE.Matrix3().getNormalMatrix(hit.object.matrixWorld)) || new THREE.Vector3(0,1,0);
+      faceN.normalize();
+
+      // Determine placement position: if we hit an existing block, offset one grid along face normal;
+      // if we hit ground instance, place at snapped point (y=+0.5).
+      const basePoint = hit.point.clone();
+      const isWorld = isWorldChild(hit.object, this.world);
+
+      let placePos;
+      if (isWorld) {
+        // place adjacent to the face we are looking at
+        placePos = snapVec(basePoint.addScaledVector(faceN, this.grid * 0.5), this.grid);
+      } else {
+        // ground: sit on top
+        placePos = snapVec(basePoint, this.grid);
+        placePos.y = this.grid * 0.5;
       }
-    }
-    this.hover.position.copy(pos);
-    this.hover.visible = true;
-  }
 
-  place(){
-    if(!this.hover.visible) return;
-    const def = PARTS.find(p=>p.id===this._activeId);
-    if(!def) return;
+      this.highlight.visible = true;
+      this.highlight.position.copy(placePos);
+      this.highlight.scale.set(1,1,1);
 
-    let mesh, y=this.hover.position.y;
-    if (def.kind==='cube'){
-      mesh = new THREE.Mesh(new THREE.BoxGeometry(1,1,1),
-        new THREE.MeshStandardMaterial({ color:def.color, roughness:.9, metalness:.05 }));
-    } else if (def.kind==='slab'){
-      mesh = new THREE.Mesh(new THREE.BoxGeometry(1,0.25,1),
-        new THREE.MeshStandardMaterial({ color:def.color, roughness:.95, metalness:.03 }));
-      y = Math.round((y-0.125)*4)/4 + 0.125;
-    } else if (def.kind==='pipe'){
-      mesh = new THREE.Mesh(new THREE.CylinderGeometry(0.12,0.12,1,12),
-        new THREE.MeshStandardMaterial({ color:def.color, roughness:.75, metalness:.6 }));
-      mesh.rotation.z = Math.PI/2;
-    } else if (def.kind==='wire'){
-      mesh = new THREE.Mesh(new THREE.CylinderGeometry(0.04,0.04,1,10),
-        new THREE.MeshStandardMaterial({ color:def.color, roughness:1, metalness:0 }));
-      mesh.rotation.z = Math.PI/2;
-    } else if (def.kind==='glass'){
-      mesh = new THREE.Mesh(new THREE.BoxGeometry(1,1,0.05),
-        new THREE.MeshStandardMaterial({ color:def.color, roughness:.2, metalness:0, transparent:true, opacity:.55 }));
-    }
-
-    mesh.position.set(this.hover.position.x, y, this.hover.position.z);
-    mesh.castShadow = true; mesh.receiveShadow = true;
-    mesh.userData.kind = def.kind;
-    this.scene.add(mesh);
-
-    this.placed.push({ id:def.id, kind:def.kind, x:mesh.position.x, y:mesh.position.y, z:mesh.position.z, rot:mesh.rotation.toArray(), _mesh:mesh });
-  }
-
-  remove(){
-    const hit = this._intersections()[0];
-    if (!hit || hit.object===this.ground) return;
-    const idx = this.placed.findIndex(p=>p._mesh===hit.object);
-    if (idx>=0){
-      const m = this.placed[idx]._mesh;
-      this.scene.remove(m);
-      m.geometry.dispose(); if (m.material?.dispose) m.material.dispose();
-      this.placed.splice(idx,1);
+      // Place / Destroy
+      if (this.isDown(7)) { // R2 place (hold = repeat)
+        this.tryPlace(hit, placePos, faceN);
+      }
+      if (this.isDown(6)) { // L2 destroy
+        this.tryDestroy(hit, placePos);
+      }
+    } else {
+      this.highlight.visible = false;
     }
   }
 
-  exportJSON(){
-    return JSON.stringify(this.placed.map(({_mesh, ...rest})=>rest), null, 2);
+  tryDestroy(hit) {
+    // If we’re pointing at a placed asset, remove that block chain piece
+    const obj = findAssetRoot(hit.object);
+    if (obj && obj.parent === this.world) {
+      obj.parent.remove(obj);
+    }
   }
 
-  _pollGamepadButtons(){
-    const gp = navigator.getGamepads?.()[0];
-    if (!gp) return;
-    const b = gp.buttons;
-    const pressed = i => !!(b[i] && b[i].pressed);
-    const edge = i => pressed(i) && !this.prevButtons[i];
+  tryPlace(hit, placePos, faceN) {
+    const def = this.catalog[this.hotbar.index];
+    if (!def) return;
 
-    if (edge(7)) this.place();                  // R2
-    if (edge(6)) this.remove();                 // L2
-    if (edge(5)) this.ui?.selectByOffset?.(+1); // R1
-    if (edge(4)) this.ui?.selectByOffset?.(-1); // L1
+    // If targeting an existing pipe/wire of same asset, extend along its axis.
+    const targetRoot = findAssetRoot(hit.object);
+    if (targetRoot?.userData?.asset?.id === def.id && (def.kind === 'pipe' || def.kind === 'wire')) {
+      // extend from the end the user looked at
+      const axis = targetRoot.userData.axis || chooseAxisFromFace(faceN);
+      const step = def.step || 1.0;
+      const dir = axisToVec3(axis);
+      // project the ray-hit point onto the local axis to decide which end is closer
+      const localHit = hit.point.clone().sub(targetRoot.position);
+      const side = Math.sign(localHit.dot(dir));
+      const extensionPos = targetRoot.position.clone().addScaledVector(dir, side * step);
+      const ext = makeAssetMesh(def, this.cache);
+      ext.position.copy(extensionPos);
+      ext.userData.asset = { id:def.id };
+      ext.userData.axis = axis;
+      this.world.add(ext);
+      return;
+    }
 
-    this.prevButtons = b.map(x=>x?.pressed);
+    // otherwise create a new
+    const mesh = makeAssetMesh(def, this.cache);
+
+    // orientation is chosen from face normal (vertical vs horizontal)
+    if (def.orient === 'auto') {
+      const axis = chooseAxisFromFace(faceN);
+      mesh.userData.axis = axis; // store for future extension
+      orientMesh(mesh, axis, def);
+    }
+
+    mesh.position.copy(placePos);
+    mesh.userData.asset = { id: def.id };
+    this.world.add(mesh);
+  }
+}
+
+/* ---------------- Catalog (10 items) ---------------- */
+
+function createCatalog() {
+  // Each item gets: id, name, kind, orient('auto'|'none'), preview, step(optional), size
+  return [
+    { id:'block_grass',    name:'Grass Block', kind:'block',   orient:'none', preview:'#49a84b', previewText:'' },
+    { id:'block_concrete', name:'Concrete',    kind:'block',   orient:'none', preview:'#b9c0c7', previewText:'' },
+    { id:'block_sand',     name:'Sand',        kind:'block',   orient:'none', preview:'#dbc99a', previewText:'' },
+    { id:'block_metal',    name:'Metal',       kind:'block',   orient:'none', preview:'#9ea6af', previewText:'' },
+    { id:'block_iron',     name:'White Iron',  kind:'block',   orient:'none', preview:'#eef2f5', previewText:'' },
+    { id:'block_asphalt',  name:'Asphalt',     kind:'block',   orient:'none', preview:'#1b1b1b', previewText:'' },
+    { id:'slab_concrete',  name:'Slab 1/4',    kind:'slab',    orient:'auto', preview:'#b9c0c7', previewText:'1/4' },
+    { id:'pipe_round',     name:'Pipe',        kind:'pipe',    orient:'auto', preview:'#caa555', previewText:'' , step:1.0 },
+    { id:'wire_thin',      name:'Wire',        kind:'wire',    orient:'auto', preview:'#444',    previewText:'' , step:1.0 },
+    { id:'window_thin',    name:'Window',      kind:'window',  orient:'auto', preview:'#88b8f5', previewText:'' },
+  ];
+}
+
+/* ---------------- Asset Mesh Factory ---------------- */
+
+function makeAssetCache() {
+  const cache = {};
+
+  // base materials
+  cache.mats = {
+    grass:    new THREE.MeshStandardMaterial({ color:0x49a84b, roughness:1, metalness:0 }),
+    concrete: new THREE.MeshStandardMaterial({ color:0xb9c0c7, roughness:0.95, metalness:0.05 }),
+    sand:     new THREE.MeshStandardMaterial({ color:0xdbc99a, roughness:1, metalness:0 }),
+    metal:    new THREE.MeshStandardMaterial({ color:0x9ea6af, roughness:0.5, metalness:0.9 }),
+    iron:     new THREE.MeshStandardMaterial({ color:0xeef2f5, roughness:0.45, metalness:0.95 }),
+    asphalt:  new THREE.MeshStandardMaterial({ color:0x1b1b1b, roughness:1, metalness:0 }),
+    pipe:     new THREE.MeshStandardMaterial({ color:0xcaa555, roughness:0.9, metalness:0.2 }),
+    wire:     new THREE.MeshStandardMaterial({ color:0x444444, roughness:1.0, metalness:0.0 }),
+    glass:    new THREE.MeshStandardMaterial({ color:0x88b8f5, roughness:0.15, metalness:0.05, transparent:true, opacity:0.4 })
+  };
+
+  // geometries (1m grid)
+  cache.geom = {
+    cube: new THREE.BoxGeometry(1,1,1),
+    slabY: new THREE.BoxGeometry(1,0.25,1),
+    slabX: new THREE.BoxGeometry(0.25,1,1),
+    slabZ: new THREE.BoxGeometry(1,1,0.25),
+
+    pipeX: new THREE.CylinderGeometry(0.18,0.18,1,16), // will rotate into X/Z
+    pipeY: new THREE.CylinderGeometry(0.18,0.18,1,16),
+    pipeZ: new THREE.CylinderGeometry(0.18,0.18,1,16),
+
+    wireX: new THREE.CylinderGeometry(0.05,0.05,1,8),
+    wireY: new THREE.CylinderGeometry(0.05,0.05,1,8),
+    wireZ: new THREE.CylinderGeometry(0.05,0.05,1,8),
+
+    windowX: new THREE.BoxGeometry(1,1,0.05),
+    windowY: new THREE.BoxGeometry(0.05,1,1),
+    windowZ: new THREE.BoxGeometry(1,0.05,1),
+  };
+
+  // rotate cylinders to align with axis
+  cache.geom.pipeX.rotateZ(Math.PI/2);
+  cache.geom.pipeZ.rotateX(Math.PI/2);
+  cache.geom.wireX.rotateZ(Math.PI/2);
+  cache.geom.wireZ.rotateX(Math.PI/2);
+
+  return cache;
+}
+
+function makeAssetMesh(def, cache) {
+  let mesh;
+  switch (def.id) {
+    // blocks
+    case 'block_grass':   mesh = new THREE.Mesh(cache.geom.cube, cache.mats.grass); break;
+    case 'block_concrete':mesh = new THREE.Mesh(cache.geom.cube, cache.mats.concrete); break;
+    case 'block_sand':    mesh = new THREE.Mesh(cache.geom.cube, cache.mats.sand); break;
+    case 'block_metal':   mesh = new THREE.Mesh(cache.geom.cube, cache.mats.metal); break;
+    case 'block_iron':    mesh = new THREE.Mesh(cache.geom.cube, cache.mats.iron); break;
+    case 'block_asphalt': mesh = new THREE.Mesh(cache.geom.cube, cache.mats.asphalt); break;
+
+    // slab 1/4 — choose Y slab by default; will orient later if needed
+    case 'slab_concrete': mesh = new THREE.Mesh(cache.geom.slabY, cache.mats.concrete); break;
+
+    // pipe
+    case 'pipe_round':    mesh = new THREE.Mesh(cache.geom.pipeY, cache.mats.pipe); break;
+
+    // wire (thin)
+    case 'wire_thin':     mesh = new THREE.Mesh(cache.geom.wireY, cache.mats.wire); break;
+
+    // window (thin plane-like block)
+    case 'window_thin':   mesh = new THREE.Mesh(cache.geom.windowX, cache.mats.glass); break;
+
+    default:
+      mesh = new THREE.Mesh(cache.geom.cube, cache.mats.concrete);
   }
 
-  update(){
-    this._pollGamepadButtons();
-    this.updateHover();
+  mesh.castShadow = false; mesh.receiveShadow = true;
+  mesh.userData.asset = { id: def.id };
+  mesh.name = `asset_${def.id}`;
+  return mesh;
+}
+
+/* ---------------- Helpers ---------------- */
+
+function isWorldChild(obj, worldRoot) {
+  let p = obj;
+  while (p) {
+    if (p === worldRoot) return true;
+    p = p.parent;
   }
+  return false;
+}
+
+function findAssetRoot(obj) {
+  let p = obj;
+  while (p) {
+    if (p.userData?.asset && p.name?.startsWith('asset_')) return p;
+    p = p.parent;
+  }
+  return null;
+}
+
+function snap(v, g) { return Math.round(v / g) * g; }
+function snapVec(v, g) {
+  return new THREE.Vector3(snap(v.x, g), snap(v.y, g), snap(v.z, g));
+}
+
+// Decide axis from the face we’re aiming at (used for auto orientation)
+function chooseAxisFromFace(n) {
+  // pick the dominant axis of normal; if pointing up/down => vertical (Y)
+  const ax = Math.abs(n.x), ay = Math.abs(n.y), az = Math.abs(n.z);
+  if (ay >= ax && ay >= az) return 'y';
+  if (ax >= ay && ax >= az) return 'x';
+  return 'z';
+}
+
+function axisToVec3(axis) {
+  if (axis === 'x') return new THREE.Vector3(1,0,0);
+  if (axis === 'y') return new THREE.Vector3(0,1,0);
+  return new THREE.Vector3(0,0,1);
+}
+
+function orientMesh(mesh, axis, def) {
+  // Change geometry if needed (slab/windows/wire/pipe) to match axis
+  const id = def.id;
+  const parent = mesh.parent;
+  if (parent) parent.remove(mesh); // safe swap if needed
+
+  // swap geometry for axis-specific variants
+  if (def.kind === 'slab') {
+    if (axis === 'y') mesh.geometry = mesh.geometry.parameters?.height === 0.25 ? mesh.geometry : new THREE.BoxGeometry(1,0.25,1);
+    else if (axis === 'x') mesh.geometry = new THREE.BoxGeometry(0.25,1,1);
+    else mesh.geometry = new THREE.BoxGeometry(1,1,0.25);
+  }
+  if (def.kind === 'pipe') {
+    if (axis === 'x') mesh.geometry = new THREE.CylinderGeometry(0.18,0.18,1,16).rotateZ(Math.PI/2);
+    if (axis === 'y') mesh.geometry = new THREE.CylinderGeometry(0.18,0.18,1,16);
+    if (axis === 'z') mesh.geometry = new THREE.CylinderGeometry(0.18,0.18,1,16).rotateX(Math.PI/2);
+  }
+  if (def.kind === 'wire') {
+    if (axis === 'x') mesh.geometry = new THREE.CylinderGeometry(0.05,0.05,1,8).rotateZ(Math.PI/2);
+    if (axis === 'y') mesh.geometry = new THREE.CylinderGeometry(0.05,0.05,1,8);
+    if (axis === 'z') mesh.geometry = new THREE.CylinderGeometry(0.05,0.05,1,8).rotateX(Math.PI/2);
+  }
+  if (def.kind === 'window') {
+    // window aligned perpendicular to axis: if aiming X-face -> window normal is X so use thin along Z/Y
+    if (axis === 'x') mesh.geometry = new THREE.BoxGeometry(0.05,1,1);
+    if (axis === 'y') mesh.geometry = new THREE.BoxGeometry(1,0.05,1);
+    if (axis === 'z') mesh.geometry = new THREE.BoxGeometry(1,1,0.05);
+  }
+
+  if (parent) parent.add(mesh);
 }
