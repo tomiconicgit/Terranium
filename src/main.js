@@ -13,6 +13,8 @@ if (screen.orientation && screen.orientation.lock) {
 }
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
+// **THE FIX**: This line ensures the renderer correctly displays the sRGB texture colors.
+renderer.outputEncoding = THREE.sRGBEncoding;
 renderer.setSize(window.innerWidth, window.innerHeight);
 document.body.appendChild(renderer.domElement);
 
