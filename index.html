@@ -38,7 +38,6 @@
     (async () => {
       await nukeSWAndCaches();
       const ts = Date.now();
-      // Bust cache for all your modules by appending ?v=ts to the entry.
       await import(`./src/main.js?v=${ts}`);
     })();
   </script>
