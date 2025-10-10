@@ -6,7 +6,20 @@ export class PerlinNoise {
             this.p[256 + i] = this.p[i] = this.permutation[i];
         }
     }
-    noise(x, y) {
+    noise(x, y, octaves = 1, persistence = 0.5) {
+        let total = 0;
+        let frequency = 1;
+        let amplitude = 1;
+        let maxValue = 0;
+        for (let i = 0; i < octaves; i++) {
+            total += this.singleNoise(x * frequency, y * frequency) * amplitude;
+            maxValue += amplitude;
+            amplitude *= persistence;
+            frequency *= 2;
+        }
+        return total / maxValue;
+    }
+    singleNoise(x, y) {
         const X = Math.floor(x) & 255;
         const Y = Math.floor(y) & 255;
         x -= Math.floor(x);
