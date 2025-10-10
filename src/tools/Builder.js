@@ -34,17 +34,7 @@ export class Builder {
     );
     this.hover.visible=false; this.scene.add(this.hover);
 
-    // input
-    addEventListener('contextmenu', e=>e.preventDefault());
-    addEventListener('pointerdown', e=>{
-      if (e.button===2) this.remove();
-      else this.place();
-    }, {passive:true});
-
-    // mobile long-press remove
-    let t; addEventListener('pointerdown', ()=>{ t=setTimeout(()=>this.remove(),500); });
-    addEventListener('pointerup',   ()=>clearTimeout(t));
-
+    // CONTROLLER ONLY:
     this.prevButtons = [];
     this.ui = null;
   }
@@ -66,12 +56,10 @@ export class Builder {
 
     let pos = new THREE.Vector3();
     if (hit.object === this.ground){
-      // ground grid snap
       const gx = Math.floor(hit.point.x)+0.5;
       const gz = Math.floor(hit.point.z)+0.5;
       pos.set(gx, 0.5, gz);
     } else {
-      // face snap to side/top/bottom
       const normal = hit.face.normal.clone().round();
       pos.copy(hit.object.position).add(normal);
       if (hit.object.userData.kind==='slab' && normal.y===0){
@@ -132,15 +120,15 @@ export class Builder {
     return JSON.stringify(this.placed.map(({_mesh, ...rest})=>rest), null, 2);
   }
 
-  _pollGamepad(){
+  _pollGamepadButtons(){
     const gp = navigator.getGamepads?.()[0];
     if (!gp) return;
     const b = gp.buttons;
     const pressed = i => !!(b[i] && b[i].pressed);
     const edge = i => pressed(i) && !this.prevButtons[i];
 
-    if (edge(7)) this.place();                 // R2
-    if (edge(6)) this.remove();                // L2
+    if (edge(7)) this.place();                  // R2
+    if (edge(6)) this.remove();                 // L2
     if (edge(5)) this.ui?.selectByOffset?.(+1); // R1
     if (edge(4)) this.ui?.selectByOffset?.(-1); // L1
 
@@ -148,7 +136,7 @@ export class Builder {
   }
 
   update(){
-    this._pollGamepad();
+    this._pollGamepadButtons();
     this.updateHover();
   }
 }
