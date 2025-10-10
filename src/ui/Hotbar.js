@@ -7,7 +7,7 @@ export function initUI(builder){
   const btnBlocks = document.getElementById('blocksBtn');
   const btnCopy = document.getElementById('copyBtn');
 
-  // Build palette tiles
+  // Palette
   grid.innerHTML = '';
   PARTS.forEach(p=>{
     const el = document.createElement('div');
@@ -18,10 +18,10 @@ export function initUI(builder){
     grid.appendChild(el);
   });
 
-  // Hotbar = first 10 parts (or repeat if fewer)
+  // Hotbar = first 10
   const barParts = Array.from({length:10}, (_,i)=> PARTS[i % PARTS.length]);
   hotbar.innerHTML = '';
-  barParts.forEach((p,i)=>{
+  barParts.forEach((p)=>{
     const slot = document.createElement('div');
     slot.className = 'slot';
     slot.dataset.id = p.id;
@@ -61,7 +61,6 @@ export function initUI(builder){
     modal.querySelector('#closeNow').onclick = ()=> modal.remove();
   };
 
-  // API back to main/builder
   function selectByOffset(delta){
     const ids = barParts.map(p=>p.id);
     const cur = ids.indexOf(builder.getActive());
