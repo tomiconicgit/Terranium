@@ -17,9 +17,9 @@ const camera = new Camera(player);
 const isMobile = 'ontouchstart' in window;
 let controls;
 if (isMobile) {
-    controls = new MobileControls(player);
+    controls = new MobileControls(player, camera);
 } else {
-    controls = new DesktopControls(player);
+    controls = new DesktopControls(player, camera);
 }
 
 window.addEventListener('resize', () => {
