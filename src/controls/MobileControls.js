@@ -4,7 +4,8 @@ export class MobileControls {
     constructor(player, camera) {
         this.player = player;
         this.camera = camera;
-        this.sensitivity = 0.001;
+        // Sensitivity increased for better responsiveness on mobile
+        this.sensitivity = 0.004; 
         this.moveZone = document.createElement('div');
         this.moveZone.style.position = 'absolute';
         this.moveZone.style.left = '20px';
@@ -79,7 +80,6 @@ export class MobileControls {
             this.player.direction.set(side, 0, forward).normalize();
             this.player.direction.applyAxisAngle(new THREE.Vector3(0, 1, 0), this.player.rotation);
 
-            // Set desired velocity based on joystick force and player's walk speed
             const speed = this.player.walkSpeed * this.moveData.force;
             this.player.desiredVelocity.copy(this.player.direction).multiplyScalar(speed);
         }
