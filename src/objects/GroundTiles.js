@@ -3,9 +3,9 @@ import { PerlinNoise } from '../utils/PerlinNoise.js';
 
 /**
  * Sandy ground:
- * - Flat near pad
- * - Gentle cosine “dune rim” towards edges (not mountains)
- * - Horizon blend to a far-haze color so it looks endless
+ * - Flat near pad (small core), then clear dunes
+ * - Cosine rim lift toward the 140×140 boundary
+ * - Strong horizon color blend so it feels endless
  */
 export function createGroundTiles({ size = 140, segments = 140, uniformsRef } = {}) {
   const geom = new THREE.PlaneGeometry(size, size, segments, segments);
@@ -15,70 +15,68 @@ export function createGroundTiles({ size = 140, segments = 140, uniformsRef } = 
   const perlin = new PerlinNoise();
   const pos = geom.attributes.position;
 
-  // Height profile: flat core -> gentle dunes -> rim lift via cosine
-  const duneAmp = 0.25;     // ~25cm dunes
-  const duneFreq = 0.05;
-  const rimAmp  = 0.6;      // up to ~60cm at the outer rim (subtle)
-  const coreR   = 18;       // very flat near the launch pad
+  // --- Tunables (more pronounced than before) ---
+  const coreR   = 10;    // very flat radius around pad (smaller than before)
+  const duneAmp = 0.60;  // dunes height ~0.6m
+  const rimAmp  = 1.80;  // rim lift up to ~1.8m at outer edge
+
+  const p1 = 0.035, p2 = 0.09;   // perlin frequencies
+  const cfx = 0.22, cfz = 0.18;  // long cosine dunes frequency
 
   for (let i = 0; i < pos.count; i++) {
     const x = pos.getX(i);
     const z = pos.getZ(i);
 
-    // Manhattan-to-edge distance normalized [0..1] using a square mask
-    const edgeDist = Math.max(Math.abs(x), Math.abs(z)) / half; // 0 center -> 1 at border
+    // distance to square edge (0 center -> 1 border)
+    const edgeDist = Math.max(Math.abs(x), Math.abs(z)) / half;
 
-    // Dunes (soft noise, damped near the core)
-    const dunes =
-      perlin.noise(x * duneFreq * 0.5, z * duneFreq * 0.5) * duneAmp * 0.6 +
-      perlin.noise(x * duneFreq,       z * duneFreq      ) * duneAmp * 0.4;
-
+    // keep very flat near pad
     const flatCoreBlend = THREE.MathUtils.smoothstep(Math.max(Math.abs(x), Math.abs(z)), coreR, coreR + 6);
-    const dunesHeight = dunes * flatCoreBlend;
 
-    // Cosine rim lift (not mountain, just a gentle perimeter rise)
-    const rimT = THREE.MathUtils.clamp(edgeDist, 0, 1);
-    const rimHeight = (1 - Math.cos(rimT * Math.PI)) * 0.5 * rimAmp; // 0 at center, 1 at edge
+    // dunes = long cosine undulations + two-scale perlin
+    const longCos = (Math.cos(x * cfx) * Math.cos(z * cfz)) * 0.22; // broad “waves”
+    const n  = perlin.noise(x * p1, z * p1) * 0.6 + perlin.noise(x * p2, z * p2) * 0.4;
+    const dunesHeight = (longCos + n) * duneAmp * flatCoreBlend;
 
-    pos.setY(i, dunesHeight + rimHeight * 0.8); // keep it subtle
+    // rim lift using cosine (starts around 60% toward the edge)
+    const rimT = THREE.MathUtils.clamp((edgeDist - 0.6) / 0.4, 0, 1);  // 0 at 60%, 1 at edge
+    const rimHeight = (1 - Math.cos(rimT * Math.PI)) * 0.5 * rimAmp;
+
+    pos.setY(i, dunesHeight + rimHeight);
   }
 
   geom.computeVertexNormals();
 
-  // Material: sandy palette + distance-based horizon blend
+  // --- Material with strong horizon blend ---
   const mat = new THREE.MeshStandardMaterial({
     roughness: 0.95,
     metalness: 0.02,
-    color: 0xe2d6b8,     // base sand
-    vertexColors: false
+    color: 0xe2d6b8
   });
 
   const uniforms = {
     time: uniformsRef?.time ?? { value: 0 },
     uSize: { value: size },
-    sandDeep:   { value: new THREE.Color(0xd7c7a3) },
-    sandLight:  { value: new THREE.Color(0xefe6cf) },
-    horizonCol: { value: new THREE.Color(0xdfe7ef) }, // hazy far color
+    sandDeep:   { value: new THREE.Color(0xd5c29b) },
+    sandLight:  { value: new THREE.Color(0xefe2c3) },
+    horizonCol: { value: new THREE.Color(0xdde7f3) } // obvious haze
   };
 
   mat.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, uniforms);
 
-    shader.vertexShader =
-      `
+    shader.vertexShader = `
       varying vec3 vWorld;
-      ` + shader.vertexShader.replace(
-        '#include <worldpos_vertex>',
-        '#include <worldpos_vertex>\n vWorld = worldPosition.xyz;'
-      );
+    ` + shader.vertexShader.replace(
+      '#include <worldpos_vertex>',
+      '#include <worldpos_vertex>\n vWorld = worldPosition.xyz;'
+    );
 
-    shader.fragmentShader =
-      `
+    shader.fragmentShader = `
       varying vec3 vWorld;
       uniform float uSize;
       uniform vec3 sandDeep, sandLight, horizonCol;
 
-      // tiny grainy variation to avoid flat shading
       float h2(vec2 p){ return fract(sin(dot(p, vec2(127.1,311.7))) * 43758.5453); }
       float vnoise(vec2 p){
         vec2 i=floor(p), f=fract(p);
@@ -86,38 +84,34 @@ export function createGroundTiles({ size = 140, segments = 140, uniformsRef } = 
         vec2 u=f*f*(3.0-2.0*f);
         return mix(mix(a,b,u.x), mix(c,d,u.x), u.y);
       }
-      ` +
-      shader.fragmentShader.replace(
+    ` + shader.fragmentShader
+      .replace(
         '#include <color_fragment>',
         `
         #include <color_fragment>
-        // blend light/deep sand with a little slope-based shading
         float slope = 1.0 - clamp(normalize(vNormal).y, 0.0, 1.0);
-        float grain = vnoise(vWorld.xz * 2.5) * 0.07 + vnoise(vWorld.xz * 0.25) * 0.05;
-        vec3 sand = mix(sandDeep, sandLight, 0.55 + grain - slope*0.12);
+        float grain = vnoise(vWorld.xz * 3.0) * 0.08 + vnoise(vWorld.xz * 0.35) * 0.06;
+        vec3 sand = mix(sandDeep, sandLight, 0.58 + grain - slope*0.15);
 
-        // horizon fade near the 140x140 border (square distance)
         float halfSize = uSize * 0.5;
         float edge = max(abs(vWorld.x), abs(vWorld.z));
-        float t = smoothstep(halfSize * 0.82, halfSize * 0.98, edge); // start fading before the edge
+        // start fading earlier and go fully to horizon at the last 10%
+        float t = smoothstep(halfSize * 0.70, halfSize * 0.98, edge);
         vec3 finalCol = mix(sand, horizonCol, t);
 
-        diffuseColor.rgb = mix(diffuseColor.rgb, finalCol, 0.98);
+        diffuseColor.rgb = finalCol;
         `
-      ).replace(
+      )
+      .replace(
         '#include <roughnessmap_fragment>',
         `
         #include <roughnessmap_fragment>
-        // micro-roughness variation for sand grains
-        float rVar = vnoise(vWorld.xz * 3.0) * 0.05 + vnoise(vWorld.xz * 0.3) * 0.03;
+        float rVar = vnoise(vWorld.xz * 3.0) * 0.06 + vnoise(vWorld.xz * 0.4) * 0.04;
         roughnessFactor = clamp(roughnessFactor + rVar, 0.0, 1.0);
         `
       );
   };
 
   const ground = new THREE.Mesh(geom, mat);
-  ground.receiveShadow = false; // we don't use shadows; keep perf
-
-  // No grid, no vegetation.
   return ground;
 }
