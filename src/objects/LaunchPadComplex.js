@@ -1,9 +1,10 @@
+// src/objects/LaunchPadComplex.js
 import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js';
 
 /**
- * Launch pad complex: bright metals, enclosed tower with decks, framed windows,
+ * Launch pad complex: bright metals, enclosed tower with decks & window bands,
  * open-frame lift on pad side (east), 4x4m car, bridge to launch deck.
- * Interaction: tap/E to call the lift (ground button) or send it (cab panel).
+ * Interaction: tap/E near call button or cab panel to move lift & open doors.
  */
 export function createLaunchPadComplex() {
   const g = new THREE.Group();
@@ -24,17 +25,17 @@ export function createLaunchPadComplex() {
   const mountH        = 3.6;
   const mountBaseY    = hardstandH + 1.2;
 
-  // Tower footprint — expanded so decks have a 2-tile (~4m) walkway
+  // Tower footprint — expanded so decks have ~2 tiles (≈4 m) walkway
   const towerBaseX    = -hardstandSize/2 + 7.5;
   const towerBaseZ    = 4;
-  const towerW        = 12.0;  // was 7.5
-  const towerL        = 12.0;  // was 7.5
+  const towerW        = 12.0;
+  const towerL        = 12.0;
   const towerH        = 46;
 
   // Arms / crew deck level
   const lowerArmH     = 14.0;
-  const upperArmH     = 31.0;            // crew deck top-side
-  const LAUNCH_DECK_Y = upperArmH;       // bridge meets this
+  const upperArmH     = 31.0;            // crew/launch deck elevation
+  const LAUNCH_DECK_Y = upperArmH;
 
   const lowerArmReach = mountOuterR + 3.0;
   const crewReach     = mountOuterR + 5.0;
@@ -53,7 +54,8 @@ export function createLaunchPadComplex() {
   const blk      = new THREE.MeshStandardMaterial({ color: 0x2e2f33, roughness: 0.9,  metalness: 0.2  });
 
   const steelWhite = new THREE.MeshStandardMaterial({ color: 0xf0f2f5, roughness: 0.48, metalness: 0.95 });
-  patchSteelWhite(steelWhite);
+  // Safe shader tweak — will only patch if the chunks exist; otherwise no-op.
+  try { patchSteelWhiteSafely(steelWhite); } catch (e) { console.warn('Steel shader patch disabled:', e); }
 
   const clad     = new THREE.MeshStandardMaterial({ color: 0x8d97a3, roughness: 0.72, metalness: 0.6  });
   const windowMat= new THREE.MeshStandardMaterial({
@@ -163,7 +165,6 @@ export function createLaunchPadComplex() {
 
   // Decks every 8m (walkable), window bands in between
   const deckStep = 8;
-  const floorStep = 3; // for cladding cadence inside bands
   const panelT = 0.12, inset = 0.35, winH = 1.2, winInset = 0.06;
 
   function panel(side, yMid, height, mat){
@@ -194,7 +195,6 @@ export function createLaunchPadComplex() {
     }
   }
 
-  // Add decks & window/cladding bands
   for (let y=deckStep; y<towerH-2; y+=deckStep){
     const deck = new THREE.Mesh(new THREE.BoxGeometry(towerW - 1.4, 0.24, towerL - 1.4), steelWhite);
     deck.position.set(towerBaseX, y, towerBaseZ);
@@ -214,14 +214,14 @@ export function createLaunchPadComplex() {
     mkStrip(towerL-1.6, false, +1); mkStrip(towerL-1.6, false, -1);
     tower.add(edge);
 
-    // add four small point lights for punch
+    // four small point lights
     for (const [dx,dz] of [[+1,0],[-1,0],[0,+1],[0,-1]]){
       const L = new THREE.PointLight(0xffffff, 0.5, 16, 2.2);
       L.position.set(towerBaseX + dx*(towerW/2 - 0.2), y+0.6, towerBaseZ + dz*(towerL/2 - 0.2));
       tower.add(L);
     }
 
-    // between decks → a window band with top/bottom cladding
+    // window band between decks
     const bandYMid = y + deckStep/2;
     const capH = (deckStep - 0.24 - winH) * 0.5;
     for (const side of ['N','S','E','W']){
@@ -231,7 +231,7 @@ export function createLaunchPadComplex() {
     }
   }
 
-  // Piping rings every 8–9m
+  // Piping rings
   const pipeR = 0.11;
   const pipeVGeom = new THREE.CylinderGeometry(pipeR, pipeR, towerH-1.5, 8);
   const pipeHGeom = new THREE.CylinderGeometry(pipeR, pipeR, towerW-1.6, 8);
@@ -251,6 +251,7 @@ export function createLaunchPadComplex() {
   const lift = new THREE.Group(); lift.name = 'lift';
   const shaftX = towerBaseX + towerW/2 + liftGapX + liftFrameW/2;
   const shaftZ = towerBaseZ;
+
   // frame posts + crossbars
   const post = new THREE.Mesh(new THREE.BoxGeometry(0.4, towerH, 0.4), steelWhite);
   const posts = new THREE.Group();
@@ -342,7 +343,6 @@ export function createLaunchPadComplex() {
   const wallsL = new THREE.Mesh(new THREE.BoxGeometry(bridgeLen, bridgeH, 0.12), steelWhite);
   wallsL.position.set(floorB.position.x, LAUNCH_DECK_Y + bridgeH/2 - 0.1, towerBaseZ - bridgeW/2);
   const wallsR = wallsL.clone(); wallsR.position.z = towerBaseZ + bridgeW/2;
-  // a few strip lights inside
   const strip1 = new THREE.Mesh(new THREE.BoxGeometry(bridgeLen*0.9, 0.05, 0.05), glow);
   strip1.position.set(floorB.position.x, LAUNCH_DECK_Y + 1.7, towerBaseZ);
   bridge.add(floorB, wallsL, wallsR, strip1);
@@ -373,29 +373,39 @@ export function createLaunchPadComplex() {
     doorSpeed: 2.2
   };
 
-  const callPos   = new THREE.Vector3(callBtn.position.x, callBtn.position.y, callBtn.position.z);
-  const panelLocal= new THREE.Vector3(panel.position.x, panel.position.y, panel.position.z);
+  const callBtn = lift.children.find(o => o.geometry?.type === 'CylinderGeometry') || null;
+  const callPos   = new THREE.Vector3(0,0,0);
+  const panelLocal= new THREE.Vector3(0,0,0);
+  // find cab panel
+  cab.traverse(o=>{ if (o.geometry?.parameters?.depth === 0.05) panelLocal.copy(o.position); });
+
   let wantPress = false;
   document.addEventListener('keydown', (e)=>{ if (e.key.toLowerCase()==='e') wantPress = true; }, { passive:true });
   document.addEventListener('pointerdown', ()=>{ wantPress = true; }, { passive:true });
 
   // door setters (sliding)
   function setGate(t){    // ground west gate
-    const max = doorW/2;
-    gateL.position.z = gateZ - doorW/4 - t*max;
-    gateR.position.z = gateZ + doorW/4 + t*max;
+    const max = 2.4/2;
+    const gateL = lift.children.find(o=>o===lift.children.find(q=>q===lift.children[ lift.children.indexOf(o) ])); // keep simple – we already stored positions when created
+  }
+  // We keep references created above:
+  const gateLRef = gateL, gateRRef = gateR;
+  function _setGate(t){    // using saved refs
+    const max = 2.4/2;
+    gateLRef.position.z = gateZ - 2.4/4 - t*max;
+    gateRRef.position.z = gateZ + 2.4/4 + t*max;
   }
   function setCabWest(t){
-    const max = doorLeafW;
+    const max = 1.2;
     cabWestL.position.x = -carW/2 + 0.6 - t*max*0.5;
     cabWestR.position.x = -carW/2 + 0.6 + t*max*0.5;
   }
   function setCabEast(t){
-    const max = doorLeafW;
+    const max = 1.2;
     cabEastL.position.x = +carW/2 - 0.6 + t*max*0.5;
     cabEastR.position.x = +carW/2 - 0.6 - t*max*0.5;
   }
-  setGate(state.tGate); setCabWest(state.tCabW); setCabEast(state.tCabE);
+  _setGate(state.tGate); setCabWest(state.tCabW); setCabEast(state.tCabE);
 
   g.userData.update = (dt, _elapsed, ctx={})=>{
     const player = ctx.player;
@@ -403,7 +413,7 @@ export function createLaunchPadComplex() {
 
     // proximity helpers
     const near = (p, r)=> player.mesh.position.distanceTo(p) <= r;
-    callPos.set(callBtn.position.x, callBtn.position.y, callBtn.position.z);
+    if (callBtn) callPos.set(callBtn.position.x, callBtn.position.y, callBtn.position.z);
     const panelWorld = panelLocal.clone().applyMatrix4(cab.matrixWorld);
 
     if (wantPress){
@@ -421,17 +431,18 @@ export function createLaunchPadComplex() {
     // FSM
     if (state.phase==='idleBottom'){
       state.tGate=1; state.tCabW=1; state.tCabE=0;
+      _setGate(state.tGate); setCabWest(state.tCabW); setCabEast(state.tCabE);
     }
     else if (state.phase==='openingGround'){
       state.tGate = Math.min(1, state.tGate + dt*state.doorSpeed);
       state.tCabW = Math.min(1, state.tCabW + dt*state.doorSpeed);
-      setGate(state.tGate); setCabWest(state.tCabW); setCabEast(state.tCabE);
+      _setGate(state.tGate); setCabWest(state.tCabW); setCabEast(state.tCabE);
       if (state.tGate>=1 && state.tCabW>=1) state.phase='idleBottom';
     }
     else if (state.phase==='closingGround'){
       state.tGate = Math.max(0, state.tGate - dt*state.doorSpeed);
       state.tCabW = Math.max(0, state.tCabW - dt*state.doorSpeed);
-      setGate(state.tGate); setCabWest(state.tCabW); setCabEast(state.tCabE);
+      _setGate(state.tGate); setCabWest(state.tCabW); setCabEast(state.tCabE);
       if (state.tGate<=0 && state.tCabW<=0) state.phase='movingUp';
     }
     else if (state.phase==='movingUp'){
@@ -494,12 +505,20 @@ function armBeam(side, h, reach, towerBaseX, towerBaseZ, towerW, steel, blk){
   const grp = new THREE.Group(); grp.add(beam, pad, tray, cables); return grp;
 }
 
-// subtle brushed/anisotropic steel variation
-function patchSteelWhite(mat){
+/* ------ safe brushed-steel material patch ------ */
+function patchSteelWhiteSafely(mat){
   mat.onBeforeCompile = (shader) => {
-    shader.vertexShader = 'varying vec3 vWPos;\n' + shader.vertexShader.replace(
-      '#include <worldpos_vertex>','#include <worldpos_vertex>\n vWPos = worldPosition.xyz;'
-    );
+    const fs = shader.fragmentShader;
+    const vs = shader.vertexShader;
+
+    // Only patch if the target chunks exist (prevents string-replace crashes)
+    if (!fs.includes('roughnessmap_fragment') || !fs.includes('metalnessmap_fragment')) return;
+
+    shader.vertexShader =
+      'varying vec3 vWPos;\n' +
+      vs.replace('#include <worldpos_vertex>',
+                 '#include <worldpos_vertex>\n vWPos = worldPosition.xyz;');
+
     shader.fragmentShader = `
       varying vec3 vWPos;
       float h2(vec2 p){ return fract(sin(dot(p, vec2(12.9898,78.233))) * 43758.5453); }
@@ -509,29 +528,16 @@ function patchSteelWhite(mat){
         vec2 u=f*f*(3.0-2.0*f);
         return mix(mix(a,b,u.x), mix(c,d,u.x), u.y);
       }
-    ` + shader.fragmentShader
+    ` + fs
       .replace('vec4 diffuseColor = vec4( diffuse, opacity );',
-      `
-      vec3 tint = diffuse.rgb;
-      float broad = vnoise(vWPos.xz * 0.12);
-      float fine  = vnoise(vWPos.xz * 3.3);
-      tint *= 0.985 + broad*0.015;
-      tint *= 0.99 + fine*0.01;
-      vec4 diffuseColor = vec4(tint, opacity);
-      `
-    ).replace(
-      '#include <roughnessmap_fragment>',
-      `
-      #include <roughnessmap_fragment>
-      float aniso = 0.07 * (0.5 + 0.5 * sin(vWPos.x * 5.0));
-      roughnessFactor = clamp(roughnessFactor - aniso + vnoise(vWPos.xz*2.3)*0.04, 0.06, 0.85);
-      `
-    ).replace(
-      '#include <metalnessmap_fragment>',
-      `
-      #include <metalnessmap_fragment>
-      metalnessFactor = clamp(metalnessFactor * (0.98 + vnoise(vWPos.xz*0.9)*0.05), 0.75, 1.0);
-      `
-    );
+               'vec3 tint=diffuse.rgb; float b=vnoise(vWPos.xz*.12); float f=vnoise(vWPos.xz*3.3);' +
+               'tint*=0.985+b*0.015; tint*=0.99+f*0.01; vec4 diffuseColor=vec4(tint,opacity);')
+      .replace('#include <roughnessmap_fragment>',
+               '#include <roughnessmap_fragment>\n' +
+               'roughnessFactor = clamp(roughnessFactor - 0.07*(0.5+0.5*sin(vWPos.x*5.0))' +
+               ' + vnoise(vWPos.xz*2.3)*0.04, 0.06, 0.85);')
+      .replace('#include <metalnessmap_fragment>',
+               '#include <metalnessmap_fragment>\n' +
+               'metalnessFactor = clamp(metalnessFactor * (0.98 + vnoise(vWPos.xz*0.9)*0.05), 0.75, 1.0);');
   };
 }
