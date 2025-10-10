@@ -1,14 +1,17 @@
 import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js';
 import { PerlinNoise } from '../utils/PerlinNoise.js';
 
-export function createGroundTiles({ size = 100, segments = 100, grassRatio = 0.9, uniformsRef } = {}) {
+/**
+ * Clean AAA-style grass with broad sand patches. Much stronger grass bias.
+ */
+export function createGroundTiles({ size = 100, segments = 100, grassRatio = 0.96, uniformsRef } = {}) {
   const geom = new THREE.PlaneGeometry(size, size, segments, segments);
   geom.rotateX(-Math.PI / 2);
 
-  // Gentle undulation (broad, realistic)
+  // gentle undulation
   const perlin = new PerlinNoise();
   const pos = geom.attributes.position;
-  const amp = 0.12;
+  const amp = 0.10;     // subtle
   const freq = 0.02;
   for (let i = 0; i < pos.count; i++) {
     const x = pos.getX(i), z = pos.getZ(i);
@@ -16,8 +19,8 @@ export function createGroundTiles({ size = 100, segments = 100, grassRatio = 0.9
   }
   geom.computeVertexNormals();
 
-  // Base grass vertex color; shader blends in sand patches
-  const baseGrass = new THREE.Color(0x7bab5c);
+  // base grass vertex colors (strong green)
+  const baseGrass = new THREE.Color(0x79b15f);
   const colors = new Float32Array(pos.count * 3);
   for (let i = 0; i < pos.count; i++) { colors[i*3]=baseGrass.r; colors[i*3+1]=baseGrass.g; colors[i*3+2]=baseGrass.b; }
   geom.setAttribute('color', new THREE.BufferAttribute(colors, 3));
@@ -26,18 +29,17 @@ export function createGroundTiles({ size = 100, segments = 100, grassRatio = 0.9
 
   const uniforms = {
     time: uniformsRef?.time ?? { value: 0 },
-    grassLight: { value: new THREE.Color(0x89c26c) },
-    grassDeep:  { value: new THREE.Color(0x5e8f46) },
+    grassLight: { value: new THREE.Color(0x8fd06f) },
+    grassDeep:  { value: new THREE.Color(0x5f9448) },
     sandLight:  { value: new THREE.Color(0xeadfb7) },
     sandDeep:   { value: new THREE.Color(0xd1c193) },
-    grassRatio: { value: grassRatio },     // 0..1 preference toward grass
-    patchScale: { value: 0.002 }           // bigger = broader patches
+    grassRatio: { value: grassRatio },
+    patchScale: { value: 0.0015 } // broader patches than before
   };
 
   mat.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, uniforms);
 
-    // Provide world pos
     shader.vertexShader = `
       varying vec3 vWorld;
     ` + shader.vertexShader.replace('#include <worldpos_vertex>', `
@@ -49,9 +51,6 @@ export function createGroundTiles({ size = 100, segments = 100, grassRatio = 0.9
       varying vec3 vWorld;
       uniform vec3 grassLight, grassDeep, sandLight, sandDeep;
       uniform float grassRatio, patchScale;
-    ` + shader.fragmentShader.replace('#include <color_fragment>', `
-      #include <color_fragment>
-      // broad hash noise
       float h2(vec2 p){ return fract(sin(dot(p, vec2(127.1,311.7))) * 43758.5453); }
       float vnoise(vec2 p){
         vec2 i=floor(p), f=fract(p);
@@ -59,28 +58,32 @@ export function createGroundTiles({ size = 100, segments = 100, grassRatio = 0.9
         vec2 u=f*f*(3.0-2.0*f);
         return mix(mix(a,b,u.x), mix(c,d,u.x), u.y);
       }
-
+    ` + shader.fragmentShader.replace(
+      '#include <color_fragment>',
+      `
+      #include <color_fragment>
       float slope = 1.0 - clamp(normalize(vNormal).y, 0.0, 1.0);
-      float field = vnoise(vWorld.xz * patchScale);  // 0..1
+      float field = vnoise(vWorld.xz * patchScale);
 
-      // prefer grass; add some sand on gentle slopes and by noise
-      float sandMask = smoothstep(0.15, 0.45, slope);         // more sand on slopes
-      sandMask = clamp(mix(sandMask * 0.6, sandMask, field), 0.0, 1.0);
-      sandMask = (1.0 - grassRatio) * sandMask;               // keep mostly grass
+      // Heavily prefer grass. Only introduce sand on visible slopes, weakened by grassRatio.
+      float sandMask = smoothstep(0.22, 0.48, slope);
+      sandMask = mix(sandMask * 0.4, sandMask, field); // soften with noise
+      sandMask *= (1.0 - grassRatio);                  // keep mostly grass
 
       vec3 g = mix(grassDeep, grassLight, 0.55);
       vec3 s = mix(sandDeep,  sandLight,  0.55);
       vec3 ground = mix(g, s, sandMask);
 
-      diffuseColor.rgb = mix(diffuseColor.rgb, ground, 0.95);
-    `);
+      diffuseColor.rgb = mix(diffuseColor.rgb, ground, 0.98);
+      `
+    );
   };
 
   const ground = new THREE.Mesh(geom, mat);
   ground.receiveShadow = false;
 
-  // very subtle grid
-  ground.add(makeThinGrid(size, segments, 0.05));
+  // super subtle grid (kept for tile reference)
+  ground.add(makeThinGrid(size, segments, 0.04));
   return ground;
 }
 
