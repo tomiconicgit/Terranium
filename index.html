@@ -4,38 +4,62 @@
   <meta charset="UTF-8" />
   <meta name="viewport"
         content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0, user-scalable=no" />
+  <title>Terranium Builder</title>
   <meta name="apple-mobile-web-app-capable" content="no" />
-  <title>Terranium</title>
-  <script src="https://cdn.jsdelivr.net/npm/nipplejs@0.10.0/dist/nipplejs.min.js"></script>
   <style>
-    html,body{margin:0;height:100%;overflow:hidden;background:#000;touch-action:none}
+    html,body{margin:0;height:100%;overflow:hidden;background:#000;touch-action:none;font-family:system-ui,-apple-system,Segoe UI,Roboto}
     canvas{display:block}
-    #errorOverlay{position:fixed;inset:0;background:rgba(0,0,0,.92);color:#ff6;font:14px ui-monospace,monospace;
-      white-space:pre-wrap;padding:12px;display:none;z-index:999999;overflow:auto}
+
+    /* HUD */
+    .hud{position:fixed;inset:0;pointer-events:none}
+    .hotbar{position:absolute;left:50%;bottom:14px;transform:translateX(-50%);
+      display:flex;gap:8px;background:rgba(0,0,0,.35);padding:10px 12px;border-radius:12px;backdrop-filter:blur(6px)}
+    .slot{width:46px;height:46px;border-radius:8px;border:2px solid rgba(255,255,255,.15);display:flex;align-items:center;justify-content:center;color:#fff;pointer-events:auto;cursor:pointer;user-select:none}
+    .slot.active{border-color:#fff}
+    .swatch{width:24px;height:24px;border-radius:4px;border:1px solid rgba(255,255,255,.35)}
+    .btn{position:absolute;right:14px;top:14px;padding:10px 12px;border-radius:10px;background:rgba(0,0,0,.4);
+      color:#fff;border:1px solid rgba(255,255,255,.2);pointer-events:auto;cursor:pointer;backdrop-filter:blur(6px)}
+    .btn2{right:110px}
+
+    .modal{position:absolute;right:14px;top:58px;width:290px;max-height:70vh;overflow:auto;
+      background:rgba(10,10,12,.92);color:#fff;border:1px solid rgba(255,255,255,.2);border-radius:12px;display:none}
+    .modal h3{margin:10px 12px}
+    .grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;padding:10px}
+    .tile{height:52px;border:1px solid rgba(255,255,255,.2);border-radius:8px;display:flex;align-items:center;justify-content:center;cursor:pointer}
+    .tile small{opacity:.9}
+
+    .overlay{position:fixed;inset:0;background:rgba(0,0,0,.92);color:#ff6;font:14px ui-monospace,monospace;
+      padding:12px;display:none;z-index:9999;white-space:pre-wrap}
+
+    /* mobile joystick */
+    #joy{position:fixed;left:18px;bottom:18px;width:160px;height:160px;pointer-events:auto}
   </style>
+  <script src="https://cdn.jsdelivr.net/npm/nipplejs@0.10.0/dist/nipplejs.min.js"></script>
 </head>
 <body>
-  <div id="errorOverlay"></div>
-  <script>
-    // tiny error overlay so we see issues on mobile
-    const o=document.getElementById('errorOverlay');
-    const show=(m,src,l,c,e)=>{o.style.display='block';
-      o.textContent='⚠️ JS Error:\n'+m+(src?`\n\nSource: ${src}:${l}:${c}`:'')+(e&&e.stack?'\n\n'+e.stack:'')};
-    addEventListener('error', e=>show(e.message,e.filename,e.lineno,e.colno,e.error));
-    addEventListener('unhandledrejection', e=>show(e.reason?.message||e.reason,'','','',e.reason));
-  </script>
+  <div id="overlay" class="overlay"></div>
+
+  <div class="hud" id="hud">
+    <div class="hotbar" id="hotbar"></div>
+    <button class="btn btn2" id="copyBtn">Copy</button>
+    <button class="btn" id="blocksBtn">Blocks</button>
+
+    <div class="modal" id="palette">
+      <h3>Blocks & Parts</h3>
+      <div class="grid" id="paletteGrid"></div>
+    </div>
+
+    <div id="joy"></div>
+  </div>
 
   <script type="module">
-    // kill any old SW/caches that might be serving stale modules
-    async function nuke() {
-      try{ if('serviceWorker' in navigator){ for(const r of await navigator.serviceWorker.getRegistrations()) await r.unregister(); } }catch{}
-      try{ if('caches' in window){ for(const n of await caches.keys()) await caches.delete(n); } }catch{}
-    }
-    (async()=>{
-      await nuke();
-      const ts = Date.now();
-      await import(`./src/main.js?v=${ts}`);
-    })();
+    // error overlay (handy on mobile)
+    const ov = document.getElementById('overlay');
+    addEventListener('error', e => { ov.style.display='block'; ov.textContent = 'JS Error:\\n'+e.message; });
+    addEventListener('unhandledrejection', e => { ov.style.display='block'; ov.textContent = 'Promise Error:\\n'+(e.reason?.message||e.reason); });
+
+    const ts = Date.now();
+    await import(`./src/main.js?v=${ts}`);
   </script>
 </body>
 </html>
