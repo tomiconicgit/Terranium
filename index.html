@@ -4,42 +4,121 @@
   <meta charset="UTF-8" />
   <meta
     name="viewport"
-    content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
+    content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1.0, user-scalable=no"
   />
-  <meta name="apple-mobile-web-app-capable" content="no" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
   <title>Terranium</title>
-  <script src="https://cdn.jsdelivr.net/npm/nipplejs@0.10.0/dist/nipplejs.min.js"></script>
+
+  <!-- Importmaps -->
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://unpkg.com/three@0.169.0/build/three.module.js",
+        "three/addons/": "https://unpkg.com/three@0.169.0/examples/jsm/"
+      }
+    }
+  </script>
+
   <style>
-    body { margin:0; overflow:hidden; background:#000; touch-action:none; }
-    canvas { display:block; }
+    html, body {
+      margin: 0;
+      height: 100%;
+      overflow: hidden;
+      background: #000;
+      color: #fff;
+      touch-action: none;
+      -webkit-user-select: none;
+      font-family: system-ui, -apple-system, sans-serif;
+    }
+    #errorOverlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.92);
+      color: #ff6;
+      font: 14px/1.5 ui-monospace, monospace;
+      white-space: pre-wrap;
+      padding: 12px;
+      display: none;
+      z-index: 999999;
+      overflow: auto;
+    }
   </style>
 </head>
 <body>
-  <!-- No manifest link. No service-worker registration. -->
+  <div id="errorOverlay"></div>
+
+  <!-- error capture -->
+  <script>
+  const overlay = document.getElementById('errorOverlay');
+  function showError(msg, src, line, col, err){
+    overlay.style.display='block';
+    overlay.textContent = '⚠️ JS Error:\n' + msg +
+      (src?('\n\nSource: '+src+':'+line+':'+col):'') +
+      (err && err.stack?('\n\n'+err.stack):'');
+    console.error(msg, err);
+  }
+  window.addEventListener('error', e => showError(e.message, e.filename, e.lineno, e.colno, e.error));
+  window.addEventListener('unhandledrejection', e => showError(e.reason?.message || e.reason, '', '', '', e.reason));
+  </script>
+
+  <!-- main scene -->
   <script type="module">
-    // --- Hard kill previously-registered service workers + caches ---
-    async function nukeSWAndCaches() {
-      try {
-        if ('serviceWorker' in navigator) {
-          const regs = await navigator.serviceWorker.getRegistrations();
-          await Promise.all(regs.map(r => r.unregister()));
-        }
-      } catch (e) { console.warn('SW unregister failed:', e); }
+  import * as THREE from 'three';
+  import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+  import { createLaunchPadComplex } from './src/objects/LaunchPadComplex.js';
 
-      try {
-        if ('caches' in window) {
-          const names = await caches.keys();
-          await Promise.all(names.map(n => caches.delete(n)));
-        }
-      } catch (e) { console.warn('Cache clearing failed:', e); }
-    }
+  let renderer, scene, camera, orbit;
+  init();
 
-    // After cleanup, load the app with a cache-busting query param
-    (async () => {
-      await nukeSWAndCaches();
-      const ts = Date.now();
-      await import(`./src/main.js?v=${ts}`);
-    })();
+  function init() {
+    renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(innerWidth, innerHeight);
+    renderer.outputEncoding = THREE.sRGBEncoding;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.0;
+    document.body.appendChild(renderer.domElement);
+
+    scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x060708);
+
+    camera = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 0.1, 2000);
+    camera.position.set(40, 30, 60);
+
+    orbit = new OrbitControls(camera, renderer.domElement);
+    orbit.enableDamping = true;
+
+    const hemi = new THREE.HemisphereLight(0xcce0ff, 0x444422, 1);
+    scene.add(hemi);
+    const sun = new THREE.DirectionalLight(0xffffff, 1.5);
+    sun.position.set(50, 80, -30);
+    scene.add(sun);
+
+    const ground = new THREE.Mesh(
+      new THREE.PlaneGeometry(400, 400),
+      new THREE.MeshStandardMaterial({ color: 0x2a2a2a, roughness: 1 })
+    );
+    ground.rotation.x = -Math.PI / 2;
+    ground.position.y = 0;
+    scene.add(ground);
+
+    const pad = createLaunchPadComplex();
+    scene.add(pad);
+
+    window.addEventListener('resize', () => {
+      camera.aspect = innerWidth / innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(innerWidth, innerHeight);
+    });
+
+    animate();
+  }
+
+  function animate() {
+    requestAnimationFrame(animate);
+    orbit.update();
+    renderer.render(scene, camera);
+  }
   </script>
 </body>
 </html>
