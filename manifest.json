@@ -1,10 +1,10 @@
 {
-    "name": "Terranium",
-    "short_name": "Terranium",
-    "start_url": ".",
-    "display": "standalone",
-    "background_color": "#000000",
-    "theme_color": "#000000",
-    "orientation": "landscape",
-    "description": "Moon exploration game"
+  "name": "Terranium",
+  "short_name": "Terranium",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#0a0f14",
+  "theme_color": "#0a0f14",
+  "orientation": "landscape",
+  "description": "Ground training area with launch pad and obstacles"
 }
