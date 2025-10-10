@@ -1,43 +1,48 @@
-import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js';
-import { SceneRoot }   from './scene/Scene.js';
-import { GamepadFPV }  from './controls/GamepadFPV.js';
-import { Builder }     from './tools/Builder.js';
-import { initUI }      from './ui/Hotbar.js';
+// main.js — controller-only FPV voxel builder
 
-(async function boot(){
-  const renderer = new THREE.WebGLRenderer({ antialias:true });
-  if ('outputColorSpace' in renderer) renderer.outputColorSpace = THREE.SRGBColorSpace;
-  else renderer.outputEncoding = THREE.sRGBEncoding;
-  renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 1.0;
+import * as THREE from 'three';
+import { Scene } from './scene/Scene.js';
+import { GamepadFPV } from './controls/GamepadFPV.js';
+import { Builder } from './tools/Builder.js';
+import { Hotbar } from './ui/Hotbar.js';
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+if ('outputColorSpace' in renderer) renderer.outputColorSpace = THREE.SRGBColorSpace;
+else renderer.outputEncoding = THREE.sRGBEncoding;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.0;
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+document.body.appendChild(renderer.domElement);
+
+const scene = new Scene();
+const camera = new THREE.PerspectiveCamera(70, innerWidth / innerHeight, 0.1, 2000);
+camera.position.set(0, 3, 6);
+
+const controls = new GamepadFPV(camera);
+controls.position.set(0, 3, 0);  // player body proxy
+scene.add(controls);
+
+// Hotbar + Builder
+const hotbar = new Hotbar(document.getElementById('hotbar'));
+const builder = new Builder(scene, camera, hotbar);
+
+// resize
+addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
   renderer.setSize(innerWidth, innerHeight);
-  document.body.appendChild(renderer.domElement);
+});
 
-  const root = new SceneRoot();
-  const { scene, camera, groundRayMesh } = root;
+// main loop
+const clock = new THREE.Clock();
+function animate() {
+  requestAnimationFrame(animate);
+  const dt = Math.min(0.033, clock.getDelta());
 
-  // Controller-only FPV
-  const controls = new GamepadFPV(camera);
+  controls.update(dt);      // left stick strafing + forward/back; right stick look; A/X up/down
+  builder.update(dt);       // reticle ray, highlight align, placement state
 
-  // Builder (controller buttons only)
-  const builder = new Builder(scene, camera, groundRayMesh);
-  const uiApi   = initUI(builder);
-  builder.setUI(uiApi);
-
-  addEventListener('resize', ()=>{
-    camera.aspect = innerWidth/innerHeight;
-    camera.updateProjectionMatrix();
-    renderer.setSize(innerWidth, innerHeight);
-  });
-
-  const clock = new THREE.Clock();
-  (function animate(){
-    requestAnimationFrame(animate);
-    const dt = Math.min(0.05, clock.getDelta());
-
-    controls.update(dt);
-    builder.update(dt);
-
-    renderer.render(scene, camera);
-  })();
-})();
+  renderer.render(scene, camera);
+}
+animate();
