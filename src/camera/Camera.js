@@ -9,13 +9,13 @@ export class Camera extends THREE.PerspectiveCamera {
     player.mesh.add(this);
     this.position.set(0, this.eyeHeight, 3.0);
 
-    this.pitch = 0;                // allow vertical look
+    this.pitch = 0;                // vertical look allowed
     this.rotation.order = 'YXZ';
 
     // Head-bob: 1 step per tile
-    this.stepLength = 1.0;         // tiles per step (== 1)
-    this.bobAmount = 0.028;        // vertical
-    this.bobSway = 0.012;          // lateral
+    this.stepLength = 1.0;
+    this.bobAmount = 0.028;
+    this.bobSway = 0.012;
     this._bobPhase = 0;
     this._lastXZ = new THREE.Vector2(player.mesh.position.x, player.mesh.position.z);
 
@@ -26,7 +26,6 @@ export class Camera extends THREE.PerspectiveCamera {
     const curXZ = new THREE.Vector2(player.mesh.position.x, player.mesh.position.z);
     const dist = curXZ.distanceTo(this._lastXZ);
     this._lastXZ.copy(curXZ);
-
     if (dist > 0) this._bobPhase += (dist / this.stepLength) * Math.PI * 2;
 
     const bobY = Math.sin(this._bobPhase) * this.bobAmount;
@@ -35,14 +34,12 @@ export class Camera extends THREE.PerspectiveCamera {
     const desiredLean = THREE.MathUtils.clamp(-player.velocity.x * 0.04, -0.12, 0.12);
     this.lean = THREE.MathUtils.damp(this.lean, desiredLean, 8, dt);
 
+    // offsets
     this.position.y = this.eyeHeight + bobY;
     this.position.x = swayX;
 
-    this.rotation.x = -this.pitch; // vertical look enabled
-    this.rotation.z = this.lean;
-
-    const fwd = new THREE.Vector3(0, 0, -1).applyAxisAngle(new THREE.Vector3(0, 1, 0), player.rotation);
-    const target = player.mesh.position.clone().addScaledVector(fwd, 5).setY(player.mesh.position.y + this.eyeHeight * 0.4);
-    this.lookAt(target);
+    // IMPORTANT: do NOT use lookAt()—it overwrites pitch.
+    // Yaw comes from parent (player), we only apply local pitch & roll:
+    this.rotation.set(-this.pitch, 0, this.lean, 'YXZ');
   }
 }
