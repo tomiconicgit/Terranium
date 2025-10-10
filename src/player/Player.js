@@ -22,7 +22,6 @@ export class Player {
 
     update(landscape, delta) {
         // --- Horizontal Movement ---
-        // Lerp the X and Z components of velocity towards the desired velocity
         const acceleration = 10.0;
         this.velocity.x = THREE.MathUtils.lerp(this.velocity.x, this.desiredVelocity.x, acceleration * delta);
         this.velocity.z = THREE.MathUtils.lerp(this.velocity.z, this.desiredVelocity.z, acceleration * delta);
@@ -35,9 +34,12 @@ export class Player {
         this.mesh.rotation.y = this.rotation;
 
         // --- Ground Collision & Hopping ---
-        this.isGrounded = false; // Assume we are in the air until proven otherwise
+        this.isGrounded = false;
         if (landscape) {
-            this.raycaster.set(this.mesh.position, this.down);
+            // **THE FIX**: Always cast the ray from a safe height above the player's X/Z position.
+            const rayOrigin = new THREE.Vector3(this.mesh.position.x, 20, this.mesh.position.z);
+            this.raycaster.set(rayOrigin, this.down);
+            
             const intersects = this.raycaster.intersectObject(landscape);
 
             if (intersects.length > 0) {
@@ -46,7 +48,7 @@ export class Player {
                 if (this.mesh.position.y <= groundHeight) {
                     this.isGrounded = true;
                     this.velocity.y = 0;
-                    this.mesh.position.y = groundHeight;
+                    this.mesh.position.y = groundHeight; // Snap position to ground
 
                     // --- Initiate a hop if grounded and trying to move ---
                     if (this.desiredVelocity.length() > 0.1) {
