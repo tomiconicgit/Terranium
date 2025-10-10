@@ -7,33 +7,53 @@ export class Player {
         this.direction = new THREE.Vector3();
         this.rotation = 0;
 
-        // --- New Movement Properties ---
-        this.walkSpeed = 1.4; // Units (meters) per second
-        this.desiredVelocity = new THREE.Vector3(); // The velocity the controls are requesting
+        // --- Physics Properties ---
+        this.walkSpeed = 1.4; // Horizontal speed during a hop
+        this.desiredVelocity = new THREE.Vector3();
+        this.isGrounded = false;
         
+        // --- Moon Physics Constants ---
+        this.gravity = 1.62; // Moon's gravity (m/s^2)
+        this.hopVelocity = 2.0; // Initial upward velocity of a hop
+
         this.raycaster = new THREE.Raycaster();
         this.down = new THREE.Vector3(0, -1, 0);
     }
 
     update(landscape, delta) {
-        // Smoothly interpolate from current velocity to the desired velocity
+        // --- Horizontal Movement ---
+        // Lerp the X and Z components of velocity towards the desired velocity
         const acceleration = 10.0;
-        this.velocity.lerp(this.desiredVelocity, acceleration * delta);
+        this.velocity.x = THREE.MathUtils.lerp(this.velocity.x, this.desiredVelocity.x, acceleration * delta);
+        this.velocity.z = THREE.MathUtils.lerp(this.velocity.z, this.desiredVelocity.z, acceleration * delta);
 
-        // Update position based on the current velocity and delta time
+        // --- Vertical Movement (Gravity) ---
+        this.velocity.y -= this.gravity * delta;
+        
+        // --- Update Position ---
         this.mesh.position.add(this.velocity.clone().multiplyScalar(delta));
-
         this.mesh.rotation.y = this.rotation;
 
-        // Terrain following logic
+        // --- Ground Collision & Hopping ---
+        this.isGrounded = false; // Assume we are in the air until proven otherwise
         if (landscape) {
             this.raycaster.set(this.mesh.position, this.down);
-            this.raycaster.ray.origin.y = 20;
-
             const intersects = this.raycaster.intersectObject(landscape);
 
             if (intersects.length > 0) {
-                this.mesh.position.y = intersects[0].point.y;
+                const groundHeight = intersects[0].point.y;
+                // Check if the player is at or below the ground
+                if (this.mesh.position.y <= groundHeight) {
+                    this.isGrounded = true;
+                    this.velocity.y = 0;
+                    this.mesh.position.y = groundHeight;
+
+                    // --- Initiate a hop if grounded and trying to move ---
+                    if (this.desiredVelocity.length() > 0.1) {
+                        this.velocity.y = this.hopVelocity;
+                        this.isGrounded = false;
+                    }
+                }
             }
         }
     }
