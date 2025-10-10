@@ -7,6 +7,7 @@ export class Scene extends THREE.Scene {
         super();
         this.background = new THREE.Color(0x000000);
         const landscape = createMoonLandscape();
+        landscape.name = 'landscape'; // Give the landscape a name to find it later
         this.add(landscape);
         const sky = createSpaceSky();
         this.add(sky);
