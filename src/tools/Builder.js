@@ -22,35 +22,45 @@ export class Builder {
   constructor(scene, camera, groundRayMesh){
     this.scene = scene; this.camera = camera;
     this.ray = new THREE.Raycaster();
-    this.mouse = new THREE.Vector2();
+    this.mouse = new THREE.Vector2(0,0); // we use reticle at center
     this.ground = groundRayMesh; this.scene.add(this.ground);
 
-    // store placed pieces
-    this.placed = []; // {id,x,y,z,rot:[0|1|2|3],kind}
-    this.activeId = 'concrete';
+    this.placed = []; // {_mesh,id,kind,x,y,z,rot}
+    this._activeId = 'concrete';
 
-    // visual hover
-    this.hover = new THREE.Mesh(new THREE.BoxGeometry(1.01,1.01,1.01),
-                                new THREE.MeshBasicMaterial({ color:0xffffff, transparent:true, opacity:0.15 }));
+    // reticle hover box
+    this.hover = new THREE.Mesh(
+      new THREE.BoxGeometry(1.01,1.01,1.01),
+      new THREE.MeshBasicMaterial({ color:0xffffff, transparent:true, opacity:0.15 })
+    );
     this.hover.visible=false; this.scene.add(this.hover);
 
-    // pointer
-    addEventListener('pointermove', e=>{ this.mouse.x=(e.clientX/innerWidth)*2-1; this.mouse.y=-(e.clientY/innerHeight)*2+1; });
+    // mouse/tap
     addEventListener('contextmenu', e=>e.preventDefault());
     addEventListener('pointerdown', e=>{
       if (e.button===2) this.remove();
       else this.place();
     }, {passive:true});
+
     // long-press remove on mobile
     let t; addEventListener('pointerdown', ()=>{ t=setTimeout(()=>this.remove(),500); });
     addEventListener('pointerup',   ()=>clearTimeout(t));
+
+    // gamepad state
+    this.prevButtons = [];
+    this.ui = null; // set by setUI
   }
 
-  setActive(id){ this.activeId = id; }
+  setUI(ui){ this.ui = ui; }
+  setActive(id){ this._activeId = id; }
+  getActive(){ return this._activeId; }
 
-  // cast to blocks (placed) and ground
+  // Ray from the centre reticle
   _intersections(){
+    // list includes ground and all placed meshes
     const objs = [this.ground, ...this.placed.map(p=>p._mesh)];
+    // centre of screen:
+    this.mouse.set(0,0);
     this.ray.setFromCamera(this.mouse, this.camera);
     return this.ray.intersectObjects(objs, false);
   }
@@ -58,18 +68,19 @@ export class Builder {
   updateHover(){
     const hit = this._intersections()[0];
     if(!hit){ this.hover.visible=false; return; }
-    let pos;
+
+    // where to snap new block: hit position + face normal (for sides/top/bottom)
+    let pos = new THREE.Vector3();
     if (hit.object === this.ground){
-      // snap to top of ground at integer coords
+      // grid on ground
       const gx = Math.floor(hit.point.x)+0.5;
       const gz = Math.floor(hit.point.z)+0.5;
-      pos = new THREE.Vector3(gx, 0.5, gz);
+      pos.set(gx, 0.5, gz);
     } else {
-      // snap to the face we hit
-      const np = hit.face.normal.clone().round(); // axis
-      pos = hit.object.position.clone().add(np);
-      if (hit.object.userData.kind === 'slab' && np.y === 0){
-        // if placing adjacent to a slab horizontally, align heights to 0.25 steps
+      const normal = hit.face.normal.clone().round(); // axis-aligned face
+      pos.copy(hit.object.position).add(normal);
+      // Slabs: keep quarter steps vertically if stacking slabs
+      if (hit.object.userData.kind==='slab' && normal.y===0){
         pos.y = Math.round(pos.y*4)/4;
       }
     }
@@ -79,30 +90,28 @@ export class Builder {
 
   place(){
     if(!this.hover.visible) return;
-    const def = PARTS.find(p=>p.id===this.activeId);
+    const def = PARTS.find(p=>p.id===this._activeId);
     if(!def) return;
 
-    let mesh, y = this.hover.position.y;
+    let mesh, y=this.hover.position.y;
     if (def.kind==='cube'){
       mesh = new THREE.Mesh(new THREE.BoxGeometry(1,1,1),
         new THREE.MeshStandardMaterial({ color:def.color, roughness:.9, metalness:.05 }));
     } else if (def.kind==='slab'){
       mesh = new THREE.Mesh(new THREE.BoxGeometry(1,0.25,1),
         new THREE.MeshStandardMaterial({ color:def.color, roughness:.95, metalness:.03 }));
-      y = Math.round((y-0.125)*4)/4 + 0.125; // center on 0.25 grid
+      y = Math.round((y-0.125)*4)/4 + 0.125; // centre on 0.25 grid
     } else if (def.kind==='pipe'){
       mesh = new THREE.Mesh(new THREE.CylinderGeometry(0.12,0.12,1,12),
         new THREE.MeshStandardMaterial({ color:def.color, roughness:.75, metalness:.6 }));
-      mesh.rotation.z = Math.PI/2; // default along X
+      mesh.rotation.z = Math.PI/2;
     } else if (def.kind==='wire'){
       mesh = new THREE.Mesh(new THREE.CylinderGeometry(0.04,0.04,1,10),
         new THREE.MeshStandardMaterial({ color:def.color, roughness:1, metalness:0 }));
       mesh.rotation.z = Math.PI/2;
     } else if (def.kind==='glass'){
       mesh = new THREE.Mesh(new THREE.BoxGeometry(1,1,0.05),
-        new THREE.MeshStandardMaterial({ color:def.color, roughness:.2, metalness:.0, transparent:true, opacity:.55 }));
-      // snap thin windows: if placing against a face, center there
-      // already handled by hover against another block
+        new THREE.MeshStandardMaterial({ color:def.color, roughness:.2, metalness:0, transparent:true, opacity:.55 }));
     }
 
     mesh.position.set(this.hover.position.x, y, this.hover.position.z);
@@ -118,15 +127,37 @@ export class Builder {
     if (!hit || hit.object===this.ground) return;
     const idx = this.placed.findIndex(p=>p._mesh===hit.object);
     if (idx>=0){
-      this.scene.remove(this.placed[idx]._mesh);
-      this.placed[idx]._mesh.geometry.dispose();
-      if (this.placed[idx]._mesh.material?.dispose) this.placed[idx]._mesh.material.dispose();
+      const m = this.placed[idx]._mesh;
+      this.scene.remove(m);
+      m.geometry.dispose(); if (m.material?.dispose) m.material.dispose();
       this.placed.splice(idx,1);
     }
   }
 
   exportJSON(){
-    // strip _mesh
     return JSON.stringify(this.placed.map(({_mesh, ...rest})=>rest), null, 2);
+  }
+
+  // --- Controller (Backbone / standard mapping):
+  // R2 (7) place, L2 (6) remove, R1 (5) next, L1 (4) prev
+  _pollGamepad(){
+    const gp = navigator.getGamepads?.()[0];
+    if (!gp) return;
+    const b = gp.buttons;
+
+    const pressed = i => !!(b[i] && b[i].pressed);
+    const edge = i => pressed(i) && !this.prevButtons[i];
+
+    if (edge(7)) this.place();       // R2
+    if (edge(6)) this.remove();      // L2
+    if (edge(5)) this.ui?.selectByOffset?.(+1); // R1
+    if (edge(4)) this.ui?.selectByOffset?.(-1); // L1
+
+    this.prevButtons = b.map(x=>x?.pressed);
+  }
+
+  update(dt){
+    this._pollGamepad();
+    this.updateHover();
   }
 }
