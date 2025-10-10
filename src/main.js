@@ -11,7 +11,7 @@ const { DesktopControls } = await import(`./controls/DesktopControls.js?v=${V}`)
 const { MobileControls }  = await import(`./controls/MobileControls.js?v=${V}`);
 
 // If Scene dynamically imports anything, it should already use relative paths;
-// the browser will fetch those fresh (new files like LaunchPadComplex.js won’t be cached yet).
+// the browser will fetch those fresh.
 
 // --- Orientation (best effort) ---
 if (screen.orientation?.lock) { try { await screen.orientation.lock('landscape'); } catch {} }
@@ -25,7 +25,7 @@ renderer.setSize(window.innerWidth, window.innerHeight);
 document.body.appendChild(renderer.domElement);
 
 // --- World ---
-const scene = new Scene();               // adds ground + MASSIVE pad + fence + props
+const scene = new Scene();               // adds ground + pad + tower (with lift, etc.)
 const player = new Player();
 scene.add(player.mesh);
 const camera = new Camera(player);
@@ -57,7 +57,9 @@ function animate() {
   player.update(landscape, dt);
   camera.update(dt, player);
 
-  scene.update?.(dt, elapsed);
+  // IMPORTANT: pass camera & player so the pad's lift logic can read proximity
+  scene.update?.(dt, elapsed, camera, player);
+
   renderer.render(scene, camera);
 }
 animate();
