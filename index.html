@@ -1,45 +1,65 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
+  <meta charset="utf-8" />
   <meta name="viewport"
-        content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0, user-scalable=no" />
-  <title>Terranium Builder</title>
-  <meta name="apple-mobile-web-app-capable" content="no" />
+        content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1.0, user-scalable=no" />
+  <title>Terranium – Build</title>
+
+  <!-- Mobile joystick lib -->
+  <script src="https://cdn.jsdelivr.net/npm/nipplejs@0.10.0/dist/nipplejs.min.js"></script>
+
   <style>
-    html,body{margin:0;height:100%;overflow:hidden;background:#000;touch-action:none;font-family:system-ui,-apple-system,Segoe UI,Roboto}
+    :root{
+      --ui:#0a0b0d; --ui2:#121418; --hi:#4aa3ff; --text:#eaf2ff; --mut:#99a3b0;
+    }
+    html,body{margin:0;height:100%;overflow:hidden;background:#000;color:var(--text);
+      font:14px/1.4 system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
     canvas{display:block}
 
     /* HUD */
     .hud{position:fixed;inset:0;pointer-events:none}
-    .hotbar{position:absolute;left:50%;bottom:14px;transform:translateX(-50%);
-      display:flex;gap:8px;background:rgba(0,0,0,.35);padding:10px 12px;border-radius:12px;backdrop-filter:blur(6px)}
-    .slot{width:46px;height:46px;border-radius:8px;border:2px solid rgba(255,255,255,.15);display:flex;align-items:center;justify-content:center;color:#fff;pointer-events:auto;cursor:pointer;user-select:none}
-    .slot.active{border-color:#fff}
-    .swatch{width:24px;height:24px;border-radius:4px;border:1px solid rgba(255,255,255,.35)}
-    .btn{position:absolute;right:14px;top:14px;padding:10px 12px;border-radius:10px;background:rgba(0,0,0,.4);
-      color:#fff;border:1px solid rgba(255,255,255,.2);pointer-events:auto;cursor:pointer;backdrop-filter:blur(6px)}
-    .btn2{right:110px}
+    #reticle{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
+      width:8px;height:8px;border-radius:50%;background:#fff;box-shadow:0 0 12px rgba(255,255,255,.8);opacity:.9}
 
-    .modal{position:absolute;right:14px;top:58px;width:290px;max-height:70vh;overflow:auto;
-      background:rgba(10,10,12,.92);color:#fff;border:1px solid rgba(255,255,255,.2);border-radius:12px;display:none}
-    .modal h3{margin:10px 12px}
-    .grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;padding:10px}
-    .tile{height:52px;border:1px solid rgba(255,255,255,.2);border-radius:8px;display:flex;align-items:center;justify-content:center;cursor:pointer}
-    .tile small{opacity:.9}
+    /* Hotbar */
+    .hotbar{position:absolute;left:50%;bottom:10px;transform:translateX(-50%);
+      display:flex;gap:6px;background:rgba(0,0,0,.25);padding:6px;border-radius:8px;backdrop-filter:blur(6px);
+      pointer-events:auto}
+    .slot{width:38px;height:38px;border:2px solid rgba(255,255,255,.15);border-radius:6px;display:grid;place-items:center;
+      background:var(--ui2);cursor:pointer}
+    .slot.active{border-color:var(--hi);box-shadow:0 0 0 2px rgba(74,163,255,.35) inset}
+    .swatch{width:26px;height:26px;border-radius:3px;box-shadow:inset 0 0 0 1px rgba(0,0,0,.25)}
 
-    .overlay{position:fixed;inset:0;background:rgba(0,0,0,.92);color:#ff6;font:14px ui-monospace,monospace;
-      padding:12px;display:none;z-index:9999;white-space:pre-wrap}
+    /* Buttons */
+    .btn{position:absolute;right:10px;bottom:84px;padding:8px 12px;background:var(--ui);
+      color:var(--text);border:1px solid rgba(255,255,255,.12);border-radius:8px;cursor:pointer;pointer-events:auto}
+    .btn2{right:90px}
 
-    /* mobile joystick */
-    #joy{position:fixed;left:18px;bottom:18px;width:160px;height:160px;pointer-events:auto}
+    /* Palette modal */
+    .modal{position:absolute;right:10px;top:10px;width:360px;background:var(--ui2);
+      border:1px solid rgba(255,255,255,.12);border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,.5);
+      display:none;pointer-events:auto}
+    .modal h3{margin:0;padding:12px;border-bottom:1px solid rgba(255,255,255,.08);font-weight:600}
+    .modal .grid{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;padding:12px}
+    .modal .tile{background:var(--ui);border:1px solid rgba(255,255,255,.12);border-radius:8px;cursor:pointer;padding:10px;
+      display:grid;place-items:center}
+    .modal .tile:hover{border-color:var(--hi)}
+    .modal textarea{background:#0b0d10;color:#e8f2ff;border:1px solid #1b2028;border-radius:6px}
+
+    /* Mobile joystick zone */
+    #joy{position:absolute;left:24px;bottom:24px;width:160px;height:160px;pointer-events:auto}
+
+    /* Error overlay */
+    #overlay{position:fixed;inset:0;background:rgba(0,0,0,.92);color:#ff6;display:none;
+      font:13px/1.5 ui-monospace,Consolas,monospace;white-space:pre-wrap;padding:10px;z-index:99999;pointer-events:auto}
   </style>
-  <script src="https://cdn.jsdelivr.net/npm/nipplejs@0.10.0/dist/nipplejs.min.js"></script>
 </head>
 <body>
-  <div id="overlay" class="overlay"></div>
+  <div id="overlay"></div>
 
   <div class="hud" id="hud">
+    <div id="reticle"></div>
     <div class="hotbar" id="hotbar"></div>
     <button class="btn btn2" id="copyBtn">Copy</button>
     <button class="btn" id="blocksBtn">Blocks</button>
@@ -52,14 +72,19 @@
     <div id="joy"></div>
   </div>
 
-  <script type="module">
-    // error overlay (handy on mobile)
-    const ov = document.getElementById('overlay');
-    addEventListener('error', e => { ov.style.display='block'; ov.textContent = 'JS Error:\\n'+e.message; });
-    addEventListener('unhandledrejection', e => { ov.style.display='block'; ov.textContent = 'Promise Error:\\n'+(e.reason?.message||e.reason); });
-
-    const ts = Date.now();
-    await import(`./src/main.js?v=${ts}`);
+  <script>
+    // tiny error overlay so mobile shows JS issues
+    const errOverlay = document.getElementById('overlay');
+    function showError(msg, src, line, col, err){
+      errOverlay.style.display='block';
+      errOverlay.textContent = '⚠️ JS Error:\n' + msg +
+        (src?('\n\nSource: '+src+':'+line+':'+col):'') +
+        (err?.stack?('\n\n'+err.stack):'');
+    }
+    window.addEventListener('error', e=>showError(e.message, e.filename, e.lineno, e.colno, e.error));
+    window.addEventListener('unhandledrejection', e=>showError((e.reason&&e.reason.message)||e.reason));
   </script>
+
+  <script type="module" src="./src/main.js"></script>
 </body>
 </html>
