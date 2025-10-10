@@ -1,9 +1,9 @@
 import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js';
-import { SceneRoot } from './scene/Scene.js';
-import { DesktopFPV } from './controls/DesktopFPV.js';
-import { MobileFPV }  from './controls/MobileFPV.js';
-import { Builder }    from './tools/Builder.js';
-import { initUI }     from './ui/Hotbar.js';
+import { SceneRoot }       from './scene/Scene.js';
+import { DesktopFPV }      from './controls/DesktopFPV.js';
+import { MobileFPV }       from './controls/MobileFPV.js';
+import { Builder }         from './tools/Builder.js';
+import { initUI }          from './ui/Hotbar.js';
 
 (async function boot(){
   const renderer = new THREE.WebGLRenderer({ antialias:true });
@@ -14,16 +14,17 @@ import { initUI }     from './ui/Hotbar.js';
   renderer.setSize(innerWidth, innerHeight);
   document.body.appendChild(renderer.domElement);
 
-  const sceneRoot = new SceneRoot();
-  const { scene, camera, groundRayMesh } = sceneRoot;
+  const root = new SceneRoot();
+  const { scene, camera, groundRayMesh } = root;
 
   const isMobile = 'ontouchstart' in window;
-  const controls = isMobile ? new MobileFPV(camera, document.getElementById('joy'))
-                            : new DesktopFPV(camera, renderer.domElement);
+  const controls = isMobile
+    ? new MobileFPV(camera, document.getElementById('joy'))
+    : new DesktopFPV(camera, renderer.domElement);
 
   const builder = new Builder(scene, camera, groundRayMesh);
-  const uiApi = initUI(builder);
-  builder.setUI(uiApi); // enable hotbar cycling from controller
+  const uiApi   = initUI(builder);
+  builder.setUI(uiApi);
 
   addEventListener('resize', ()=>{
     camera.aspect = innerWidth/innerHeight;
@@ -36,7 +37,7 @@ import { initUI }     from './ui/Hotbar.js';
     requestAnimationFrame(animate);
     const dt = Math.min(0.05, clock.getDelta());
     controls.update(dt);
-    builder.update(dt);            // gamepad polling + hover from reticle
+    builder.update(dt);
     renderer.render(scene, camera);
   })();
 })();
