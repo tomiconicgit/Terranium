@@ -1,88 +1,98 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="utf-8" />
+  <meta charset="UTF-8" />
   <meta
     name="viewport"
     content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1.0, user-scalable=no"
   />
-  <meta name="apple-mobile-web-app-capable" content="yes" />
-  <meta name="mobile-web-app-capable" content="yes" />
-  <title>Terranium — Builder (Controller Only)</title>
+  <meta name="apple-mobile-web-app-capable" content="no" />
+  <meta name="mobile-web-app-capable" content="no" />
+  <title>Voxel Builder (Controller Only)</title>
+
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://unpkg.com/three@0.169.0/build/three.module.js",
+        "three/addons/": "https://unpkg.com/three@0.169.0/examples/jsm/"
+      }
+    }
+  </script>
 
   <style>
-    :root {
-      --ui-bg: rgba(12,14,18,.75);
-      --ui-bd: rgba(255,255,255,.1);
-      --ui-tx: #e7ecf4;
-      --ui-ac: #4aa3ff;
-    }
-    html, body { margin:0; height:100%; overflow:hidden; background:#000; color:#fff; font:14px/1.4 system-ui,-apple-system,Segoe UI,Roboto; touch-action:none; }
+    html, body { margin:0; height:100%; overflow:hidden; background:#000; color:#fff; }
+    canvas { display:block; }
 
-    #overlay { position:fixed; inset:0; background:rgba(0,0,0,.92); color:#ff6; display:none; white-space:pre-wrap; z-index:999999; padding:12px; font:13px/1.5 ui-monospace,monospace; }
-
-    .hud { position:fixed; inset:0; pointer-events:none; }
-
-    #reticle{
-      position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);
-      width:8px;height:8px;border-radius:50%;
-      background:#fff;box-shadow:0 0 12px rgba(255,255,255,.75);
-      pointer-events:none;opacity:.9
+    /* Centered reticle */
+    #reticle {
+      position: fixed;
+      left: 50%;
+      top: 50%;
+      width: 10px; height: 10px;
+      margin-left: -5px; margin-top: -5px;
+      border-radius: 50%;
+      background: #ffffffcc;
+      box-shadow: 0 0 6px #fff;
+      pointer-events: none;
+      z-index: 5;
     }
 
-    .hotbar{
-      position:fixed; left:50%; bottom:16px; transform:translateX(-50%);
-      display:flex; gap:8px; padding:8px 10px; background:var(--ui-bg); border:1px solid var(--ui-bd);
-      border-radius:10px; pointer-events:auto; backdrop-filter: blur(8px);
+    /* Error overlay */
+    #errorOverlay {
+      position: fixed; inset: 0; display: none;
+      background: rgba(0,0,0,.92); color:#ff6; z-index:999999;
+      font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      white-space: pre-wrap; padding: 12px; overflow:auto;
     }
-    .slot{ width:44px; height:44px; border:1px solid var(--ui-bd); border-radius:8px; background:rgba(255,255,255,.05); display:grid; place-items:center; cursor:pointer; }
-    .slot.active{ outline:2px solid var(--ui-ac); }
-    .swatch{ width:30px; height:30px; border-radius:4px; box-shadow: inset 0 0 0 1px rgba(0,0,0,.25); }
 
-    .btn{
-      position:fixed; right:16px; bottom:16px; pointer-events:auto;
-      background:var(--ui-bg); color:var(--ui-tx); border:1px solid var(--ui-bd); border-radius:10px;
-      padding:10px 14px; cursor:pointer; backdrop-filter: blur(8px);
+    /* Hotbar */
+    #hotbar {
+      position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%);
+      display: grid; grid-template-columns: repeat(10, 64px); gap: 8px;
+      z-index: 6;
+      user-select: none;
     }
-    .btn2{ right:100px; }
+    .slot {
+      width: 64px; height: 64px; background: #222a; backdrop-filter: blur(4px);
+      border: 2px solid #555; border-radius: 8px; display:flex; flex-direction:column;
+      align-items:center; justify-content:center; position:relative;
+    }
+    .slot.selected { border-color: #fff; box-shadow: 0 0 10px #fff7; }
+    .thumb {
+      width: 42px; height: 42px; border-radius: 4px; margin-top: 3px;
+      display:flex; align-items:center; justify-content:center; font-size: 10px;
+      color:#000; font-weight:700;
+    }
+    .label {
+      font-size: 10px; margin-top: 2px; text-align:center; width: 100%;
+      color:#ddd; line-height: 1.1;
+    }
 
-    .modal{
-      position:fixed; right:16px; top:16px; width:360px; max-width:90vw;
-      background:var(--ui-bg); border:1px solid var(--ui-bd); border-radius:12px; padding:12px;
-      display:none; pointer-events:auto; backdrop-filter: blur(8px);
+    /* “Assets Drawer” button & panel (optional, future) */
+    #assetsBtn {
+      position: fixed; right: 16px; top: 16px; z-index: 7;
+      background:#222a; color:#fff; padding:8px 12px; border:1px solid #555; border-radius:8px;
     }
-    .modal h3{ margin:6px 2px 10px; font-weight:600; }
-    .grid{ display:grid; grid-template-columns:repeat(6, minmax(0,1fr)); gap:8px; }
-    .tile{ height:60px; border:1px solid var(--ui-bd); border-radius:8px; display:grid; place-items:center; cursor:pointer; background:rgba(255,255,255,.05); }
-    .tile .swatch{ width:42px;height:42px; }
   </style>
 </head>
 <body>
-  <div id="overlay"></div>
-
-  <div class="hud" id="hud">
-    <div id="reticle"></div>
-    <div class="hotbar" id="hotbar"></div>
-    <button class="btn btn2" id="copyBtn">Copy</button>
-    <button class="btn" id="blocksBtn">Blocks</button>
-
-    <div class="modal" id="palette">
-      <h3>Blocks & Parts</h3>
-      <div class="grid" id="paletteGrid"></div>
-    </div>
-  </div>
+  <div id="reticle"></div>
+  <div id="hotbar"></div>
+  <button id="assetsBtn" hidden>Assets</button>
+  <div id="errorOverlay"></div>
 
   <script>
-  const overlay = document.getElementById('overlay');
-  function showError(msg, src, line, col, err){
-    overlay.style.display='block';
-    overlay.textContent = '⚠️ JS Error:\n' + msg +
-      (src?('\n\nSource: '+src+':'+line+':'+col):'') +
-      (err && err.stack?('\n\n'+err.stack):'');
-    console.error(msg, err);
-  }
-  window.addEventListener('error', e => showError(e.message, e.filename, e.lineno, e.colno, e.error));
-  window.addEventListener('unhandledrejection', e => showError(e.reason?.message || e.reason, '', '', '', e.reason));
+    // Error capture
+    const overlay = document.getElementById('errorOverlay');
+    function showError(msg, src, line, col, err){
+      overlay.style.display='block';
+      overlay.textContent = '⚠️ JS Error:\n' + msg +
+        (src?('\n\nSource: '+src+':'+line+':'+col):'') +
+        (err && err.stack?('\n\n'+err.stack):'');
+      console.error(msg, err);
+    }
+    window.addEventListener('error', e => showError(e.message, e.filename, e.lineno, e.colno, e.error));
+    window.addEventListener('unhandledrejection', e => showError(e.reason?.message || e.reason, '', '', '', e.reason));
   </script>
 
   <script type="module" src="./src/main.js"></script>
