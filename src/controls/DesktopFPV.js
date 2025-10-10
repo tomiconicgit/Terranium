@@ -4,47 +4,45 @@ export class DesktopFPV {
   constructor(camera, dom){
     this.cam = camera;
     this.dom = dom;
+    this.speed = 6.0;
+    this.run   = 1.8; // Shift multiplier
     this.vel = new THREE.Vector3();
     this.dir = new THREE.Vector3();
-    this.yaw = 0; this.pitch = 0;
-    this.keys = {};
-    addEventListener('keydown', e=>this.keys[e.key.toLowerCase()]=true);
-    addEventListener('keyup',   e=>this.keys[e.key.toLowerCase()]=false);
+    this.yaw=0; this.pitch=0;
 
-    this.mDown=false; this.lx=0; this.ly=0;
-    dom.addEventListener('mousedown',(e)=>{this.mDown=true; this.lx=e.clientX; this.ly=e.clientY;});
-    addEventListener('mouseup',()=>this.mDown=false);
-    addEventListener('mousemove',(e)=>{ if(!this.mDown) return;
-      const dx=e.clientX-this.lx, dy=e.clientY-this.ly; this.lx=e.clientX; this.ly=e.clientY;
-      this.yaw  -= dx*0.0025; this.pitch -= dy*0.0020; this.pitch = Math.max(-1.55, Math.min(1.55, this.pitch));
+    this.keys = Object.create(null);
+    addEventListener('keydown',  e=> this.keys[e.code]=true);
+    addEventListener('keyup',    e=> this.keys[e.code]=false);
+
+    // mouse look (drag)
+    let md=false, lx=0, ly=0;
+    dom.addEventListener('mousedown', e=>{ md=true; lx=e.clientX; ly=e.clientY; });
+    addEventListener('mouseup', ()=> md=false);
+    addEventListener('mousemove', e=>{
+      if(!md) return;
+      const dx=e.clientX-lx, dy=e.clientY-ly; lx=e.clientX; ly=e.clientY;
+      this.yaw   -= dx*0.0035;
+      this.pitch -= dy*0.0030;
+      this.pitch = Math.max(-1.55, Math.min(1.55, this.pitch));
     });
 
-    this.speed = 3.6;
-  }
-  update(dt){
-    const forward = (this.keys['w']||this.keys['arrowup'])?1:0;
-    const back    = (this.keys['s']||this.keys['arrowdown'])?1:0;
-    const left    = (this.keys['a']||this.keys['arrowleft'])?1:0;
-    const right   = (this.keys['d']||this.keys['arrowright'])?1:0;
-
-    const z = forward - back;
-    const x = right - left;
-
-    this.dir.set(x,0,-z);
-    if (this.dir.lengthSq()>0) this.dir.normalize();
-
-    // apply yaw to direction
-    const c=Math.cos(this.yaw), s=Math.sin(this.yaw);
-    const dx = this.dir.x*c - this.dir.z*s;
-    const dz = this.dir.x*s + this.dir.z*c;
-
-    this.vel.set(dx,0,dz).multiplyScalar(this.speed);
-    this.cam.position.x += this.vel.x * dt;
-    this.cam.position.z += this.vel.z * dt;
-
-    // camera orientation
-    this.cam.rotation.set(this.pitch, this.yaw, 0, 'YXZ');
-    // keep head at ~1.7m
+    // initial height
     this.cam.position.y = 1.7;
+  }
+
+  update(dt){
+    const fwd = (this.keys['KeyW']||this.keys['ArrowUp']?1:0) - (this.keys['KeyS']||this.keys['ArrowDown']?1:0);
+    const str = (this.keys['KeyD']||this.keys['ArrowRight']?1:0) - (this.keys['KeyA']||this.keys['ArrowLeft']?1:0);
+    const spd = this.speed * (this.keys['ShiftLeft']||this.keys['ShiftRight'] ? this.run : 1.0);
+
+    // rotate input into world space (yaw only)
+    const c=Math.cos(this.yaw), s=Math.sin(this.yaw);
+    const dx =  str*c - fwd*s;
+    const dz =  str*s - fwd*c;
+
+    this.cam.position.x += dx*spd*dt;
+    this.cam.position.z += dz*spd*dt;
+    this.cam.rotation.set(this.pitch, this.yaw, 0, 'YXZ');
+    this.cam.position.y = 1.7; // keep head height
   }
 }
