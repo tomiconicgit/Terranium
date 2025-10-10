@@ -4,7 +4,6 @@ export class MobileControls {
     constructor(player, camera) {
         this.player = player;
         this.camera = camera;
-        // Sensitivity increased for better responsiveness on mobile
         this.sensitivity = 0.004; 
         this.moveZone = document.createElement('div');
         this.moveZone.style.position = 'absolute';
@@ -26,7 +25,7 @@ export class MobileControls {
         });
         this.moveJoystick.on('end', () => {
             this.moveData.force = 0;
-            this.player.desiredVelocity.set(0, 0, 0); // Stop when joystick is released
+            this.player.desiredVelocity.set(0, 0, 0); 
         });
         this.touchIdentifier = null;
         this.touchStartX = 0;
@@ -48,7 +47,8 @@ export class MobileControls {
                     const deltaX = touch.clientX - this.touchStartX;
                     const deltaY = touch.clientY - this.touchStartY;
                     this.player.rotation -= deltaX * this.sensitivity;
-                    this.camera.pitch -= deltaY * this.sensitivity;
+                    // **THE FIX**: Changed '-=' to '+=' to invert vertical look
+                    this.camera.pitch += deltaY * this.sensitivity; 
                     this.camera.pitch = THREE.MathUtils.clamp(this.camera.pitch, -Math.PI / 2 + 0.01, Math.PI / 2 - 0.01);
                     this.touchStartX = touch.clientX;
                     this.touchStartY = touch.clientY;
