@@ -13,8 +13,12 @@ if (screen.orientation && screen.orientation.lock) {
 }
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
-// **THE FIX**: This line ensures the renderer correctly displays the sRGB texture colors.
 renderer.outputEncoding = THREE.sRGBEncoding;
+
+// --- Add Tone Mapping for more realistic lighting ---
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.0;
+
 renderer.setSize(window.innerWidth, window.innerHeight);
 document.body.appendChild(renderer.domElement);
 
@@ -57,7 +61,7 @@ let lastTap = 0;
 document.body.addEventListener('touchend', (event) => {
     const currentTime = new Date().getTime();
     const tapLength = currentTime - lastTap;
-    if (tapLength < 300 && tapLength > 0) {
+if (tapLength < 300 && tapLength > 0) {
         event.preventDefault();
     }
     lastTap = currentTime;
