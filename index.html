@@ -8,6 +8,18 @@
     <title>Terranium</title>
     <link rel="manifest" href="manifest.json">
     <script src="https://cdn.jsdelivr.net/npm/nipplejs@0.10.0/dist/nipplejs.min.js"></script>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden; /* Hide scrollbars */
+            background-color: #000;
+            /* Prevents pull-to-refresh, pinch-to-zoom, etc. */
+            touch-action: none; 
+        }
+        canvas {
+            display: block; /* Removes bottom margin */
+        }
+    </style>
     <script>
         if ('serviceWorker' in navigator) {
             navigator.serviceWorker.register('/service-worker.js');
