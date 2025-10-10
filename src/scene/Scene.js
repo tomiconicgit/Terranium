@@ -11,18 +11,18 @@ export class Scene extends THREE.Scene {
     this.userData.uniforms = { time: { value: 0 } };
     this.userData.tick = [];
 
+    // Expanded terrain to 140×140
     const ground = createGroundTiles({
-      size: 100, segments: 100, grassRatio: 0.9, uniformsRef: this.userData.uniforms
+      size: 140, segments: 140, grassRatio: 0.96, uniformsRef: this.userData.uniforms
     });
     ground.name = 'landscape';
     this.add(ground);
 
-    // Massive NASA-style pad centered at origin
     const pad = createLaunchPadComplex();
     this.add(pad);
 
     const { rocks, trees, tickers } = createProps({
-      areaSize: 100, avoidRadius: 22, rockCount: 160, treeCount: 150, uniformsRef: this.userData.uniforms
+      areaSize: 140, avoidRadius: 30, rockCount: 180, treeCount: 170, uniformsRef: this.userData.uniforms
     });
     this.add(rocks, trees);
     this.userData.tick.push(...tickers);
