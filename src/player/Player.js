@@ -2,10 +2,9 @@ import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.m
 
 export class Player {
     constructor() {
-        const geometry = new THREE.BoxGeometry(0.6, 1.8, 0.6);
-        const material = new THREE.MeshStandardMaterial({ color: 0x00ff00 });
-        this.mesh = new THREE.Mesh(geometry, material);
-        this.mesh.position.y = 0.9;
+        // Use a simple Object3D as the player's body, since it's invisible
+        this.mesh = new THREE.Object3D();
+
         this.velocity = new THREE.Vector3();
         this.direction = new THREE.Vector3();
         this.rotation = 0;
