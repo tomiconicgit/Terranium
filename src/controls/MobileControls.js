@@ -44,7 +44,8 @@ export class MobileControls {
                 if (touch.identifier === this.touchIdentifier) {
                     const deltaX = touch.clientX - this.touchStartX;
                     const deltaY = touch.clientY - this.touchStartY;
-                    this.player.yaw -= deltaX * this.sensitivity;
+                    // Use 'this.player.rotation' instead of 'this.player.yaw'
+                    this.player.rotation -= deltaX * this.sensitivity;
                     this.camera.pitch -= deltaY * this.sensitivity;
                     this.camera.pitch = THREE.MathUtils.clamp(this.camera.pitch, -Math.PI / 2 + 0.01, Math.PI / 2 - 0.01);
                     this.touchStartX = touch.clientX;
@@ -72,7 +73,8 @@ export class MobileControls {
             const side = -this.moveData.force * Math.sin(this.moveData.angle); // Adjust for standard forward
             const forward = -this.moveData.force * Math.cos(this.moveData.angle);
             this.player.direction.set(side, 0, forward).normalize();
-            this.player.direction.applyAxisAngle(new THREE.Vector3(0, 1, 0), this.player.yaw);
+            // Use 'this.player.rotation' instead of 'this.player.yaw'
+            this.player.direction.applyAxisAngle(new THREE.Vector3(0, 1, 0), this.player.rotation);
             this.player.velocity.add(this.player.direction.clone().multiplyScalar(this.player.moveSpeed));
         }
     }
