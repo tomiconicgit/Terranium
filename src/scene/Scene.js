@@ -1,61 +1,90 @@
-import * as THREE from 'three';
+// src/scene/Scene.js
+import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js';
 import { createSkyDome } from '../objects/SkyDome.js';
 
 export class Scene extends THREE.Scene {
-  constructor() {
+  constructor(opts = {}) {
     super();
+
+    // Keep background null so SkyDome renders
     this.background = null;
 
-    // Lights
-    const hemi = new THREE.HemisphereLight(0xcfe8ff, 0x7c6a4d, 0.9);
-    hemi.position.set(0, 30, 0);
-    this.add(hemi);
-    const sun = new THREE.DirectionalLight(0xffffff, 1.3);
-    sun.position.set(-40, 60, -25);
-    this.add(sun);
+    // Simple uniform bucket + tickers if you need them later
+    this.userData.uniforms = { time: { value: 0 } };
+    this.userData.tick = [];
 
-    // Sky
+    // ---------- Lighting: bright + even, accurate colours ----------
+    {
+      // Soft global fill so corners never go pitch dark
+      const amb = new THREE.AmbientLight(0xffffff, 0.35);
+      this.add(amb);
+
+      // Slightly bluer sky / warm ground, higher intensity
+      const hemi = new THREE.HemisphereLight(0xdfeaff, 0x7c6a4d, 1.0);
+      hemi.position.set(0, 60, 0);
+      this.add(hemi);
+
+      // 4-key rig from corners – lifts edges/faces for clear visuals
+      const dir1 = new THREE.DirectionalLight(0xffffff, 1.10); dir1.position.set(+60, 80, -60);
+      const dir2 = new THREE.DirectionalLight(0xffffff, 0.80); dir2.position.set(-60, 50, +60);
+      const dir3 = new THREE.DirectionalLight(0xffffff, 0.60); dir3.position.set(+60, 40, +60);
+      const dir4 = new THREE.DirectionalLight(0xffffff, 0.50); dir4.position.set(-60, 30, -60);
+      [dir1, dir2, dir3, dir4].forEach(d => { d.castShadow = false; this.add(d); });
+    }
+
+    // ---------- Sky ----------
     this.add(createSkyDome());
 
-    // Flat ambient plane under the voxel world (not visible, just safety)
-    const plane = new THREE.Mesh(
-      new THREE.PlaneGeometry(1000, 1000),
-      new THREE.MeshStandardMaterial({ color: 0x202020, visible: false })
-    );
-    plane.rotation.x = -Math.PI/2;
-    plane.position.y = -0.5;
-    this.add(plane);
+    // ---------- Ground: 100×100 instanced blocks (1×1×1) at y=0.5 ----------
+    const groundInstanced = makeGroundInstanced({
+      size: 100,
+      material: new THREE.MeshStandardMaterial({ color: 0xdbcb9a, roughness: 1.0, metalness: 0.0 }) // sand-ish
+    });
+    groundInstanced.name = 'groundInstanced';
+    this.add(groundInstanced);
 
-    // ===== Voxel ground (100x100) using instancing =====
-    const size = 100;  // 100x100
-    const tile = 1.0;
-    const half = (size * tile) / 2;
-    const geom = new THREE.BoxGeometry(tile, tile, tile);
-    const mat = new THREE.MeshStandardMaterial({ color: 0xd7cbb0, roughness: 1.0, metalness: 0.0 });
-    const inst = new THREE.InstancedMesh(geom, mat, size * size);
-    inst.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-
-    const m = new THREE.Matrix4();
-    let i = 0;
-    for (let z = 0; z < size; z++) {
-      for (let x = 0; x < size; x++) {
-        const wx = x * tile - half + tile / 2;
-        const wz = z * tile - half + tile / 2;
-        m.compose(
-          new THREE.Vector3(wx, 0, wz),
-          new THREE.Quaternion(),
-          new THREE.Vector3(1, 1, 1)
-        );
-        inst.setMatrixAt(i++, m);
-      }
-    }
-    inst.instanceMatrix.needsUpdate = true;
-    inst.name = 'groundInstanced';
-    this.add(inst);
-
-    // container for user-placed blocks
+    // ---------- World root for placed assets ----------
     const world = new THREE.Group();
     world.name = 'world';
     this.add(world);
   }
+
+  update(dt, elapsed /*, camera, player */) {
+    this.userData.uniforms.time.value = elapsed;
+
+    // Run any additional scene tickers if added later
+    for (const t of this.userData.tick) t(dt, elapsed);
+  }
+}
+
+/* =============================================================================
+   Helpers
+============================================================================= */
+
+function makeGroundInstanced({ size = 100, material }) {
+  // 1×1×1 cubes centered at (x,0.5,z) so top is y=1.0
+  const geom = new THREE.BoxGeometry(1, 1, 1);
+  const count = size * size;
+  const mesh = new THREE.InstancedMesh(geom, material, count);
+  mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+
+  const tmp = new THREE.Object3D();
+  let i = 0;
+  const half = Math.floor(size / 2);
+
+  for (let gz = 0; gz < size; gz++) {
+    for (let gx = 0; gx < size; gx++) {
+      const x = gx - half;
+      const z = gz - half;
+      tmp.position.set(x, 0.5, z);
+      tmp.rotation.set(0, 0, 0);
+      tmp.scale.set(1, 1, 1);
+      tmp.updateMatrix();
+      mesh.setMatrixAt(i++, tmp.matrix);
+    }
+  }
+
+  mesh.instanceMatrix.needsUpdate = true;
+  mesh.frustumCulled = false; // keep everything – ‘flat world’ feel
+  return mesh;
 }
