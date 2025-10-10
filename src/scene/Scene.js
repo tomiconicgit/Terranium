@@ -1,52 +1,61 @@
-import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js';
+import * as THREE from 'three';
 import { createSkyDome } from '../objects/SkyDome.js';
 
-export class SceneRoot {
+export class Scene extends THREE.Scene {
   constructor() {
-    this.scene = new THREE.Scene();
-    this.scene.background = null;
+    super();
+    this.background = null;
 
-    // camera
-    this.camera = new THREE.PerspectiveCamera(70, innerWidth/innerHeight, 0.05, 1500);
-    this.camera.position.set(4, 1.7, 6);
-
-    // lights
+    // Lights
     const hemi = new THREE.HemisphereLight(0xcfe8ff, 0x7c6a4d, 0.9);
     hemi.position.set(0, 30, 0);
-    this.scene.add(hemi);
-    const sun = new THREE.DirectionalLight(0xffffff, 1.4);
-    sun.position.set(-60, 80, -40);
-    this.scene.add(sun);
+    this.add(hemi);
+    const sun = new THREE.DirectionalLight(0xffffff, 1.3);
+    sun.position.set(-40, 60, -25);
+    this.add(sun);
 
-    // sky
-    this.scene.add(createSkyDome());
+    // Sky
+    this.add(createSkyDome());
 
-    // ground voxels 100x100
-    const size = 100;
-    const mat = new THREE.MeshStandardMaterial({ color: 0xe4d3a5, roughness: 0.95, metalness: 0.02 });
-    const geom = new THREE.BoxGeometry(1,1,1);
-    const ground = new THREE.InstancedMesh(geom, mat, size*size);
-    ground.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    // Flat ambient plane under the voxel world (not visible, just safety)
+    const plane = new THREE.Mesh(
+      new THREE.PlaneGeometry(1000, 1000),
+      new THREE.MeshStandardMaterial({ color: 0x202020, visible: false })
+    );
+    plane.rotation.x = -Math.PI/2;
+    plane.position.y = -0.5;
+    this.add(plane);
 
-    const m4 = new THREE.Matrix4();
-    const y = 0.5;
+    // ===== Voxel ground (100x100) using instancing =====
+    const size = 100;  // 100x100
+    const tile = 1.0;
+    const half = (size * tile) / 2;
+    const geom = new THREE.BoxGeometry(tile, tile, tile);
+    const mat = new THREE.MeshStandardMaterial({ color: 0xd7cbb0, roughness: 1.0, metalness: 0.0 });
+    const inst = new THREE.InstancedMesh(geom, mat, size * size);
+    inst.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+
+    const m = new THREE.Matrix4();
     let i = 0;
-    for (let z=0; z<size; z++){
-      for (let x=0; x<size; x++){
-        m4.makeTranslation(x + 0.5, y, z + 0.5);
-        ground.setMatrixAt(i++, m4);
+    for (let z = 0; z < size; z++) {
+      for (let x = 0; x < size; x++) {
+        const wx = x * tile - half + tile / 2;
+        const wz = z * tile - half + tile / 2;
+        m.compose(
+          new THREE.Vector3(wx, 0, wz),
+          new THREE.Quaternion(),
+          new THREE.Vector3(1, 1, 1)
+        );
+        inst.setMatrixAt(i++, m);
       }
     }
-    ground.position.set(-size/2, 0, -size/2);
-    this.scene.add(ground);
+    inst.instanceMatrix.needsUpdate = true;
+    inst.name = 'groundInstanced';
+    this.add(inst);
 
-    // invisible plane for ray intersections
-    this.groundRayMesh = new THREE.Mesh(
-      new THREE.PlaneGeometry(1000, 1000),
-      new THREE.MeshBasicMaterial({ visible:false })
-    );
-    this.groundRayMesh.rotation.x = -Math.PI/2;
-    this.groundRayMesh.position.y = 0;
-    this.scene.add(this.groundRayMesh);
+    // container for user-placed blocks
+    const world = new THREE.Group();
+    world.name = 'world';
+    this.add(world);
   }
 }
