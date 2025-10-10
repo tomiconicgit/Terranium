@@ -1,6 +1,5 @@
 import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js';
 
-// Library of placeable parts
 export const PARTS = [
   { id:'sand',     kind:'cube',   color:0xe4d3a5, label:'Sand' },
   { id:'grass',    kind:'cube',   color:0x5da24d, label:'Grass' },
@@ -22,44 +21,40 @@ export class Builder {
   constructor(scene, camera, groundRayMesh){
     this.scene = scene; this.camera = camera;
     this.ray = new THREE.Raycaster();
-    this.mouse = new THREE.Vector2(0,0); // we use reticle at center
-    this.ground = groundRayMesh; this.scene.add(this.ground);
+    this.mouse = new THREE.Vector2(0,0); // reticle center
+    this.ground = groundRayMesh;
 
     this.placed = []; // {_mesh,id,kind,x,y,z,rot}
     this._activeId = 'concrete';
 
-    // reticle hover box
+    // hover box
     this.hover = new THREE.Mesh(
       new THREE.BoxGeometry(1.01,1.01,1.01),
       new THREE.MeshBasicMaterial({ color:0xffffff, transparent:true, opacity:0.15 })
     );
     this.hover.visible=false; this.scene.add(this.hover);
 
-    // mouse/tap
+    // input
     addEventListener('contextmenu', e=>e.preventDefault());
     addEventListener('pointerdown', e=>{
       if (e.button===2) this.remove();
       else this.place();
     }, {passive:true});
 
-    // long-press remove on mobile
+    // mobile long-press remove
     let t; addEventListener('pointerdown', ()=>{ t=setTimeout(()=>this.remove(),500); });
     addEventListener('pointerup',   ()=>clearTimeout(t));
 
-    // gamepad state
     this.prevButtons = [];
-    this.ui = null; // set by setUI
+    this.ui = null;
   }
 
   setUI(ui){ this.ui = ui; }
   setActive(id){ this._activeId = id; }
   getActive(){ return this._activeId; }
 
-  // Ray from the centre reticle
   _intersections(){
-    // list includes ground and all placed meshes
     const objs = [this.ground, ...this.placed.map(p=>p._mesh)];
-    // centre of screen:
     this.mouse.set(0,0);
     this.ray.setFromCamera(this.mouse, this.camera);
     return this.ray.intersectObjects(objs, false);
@@ -69,17 +64,16 @@ export class Builder {
     const hit = this._intersections()[0];
     if(!hit){ this.hover.visible=false; return; }
 
-    // where to snap new block: hit position + face normal (for sides/top/bottom)
     let pos = new THREE.Vector3();
     if (hit.object === this.ground){
-      // grid on ground
+      // ground grid snap
       const gx = Math.floor(hit.point.x)+0.5;
       const gz = Math.floor(hit.point.z)+0.5;
       pos.set(gx, 0.5, gz);
     } else {
-      const normal = hit.face.normal.clone().round(); // axis-aligned face
+      // face snap to side/top/bottom
+      const normal = hit.face.normal.clone().round();
       pos.copy(hit.object.position).add(normal);
-      // Slabs: keep quarter steps vertically if stacking slabs
       if (hit.object.userData.kind==='slab' && normal.y===0){
         pos.y = Math.round(pos.y*4)/4;
       }
@@ -100,7 +94,7 @@ export class Builder {
     } else if (def.kind==='slab'){
       mesh = new THREE.Mesh(new THREE.BoxGeometry(1,0.25,1),
         new THREE.MeshStandardMaterial({ color:def.color, roughness:.95, metalness:.03 }));
-      y = Math.round((y-0.125)*4)/4 + 0.125; // centre on 0.25 grid
+      y = Math.round((y-0.125)*4)/4 + 0.125;
     } else if (def.kind==='pipe'){
       mesh = new THREE.Mesh(new THREE.CylinderGeometry(0.12,0.12,1,12),
         new THREE.MeshStandardMaterial({ color:def.color, roughness:.75, metalness:.6 }));
@@ -138,25 +132,22 @@ export class Builder {
     return JSON.stringify(this.placed.map(({_mesh, ...rest})=>rest), null, 2);
   }
 
-  // --- Controller (Backbone / standard mapping):
-  // R2 (7) place, L2 (6) remove, R1 (5) next, L1 (4) prev
   _pollGamepad(){
     const gp = navigator.getGamepads?.()[0];
     if (!gp) return;
     const b = gp.buttons;
-
     const pressed = i => !!(b[i] && b[i].pressed);
     const edge = i => pressed(i) && !this.prevButtons[i];
 
-    if (edge(7)) this.place();       // R2
-    if (edge(6)) this.remove();      // L2
+    if (edge(7)) this.place();                 // R2
+    if (edge(6)) this.remove();                // L2
     if (edge(5)) this.ui?.selectByOffset?.(+1); // R1
     if (edge(4)) this.ui?.selectByOffset?.(-1); // L1
 
     this.prevButtons = b.map(x=>x?.pressed);
   }
 
-  update(dt){
+  update(){
     this._pollGamepad();
     this.updateHover();
   }
