@@ -11,7 +11,7 @@ export class Camera extends THREE.PerspectiveCamera {
     }
     update() {
         this.rotation.order = 'YXZ';
-        this.rotation.y = 0;
+        // The Y rotation is inherited from the parent (player.mesh), so it's not set here
         this.rotation.x = -this.pitch; // Negative for looking up
         this.rotation.z = 0;
     }
