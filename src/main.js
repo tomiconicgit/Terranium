@@ -7,18 +7,13 @@ import { MobileControls } from './controls/MobileControls.js';
 
 // --- Lock Screen Orientation ---
 if (screen.orientation && screen.orientation.lock) {
-    screen.orientation.lock('landscape').catch(err => {
-        console.log("Could not lock screen orientation:", err);
-    });
+    screen.orientation.lock('landscape').catch(() => {});
 }
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.outputEncoding = THREE.sRGBEncoding;
-
-// --- Add Tone Mapping for more realistic lighting ---
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.0;
-
 renderer.setSize(window.innerWidth, window.innerHeight);
 document.body.appendChild(renderer.domElement);
 
@@ -28,15 +23,10 @@ scene.add(player.mesh);
 const camera = new Camera(player);
 
 const isMobile = 'ontouchstart' in window;
-let controls;
-if (isMobile) {
-    controls = new MobileControls(player, camera);
-} else {
-    controls = new DesktopControls(player, camera);
-}
+let controls = isMobile ? new MobileControls(player, camera) : new DesktopControls(player, camera);
 
 const landscape = scene.getObjectByName('landscape');
-const clock = new THREE.Clock(); 
+const clock = new THREE.Clock();
 
 window.addEventListener('resize', () => {
     camera.aspect = window.innerWidth / window.innerHeight;
@@ -46,12 +36,16 @@ window.addEventListener('resize', () => {
 
 function animate() {
     requestAnimationFrame(animate);
-    const delta = clock.getDelta(); 
+    const delta = Math.min(0.05, clock.getDelta()); // clamp for stability
+    const elapsed = clock.elapsedTime;
 
-    controls.update(); 
-    player.update(landscape, delta); 
-    camera.update(delta); 
-    
+    controls.update();
+    player.update(landscape, delta);
+    camera.update(delta, player);
+
+    // scene-level ticking (wind/material time)
+    if (scene.update) scene.update(delta, elapsed);
+
     renderer.render(scene, camera);
 }
 animate();
@@ -59,10 +53,7 @@ animate();
 // --- Prevent Double Tap Zoom ---
 let lastTap = 0;
 document.body.addEventListener('touchend', (event) => {
-    const currentTime = new Date().getTime();
-    const tapLength = currentTime - lastTap;
-if (tapLength < 300 && tapLength > 0) {
-        event.preventDefault();
-    }
-    lastTap = currentTime;
+    const t = Date.now();
+    if (t - lastTap < 300) event.preventDefault();
+    lastTap = t;
 });
