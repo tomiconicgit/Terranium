@@ -159,7 +159,7 @@ export function createLaunchPadComplex() {
   const floorStep = 3, deckEvery = 9;
   const panelT = 0.12, inset = 0.25, winH = 0.9, winInset = 0.05;
 
-  function panel(side, yMid, height, mat){
+  function makePanel(side, yMid, height, mat){ // renamed from "panel" to avoid name collision
     if (side==='N' || side==='S'){
       const w = towerW - inset*2;
       const p = new THREE.Mesh(new THREE.BoxGeometry(w, height, panelT), mat);
@@ -219,16 +219,16 @@ export function createLaunchPadComplex() {
     } else {
       const isWindowBand = ((y/floorStep) % 2) === 0;
       if (!isWindowBand){
-        tower.add(panel('N', yMid, floorStep-0.15, clad));
-        tower.add(panel('S', yMid, floorStep-0.15, clad));
-        tower.add(panel('E', yMid, floorStep-0.15, clad));
-        tower.add(panel('W', yMid, floorStep-0.15, clad));
+        tower.add(makePanel('N', yMid, floorStep-0.15, clad));
+        tower.add(makePanel('S', yMid, floorStep-0.15, clad));
+        tower.add(makePanel('E', yMid, floorStep-0.15, clad));
+        tower.add(makePanel('W', yMid, floorStep-0.15, clad));
       } else {
         const bandH = winH;
         const capH  = (floorStep-0.15 - bandH)/2;
         for (const side of ['N','S','E','W']){
-          tower.add(panel(side, yMid + (bandH/2 + capH/2), capH, clad));
-          tower.add(panel(side, yMid - (bandH/2 + capH/2), capH, clad));
+          tower.add(makePanel(side, yMid + (bandH/2 + capH/2), capH, clad));
+          tower.add(makePanel(side, yMid - (bandH/2 + capH/2), capH, clad));
           tower.add(windowStrip(side, yMid, bandH));
         }
       }
@@ -290,10 +290,10 @@ export function createLaunchPadComplex() {
   cabBox.position.y = cabH/2;
   cab.add(cabBox);
 
-  // Interior panel
-  const panel = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.45, 0.04), glow);
-  panel.position.set(cabW/2 - 0.25, 1.1, cabD/2 - 0.15);
-  cab.add(panel);
+  // Interior panel (RENAMED -> cabPanel)
+  const cabPanel = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.45, 0.04), glow);
+  cabPanel.position.set(cabW/2 - 0.25, 1.1, cabD/2 - 0.15);
+  cab.add(cabPanel);
 
   // Interior sliding doors (east side when at ground; west side when at deck)
   const inDoorL = new THREE.Mesh(new THREE.BoxGeometry(doorW/2, doorH, doorT), steelWhite);
@@ -355,7 +355,7 @@ export function createLaunchPadComplex() {
 
   // Ground call button world pos & interior panel world pos (computed each update)
   const callPos = new THREE.Vector3(callBtn.position.x, callBtn.position.y, callBtn.position.z);
-  const panelLocal = new THREE.Vector3(panel.position.x, panel.position.y, panel.position.z);
+  const panelLocal = new THREE.Vector3(cabPanel.position.x, cabPanel.position.y, cabPanel.position.z);
 
   // Input: E-key OR any pointer when near an interactive
   let wantPress = false;
@@ -416,7 +416,6 @@ export function createLaunchPadComplex() {
     // State machine
     if (state.phase==='idleBottom') {
       setGroundDoors(1); setCabDoors(1); setDeckDoors(0); state.tDoors=1;
-      // wait for input
 
     } else if (state.phase==='doorsOpeningGround') {
       state.tDoors = Math.min(1, state.tDoors + dt*state.doorSpeed);
@@ -433,7 +432,6 @@ export function createLaunchPadComplex() {
       const step = Math.sign(dy) * state.speed * dt;
       if (Math.abs(step) >= Math.abs(dy)) { cab.position.y = LAUNCH_DECK_Y; state.phase='doorsOpeningTop'; state.tDoors=0; }
       else cab.position.y += step;
-      // keep ground/inside doors closed while moving
       setGroundDoors(0); setCabDoors(0); setDeckDoors(0);
 
     } else if (state.phase==='doorsOpeningTop') {
@@ -443,7 +441,6 @@ export function createLaunchPadComplex() {
 
     } else if (state.phase==='idleTop') {
       setDeckDoors(1); setCabDoors(1); setGroundDoors(0);
-      // wait for input
 
     } else if (state.phase==='doorsClosingTop') {
       state.tDoors = Math.max(0, state.tDoors - dt*state.doorSpeed);
