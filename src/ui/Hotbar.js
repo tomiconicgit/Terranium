@@ -13,35 +13,36 @@ export function initUI(builder){
     const el = document.createElement('div');
     el.className = 'tile';
     el.title = p.label;
-    el.innerHTML = `<div class="swatch" style="background:${toHex(p.color)}"></div>`;
+    el.innerHTML = `<div class="swatch" style="background:${hex(p.color)}"></div>`;
     el.onclick = ()=>{ select(p.id); palette.style.display='none'; };
     grid.appendChild(el);
   });
 
-  // Hotbar (10 slots). Fill first N with parts.
-  for (let i=0;i<10;i++){
-    const slot = document.createElement('div'); slot.className='slot'; slot.dataset.index=i;
-    const part = PARTS[i] ?? PARTS[0];
-    slot.innerHTML = `<div class="swatch" style="background:${toHex(part.color)}"></div>`;
-    slot.onclick = ()=>select(part.id);
+  // Hotbar = first 10 parts (or repeat if fewer)
+  const barParts = Array.from({length:10}, (_,i)=> PARTS[i % PARTS.length]);
+  hotbar.innerHTML = '';
+  barParts.forEach((p,i)=>{
+    const slot = document.createElement('div');
+    slot.className = 'slot';
+    slot.dataset.id = p.id;
+    slot.innerHTML = `<div class="swatch" style="background:${hex(p.color)}"></div>`;
+    slot.onclick = ()=>select(p.id);
     hotbar.appendChild(slot);
+  });
+
+  function updateHighlight(id){
+    [...hotbar.children].forEach(el=> el.classList.toggle('active', el.dataset.id===id));
   }
-  hotbar.firstChild.classList.add('active');
-  builder.setActive(PARTS[0].id);
 
   function select(id){
     builder.setActive(id);
-    // mark matching swatch active (first one)
-    const color = toHex(PARTS.find(p=>p.id===id).color);
-    [...hotbar.children].forEach(s=>s.classList.remove('active'));
-    let chosen = [...hotbar.children].find(s=>s.querySelector('.swatch').style.background === color);
-    if(!chosen){ chosen = hotbar.children[0]; }
-    chosen.classList.add('active');
+    updateHighlight(id);
   }
 
-  btnBlocks.onclick = ()=>{
-    palette.style.display = (palette.style.display==='block' ? 'none':'block');
-  };
+  // default
+  select(barParts[0].id);
+
+  btnBlocks.onclick = ()=> palette.style.display = (palette.style.display==='block'?'none':'block');
 
   btnCopy.onclick = ()=>{
     const data = builder.exportJSON();
@@ -56,13 +57,19 @@ export function initUI(builder){
         </div>
       </div>`;
     document.getElementById('hud').appendChild(modal);
-    modal.querySelector('#copyNow').onclick = async ()=>{
-      try{ await navigator.clipboard.writeText(data);}catch{}
-    };
+    modal.querySelector('#copyNow').onclick = async ()=>{ try{ await navigator.clipboard.writeText(data);}catch{} };
     modal.querySelector('#closeNow').onclick = ()=> modal.remove();
   };
+
+  // API back to main/builder
+  function selectByOffset(delta){
+    const ids = barParts.map(p=>p.id);
+    const cur = ids.indexOf(builder.getActive());
+    const next = ( (cur>=0?cur:0) + delta + ids.length ) % ids.length;
+    select(ids[next]);
+  }
+
+  return { select, selectByOffset, updateHighlight };
 }
 
-function toHex(c){
-  return '#'+('000000'+c.toString(16)).slice(-6);
-}
+function hex(c){ return '#'+('000000'+c.toString(16)).slice(-6); }
