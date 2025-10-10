@@ -5,6 +5,13 @@ import { Camera } from './camera/Camera.js';
 import { DesktopControls } from './controls/DesktopControls.js';
 import { MobileControls } from './controls/MobileControls.js';
 
+// --- Lock Screen Orientation ---
+if (screen.orientation && screen.orientation.lock) {
+    screen.orientation.lock('landscape').catch(err => {
+        console.log("Could not lock screen orientation:", err);
+    });
+}
+
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
 document.body.appendChild(renderer.domElement);
@@ -23,7 +30,7 @@ if (isMobile) {
 }
 
 const landscape = scene.getObjectByName('landscape');
-const clock = new THREE.Clock(); // Clock for time-based movement
+const clock = new THREE.Clock(); 
 
 window.addEventListener('resize', () => {
     camera.aspect = window.innerWidth / window.innerHeight;
@@ -33,11 +40,11 @@ window.addEventListener('resize', () => {
 
 function animate() {
     requestAnimationFrame(animate);
-    const delta = clock.getDelta(); // Get time since last frame
+    const delta = clock.getDelta(); 
 
-    controls.update(); // Controls will set the player's desired movement
-    player.update(landscape, delta); // Player updates its position based on delta
-    camera.update(delta); // Camera updates head-bob based on delta
+    controls.update(); 
+    player.update(landscape, delta); 
+    camera.update(delta); 
     
     renderer.render(scene, camera);
 }
