@@ -4,13 +4,15 @@ export class Camera extends THREE.PerspectiveCamera {
     constructor(player) {
         super(75, window.innerWidth / window.innerHeight, 0.1, 2000);
         this.player = player;
-        this.offset = new THREE.Vector3(0, 0.5, -2);
-        this.lookOffset = new THREE.Vector3(0, 1, 5);
+        this.pitch = 0;
+        this.eyeHeight = 1.6;
+        player.mesh.add(this);
+        this.position.set(0, this.eyeHeight, 0);
     }
     update() {
-        const rotatedOffset = this.offset.clone().applyAxisAngle(new THREE.Vector3(0, 1, 0), this.player.mesh.rotation.y);
-        this.position.copy(this.player.mesh.position.clone().add(rotatedOffset));
-        const lookAtPos = this.player.mesh.position.clone().add(this.lookOffset);
-        this.lookAt(lookAtPos);
+        this.rotation.order = 'YXZ';
+        this.rotation.y = 0;
+        this.rotation.x = -this.pitch; // Negative for looking up
+        this.rotation.z = 0;
     }
 }
