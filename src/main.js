@@ -1,9 +1,8 @@
 import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js';
-import { SceneRoot }       from './scene/Scene.js';
-import { DesktopFPV }      from './controls/DesktopFPV.js';
-import { MobileFPV }       from './controls/MobileFPV.js';
-import { Builder }         from './tools/Builder.js';
-import { initUI }          from './ui/Hotbar.js';
+import { SceneRoot }   from './scene/Scene.js';
+import { GamepadFPV }  from './controls/GamepadFPV.js';
+import { Builder }     from './tools/Builder.js';
+import { initUI }      from './ui/Hotbar.js';
 
 (async function boot(){
   const renderer = new THREE.WebGLRenderer({ antialias:true });
@@ -17,11 +16,10 @@ import { initUI }          from './ui/Hotbar.js';
   const root = new SceneRoot();
   const { scene, camera, groundRayMesh } = root;
 
-  const isMobile = 'ontouchstart' in window;
-  const controls = isMobile
-    ? new MobileFPV(camera, document.getElementById('joy'))
-    : new DesktopFPV(camera, renderer.domElement);
+  // Controller-only FPV
+  const controls = new GamepadFPV(camera);
 
+  // Builder (controller buttons only)
   const builder = new Builder(scene, camera, groundRayMesh);
   const uiApi   = initUI(builder);
   builder.setUI(uiApi);
@@ -36,8 +34,10 @@ import { initUI }          from './ui/Hotbar.js';
   (function animate(){
     requestAnimationFrame(animate);
     const dt = Math.min(0.05, clock.getDelta());
+
     controls.update(dt);
     builder.update(dt);
+
     renderer.render(scene, camera);
   })();
 })();
