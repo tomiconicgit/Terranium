@@ -1,8 +1,10 @@
 import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js';
 
 export class MobileControls {
-    constructor(player) {
+    constructor(player, camera) {
         this.player = player;
+        this.camera = camera;
+        this.sensitivity = 0.001;
         this.moveZone = document.createElement('div');
         this.moveZone.style.position = 'absolute';
         this.moveZone.style.left = '20px';
@@ -42,7 +44,9 @@ export class MobileControls {
                 if (touch.identifier === this.touchIdentifier) {
                     const deltaX = touch.clientX - this.touchStartX;
                     const deltaY = touch.clientY - this.touchStartY;
-                    this.player.rotation -= deltaX * 0.001;
+                    this.player.yaw -= deltaX * this.sensitivity;
+                    this.camera.pitch -= deltaY * this.sensitivity;
+                    this.camera.pitch = THREE.MathUtils.clamp(this.camera.pitch, -Math.PI / 2 + 0.01, Math.PI / 2 - 0.01);
                     this.touchStartX = touch.clientX;
                     this.touchStartY = touch.clientY;
                     break;
@@ -65,10 +69,10 @@ export class MobileControls {
     }
     update() {
         if (this.moveData.force > 0) {
-            const side = this.moveData.force * Math.cos(this.moveData.angle);
-            const forward = this.moveData.force * Math.sin(this.moveData.angle);
+            const side = -this.moveData.force * Math.sin(this.moveData.angle); // Adjust for standard forward
+            const forward = -this.moveData.force * Math.cos(this.moveData.angle);
             this.player.direction.set(side, 0, forward).normalize();
-            this.player.direction.applyAxisAngle(new THREE.Vector3(0, 1, 0), this.player.rotation);
+            this.player.direction.applyAxisAngle(new THREE.Vector3(0, 1, 0), this.player.yaw);
             this.player.velocity.add(this.player.direction.clone().multiplyScalar(this.player.moveSpeed));
         }
     }
