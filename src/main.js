@@ -22,8 +22,8 @@ if (isMobile) {
     controls = new DesktopControls(player, camera);
 }
 
-// Find the landscape mesh after it has been created in the Scene
 const landscape = scene.getObjectByName('landscape');
+const clock = new THREE.Clock(); // Clock for time-based movement
 
 window.addEventListener('resize', () => {
     camera.aspect = window.innerWidth / window.innerHeight;
@@ -33,10 +33,23 @@ window.addEventListener('resize', () => {
 
 function animate() {
     requestAnimationFrame(animate);
-    controls.update();
-    // Pass the landscape to the player's update function for collision detection
-    player.update(landscape); 
-    camera.update();
+    const delta = clock.getDelta(); // Get time since last frame
+
+    controls.update(); // Controls will set the player's desired movement
+    player.update(landscape, delta); // Player updates its position based on delta
+    camera.update(delta); // Camera updates head-bob based on delta
+    
     renderer.render(scene, camera);
 }
 animate();
+
+// --- Prevent Double Tap Zoom ---
+let lastTap = 0;
+document.body.addEventListener('touchend', (event) => {
+    const currentTime = new Date().getTime();
+    const tapLength = currentTime - lastTap;
+    if (tapLength < 300 && tapLength > 0) {
+        event.preventDefault();
+    }
+    lastTap = currentTime;
+});
