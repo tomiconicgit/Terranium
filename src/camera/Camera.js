@@ -5,57 +5,53 @@ export class Camera extends THREE.PerspectiveCamera {
         super(75, window.innerWidth / window.innerHeight, 0.1, 2000);
         this.player = player;
 
-        // base placement (3rd-person trailing)
-        this.eyeHeight = 1.7;
+        this.eyeHeight = 1.78; // ~5ft10
         player.mesh.add(this);
-        this.position.set(0, this.eyeHeight, 3.1);
+        this.position.set(0, this.eyeHeight, 3.0);
 
-        // look controls
         this.pitch = 0;
         this.rotation.order = 'YXZ';
 
-        // effects
-        this.bobTime = 0;
-        this.bobAmount = 0.04;     // vertical bob amplitude
-        this.bobSway = 0.02;       // lateral sway amplitude
-        this.baseFov = 75;
-        this.maxKick = 4;          // additional FOV at sprint-like speed
-        this.lean = 0;             // roll on turns
+        // Head-bob tuned for 2 steps per tile:
+        this.stepLength = 0.5;      // tiles per step (2 steps/tile)
+        this.bobAmount = 0.03;      // vertical amplitude
+        this.bobSway = 0.015;       // lateral sway
+        this._bobPhase = 0;
+        this._lastXZ = new THREE.Vector2(player.mesh.position.x, player.mesh.position.z);
+
+        // Lean from lateral velocity
+        this.lean = 0;
     }
 
-    update(dt /*, player passed too if needed*/, player = this.player) {
-        // speed magnitude
-        const speed = Math.hypot(player.velocity.x, player.velocity.z);
-        const speedNorm = THREE.MathUtils.clamp(speed / 4.0, 0, 1);
+    update(dt, player = this.player) {
+        // distance traveled in XZ this frame
+        const curXZ = new THREE.Vector2(player.mesh.position.x, player.mesh.position.z);
+        const dist = curXZ.distanceTo(this._lastXZ);
+        this._lastXZ.copy(curXZ);
 
-        // advance bob only when moving
-        const stepHz = 2.2; // steps per second at 1x speed
-        this.bobTime += stepHz * (0.3 + 0.7 * speedNorm) * dt;
+        // steps/sec = speed / stepLength => advance phase accordingly
+        if (dist > 0) this._bobPhase += (dist / this.stepLength) * Math.PI * 2;
 
-        // head bob (vertical) and sway (side)
-        const bobY = Math.sin(this.bobTime * Math.PI * 2) * this.bobAmount * speedNorm;
-        const swayX = Math.sin(this.bobTime * Math.PI * 4) * this.bobSway * speedNorm;
+        const bobY = Math.sin(this._bobPhase) * this.bobAmount;
+        const swayX = Math.sin(this._bobPhase * 2.0) * this.bobSway;
 
-        // lean with turning velocity (derive yaw change from player.rotation rate via velocity direction)
-        const desiredLean = THREE.MathUtils.clamp(-player.velocity.x * 0.02, -0.15, 0.15);
+        // lean with strafe component (approx from velocity x)
+        const desiredLean = THREE.MathUtils.clamp(-player.velocity.x * 0.05, -0.12, 0.12);
         this.lean = THREE.MathUtils.damp(this.lean, desiredLean, 8, dt);
 
-        // apply offsets
+        // apply
         this.position.y = this.eyeHeight + bobY;
         this.position.x = swayX;
 
-        // FOV kick with speed
-        const targetFov = this.baseFov + this.maxKick * speedNorm;
-        this.fov = THREE.MathUtils.damp(this.fov, targetFov, 6, dt);
+        // fixed FOV (no sprint)
         this.updateProjectionMatrix();
 
-        // pitch (look up/down) + roll (lean)
         this.rotation.x = -this.pitch;
         this.rotation.z = this.lean;
 
-        // keep looking a bit ahead of player
+        // look slightly ahead
         const fwd = new THREE.Vector3(0, 0, -1).applyAxisAngle(new THREE.Vector3(0, 1, 0), player.rotation);
-        const target = player.mesh.position.clone().addScaledVector(fwd, 5).setY(player.mesh.position.y + this.eyeHeight * 0.5);
+        const target = player.mesh.position.clone().addScaledVector(fwd, 5).setY(player.mesh.position.y + this.eyeHeight * 0.4);
         this.lookAt(target);
     }
 }
