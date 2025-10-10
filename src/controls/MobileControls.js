@@ -25,6 +25,7 @@ export class MobileControls {
         });
         this.moveJoystick.on('end', () => {
             this.moveData.force = 0;
+            this.player.desiredVelocity.set(0, 0, 0); // Stop when joystick is released
         });
         this.touchIdentifier = null;
         this.touchStartX = 0;
@@ -42,9 +43,7 @@ export class MobileControls {
         document.addEventListener('touchmove', (e) => {
             for (let touch of e.changedTouches) {
                 if (touch.identifier === this.touchIdentifier) {
-                    // Prevent the screen from scrolling
                     e.preventDefault(); 
-                    
                     const deltaX = touch.clientX - this.touchStartX;
                     const deltaY = touch.clientY - this.touchStartY;
                     this.player.rotation -= deltaX * this.sensitivity;
@@ -55,7 +54,7 @@ export class MobileControls {
                     break;
                 }
             }
-        }, { passive: false }); // Add { passive: false } to make preventDefault() work
+        }, { passive: false });
         document.addEventListener('touchend', (e) => {
             for (let touch of e.changedTouches) {
                 if (touch.identifier === this.touchIdentifier) {
@@ -65,23 +64,24 @@ export class MobileControls {
             }
         });
     }
+
     isTouchInMoveZone(touch) {
         const rect = this.moveZone.getBoundingClientRect();
         return touch.clientX >= rect.left && touch.clientX <= rect.right &&
                touch.clientY >= rect.top && touch.clientY <= rect.bottom;
     }
+
     update() {
         if (this.moveData.force > 0) {
-            // Correctly map joystick angle to game movement
-            // cos(angle) for X (strafe), sin(angle) for Z (forward)
             const side = this.moveData.force * Math.cos(this.moveData.angle);
-            // In Three.js, moving "forward" into the screen is along the negative Z axis.
-            // Joystick "up" (sin(angle) = 1) should map to negative Z.
             const forward = -this.moveData.force * Math.sin(this.moveData.angle); 
             
             this.player.direction.set(side, 0, forward).normalize();
             this.player.direction.applyAxisAngle(new THREE.Vector3(0, 1, 0), this.player.rotation);
-            this.player.velocity.add(this.player.direction.clone().multiplyScalar(this.player.moveSpeed));
+
+            // Set desired velocity based on joystick force and player's walk speed
+            const speed = this.player.walkSpeed * this.moveData.force;
+            this.player.desiredVelocity.copy(this.player.direction).multiplyScalar(speed);
         }
     }
 }
