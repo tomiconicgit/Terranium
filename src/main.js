@@ -10,9 +10,6 @@ const { Camera }          = await import(`./camera/Camera.js?v=${V}`);
 const { DesktopControls } = await import(`./controls/DesktopControls.js?v=${V}`);
 const { MobileControls }  = await import(`./controls/MobileControls.js?v=${V}`);
 
-// If Scene dynamically imports anything, it should already use relative paths;
-// the browser will fetch those fresh.
-
 // --- Orientation (best effort) ---
 if (screen.orientation?.lock) { try { await screen.orientation.lock('landscape'); } catch {} }
 
@@ -25,10 +22,15 @@ renderer.setSize(window.innerWidth, window.innerHeight);
 document.body.appendChild(renderer.domElement);
 
 // --- World ---
-const scene = new Scene();               // adds ground + pad + tower (with lift, etc.)
+const scene  = new Scene();               // adds ground + pad + tower (with lift, etc.)
 const player = new Player();
 scene.add(player.mesh);
 const camera = new Camera(player);
+
+// Spawn the player safely outside the flame trench, facing the pad
+player.mesh.position.set(-24, 8, -6);   // y will snap to terrain on first update
+player.rotation = Math.PI * 0.15;       // slight turn toward pad
+camera.pitch = 0;                        // neutral pitch
 
 // Controls
 const isMobile = 'ontouchstart' in window;
@@ -57,7 +59,7 @@ function animate() {
   player.update(landscape, dt);
   camera.update(dt, player);
 
-  // IMPORTANT: pass camera & player so the pad's lift logic can read proximity
+  // Pass camera & player so the pad's lift logic can read proximity
   scene.update?.(dt, elapsed, camera, player);
 
   renderer.render(scene, camera);
