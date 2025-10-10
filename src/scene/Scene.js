@@ -21,15 +21,15 @@ export class SceneRoot {
     // sky
     this.scene.add(createSkyDome());
 
-    // ground: 100x100 voxel desert
+    // ground voxels 100x100
     const size = 100;
     const mat = new THREE.MeshStandardMaterial({ color: 0xe4d3a5, roughness: 0.95, metalness: 0.02 });
-    const geom = new THREE.BoxGeometry(1,1,1); // single cube reused
+    const geom = new THREE.BoxGeometry(1,1,1);
     const ground = new THREE.InstancedMesh(geom, mat, size*size);
     ground.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
 
     const m4 = new THREE.Matrix4();
-    const y = 0.5; // level y
+    const y = 0.5;
     let i = 0;
     for (let z=0; z<size; z++){
       for (let x=0; x<size; x++){
@@ -40,13 +40,13 @@ export class SceneRoot {
     ground.position.set(-size/2, 0, -size/2);
     this.scene.add(ground);
 
-    // a big invisible plane used ONLY for raycasting placement below the first layer
+    // invisible plane for ray intersections
     this.groundRayMesh = new THREE.Mesh(
       new THREE.PlaneGeometry(1000, 1000),
       new THREE.MeshBasicMaterial({ visible:false })
     );
     this.groundRayMesh.rotation.x = -Math.PI/2;
-    this.groundRayMesh.position.y = 0; // top surface at y=0
+    this.groundRayMesh.position.y = 0;
     this.scene.add(this.groundRayMesh);
   }
 }
