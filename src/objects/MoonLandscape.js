@@ -24,7 +24,7 @@ export function createMoonLandscape() {
     const vec2 = new THREE.Vector2();
     for (let i = 0; i < position.count; i++) {
         vec2.set(position.getX(i), position.getY(i));
-        
+
         let height = perlin.noise(vec2.x * noiseScale, vec2.y * noiseScale) * noiseAmp;
 
         for (const crater of craters) {
@@ -34,57 +34,65 @@ export function createMoonLandscape() {
                 height -= crater.depth * (1 - rel * rel);
             }
         }
-        
-        const distToCenter = Math.max(Math.abs(vec2.x - flatAreaCenter.x), Math.abs(vec2.y - flatAreaCenter.y));
+
+        const distToCenter = Math.max(
+            Math.abs(vec2.x - flatAreaCenter.x),
+            Math.abs(vec2.y - flatAreaCenter.y)
+        );
         const flatHeight = -1.0;
 
         if (distToCenter < flatAreaSize + transitionWidth) {
-            const blendFactor = THREE.MathUtils.smoothstep(distToCenter, flatAreaSize + transitionWidth, flatAreaSize);
+            const blendFactor = THREE.MathUtils.smoothstep(
+                distToCenter,
+                flatAreaSize + transitionWidth,
+                flatAreaSize
+            );
             height = THREE.MathUtils.lerp(height, flatHeight, blendFactor);
         }
 
         position.setZ(i, height);
     }
-    
+
     geometry.computeVertexNormals();
 
     // --- Procedural Gradient Material ---
     const material = new THREE.MeshStandardMaterial({
         roughness: 0.9,
         metalness: 0.1,
+        side: THREE.DoubleSide // ensure visible even if winding faces away
     });
 
-    // This powerful function lets us inject custom code into Three.js's own shaders
+    // Inject a simple height-based color gradient; guard against chunk changes
     material.onBeforeCompile = (shader) => {
-        // Pass the world position of each vertex to the fragment shader
+        // If expected chunks aren’t present, keep default material (avoid black)
+        if (!shader.vertexShader.includes('#include <worldpos_vertex>') ||
+            !shader.fragmentShader.includes('#include <color_fragment>')) {
+            return;
+        }
+
+        // Pass world position to fragment shader
         shader.vertexShader = 'varying vec3 vWorldPosition;\n' + shader.vertexShader;
         shader.vertexShader = shader.vertexShader.replace(
             '#include <worldpos_vertex>',
             '#include <worldpos_vertex>\n\tvWorldPosition = worldPosition.xyz;'
         );
-        
-        // In the fragment shader, we'll use that world position to create the gradient
+
+        // Use world Y to blend colors
         shader.fragmentShader = 'varying vec3 vWorldPosition;\n' + shader.fragmentShader;
         shader.fragmentShader = shader.fragmentShader.replace(
             '#include <color_fragment>',
             `
             #include <color_fragment>
 
-            // Define the colours for our gradient
             vec3 craterColor = vec3(0.3, 0.3, 0.32);
-            vec3 peakColor = vec3(0.7, 0.7, 0.72);
-            
-            // Define the height range for the gradient
+            vec3 peakColor   = vec3(0.7, 0.7, 0.72);
+
             float minHeight = -4.0;
-            float maxHeight = 4.0;
-            
-            // Calculate a blend factor (0.0 to 1.0) based on the world height
+            float maxHeight =  4.0;
+
             float blendFactor = smoothstep(minHeight, maxHeight, vWorldPosition.y);
-            
-            // Mix the two colours based on the height
             vec3 finalColor = mix(craterColor, peakColor, blendFactor);
-            
-            // Apply the final procedural color
+
             diffuseColor.rgb = finalColor;
             `
         );
@@ -92,5 +100,6 @@ export function createMoonLandscape() {
 
     const mesh = new THREE.Mesh(geometry, material);
     mesh.rotation.x = -Math.PI / 2;
+    mesh.name = 'landscape';
     return mesh;
 }
