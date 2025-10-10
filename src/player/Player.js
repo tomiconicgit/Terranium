@@ -6,28 +6,33 @@ export class Player {
         this.velocity = new THREE.Vector3();
         this.direction = new THREE.Vector3();
         this.rotation = 0;
-        this.moveSpeed = 0.05;
 
-        // Raycaster for terrain following
+        // --- New Movement Properties ---
+        this.walkSpeed = 1.4; // Units (meters) per second
+        this.desiredVelocity = new THREE.Vector3(); // The velocity the controls are requesting
+        
         this.raycaster = new THREE.Raycaster();
         this.down = new THREE.Vector3(0, -1, 0);
     }
 
-    update(landscape) {
-        this.mesh.position.add(this.velocity);
+    update(landscape, delta) {
+        // Smoothly interpolate from current velocity to the desired velocity
+        const acceleration = 10.0;
+        this.velocity.lerp(this.desiredVelocity, acceleration * delta);
+
+        // Update position based on the current velocity and delta time
+        this.mesh.position.add(this.velocity.clone().multiplyScalar(delta));
+
         this.mesh.rotation.y = this.rotation;
-        this.velocity.multiplyScalar(0.92);
 
         // Terrain following logic
         if (landscape) {
-            // Set raycaster origin to be high above the player's current X,Z position
             this.raycaster.set(this.mesh.position, this.down);
-            this.raycaster.ray.origin.y = 20; // A safe height above the terrain
+            this.raycaster.ray.origin.y = 20;
 
             const intersects = this.raycaster.intersectObject(landscape);
 
             if (intersects.length > 0) {
-                // Set the player's Y position to the terrain height
                 this.mesh.position.y = intersects[0].point.y;
             }
         }
