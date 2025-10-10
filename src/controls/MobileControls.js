@@ -42,9 +42,11 @@ export class MobileControls {
         document.addEventListener('touchmove', (e) => {
             for (let touch of e.changedTouches) {
                 if (touch.identifier === this.touchIdentifier) {
+                    // Prevent the screen from scrolling
+                    e.preventDefault(); 
+                    
                     const deltaX = touch.clientX - this.touchStartX;
                     const deltaY = touch.clientY - this.touchStartY;
-                    // Use 'this.player.rotation' instead of 'this.player.yaw'
                     this.player.rotation -= deltaX * this.sensitivity;
                     this.camera.pitch -= deltaY * this.sensitivity;
                     this.camera.pitch = THREE.MathUtils.clamp(this.camera.pitch, -Math.PI / 2 + 0.01, Math.PI / 2 - 0.01);
@@ -53,7 +55,7 @@ export class MobileControls {
                     break;
                 }
             }
-        });
+        }, { passive: false }); // Add { passive: false } to make preventDefault() work
         document.addEventListener('touchend', (e) => {
             for (let touch of e.changedTouches) {
                 if (touch.identifier === this.touchIdentifier) {
@@ -70,10 +72,14 @@ export class MobileControls {
     }
     update() {
         if (this.moveData.force > 0) {
-            const side = -this.moveData.force * Math.sin(this.moveData.angle); // Adjust for standard forward
-            const forward = -this.moveData.force * Math.cos(this.moveData.angle);
+            // Correctly map joystick angle to game movement
+            // cos(angle) for X (strafe), sin(angle) for Z (forward)
+            const side = this.moveData.force * Math.cos(this.moveData.angle);
+            // In Three.js, moving "forward" into the screen is along the negative Z axis.
+            // Joystick "up" (sin(angle) = 1) should map to negative Z.
+            const forward = -this.moveData.force * Math.sin(this.moveData.angle); 
+            
             this.player.direction.set(side, 0, forward).normalize();
-            // Use 'this.player.rotation' instead of 'this.player.yaw'
             this.player.direction.applyAxisAngle(new THREE.Vector3(0, 1, 0), this.player.rotation);
             this.player.velocity.add(this.player.direction.clone().multiplyScalar(this.player.moveSpeed));
         }
