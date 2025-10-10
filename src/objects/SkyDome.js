@@ -24,6 +24,5 @@ export function createSkyDome() {
         gl_FragColor = vec4(col,1.0);
       }`
   });
-  const sky = new THREE.Mesh(geom, mat);
-  return sky;
+  return new THREE.Mesh(geom, mat);
 }
