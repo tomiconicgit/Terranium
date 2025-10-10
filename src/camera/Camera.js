@@ -7,15 +7,22 @@ export class Camera extends THREE.PerspectiveCamera {
         this.pitch = 0;
         this.eyeHeight = 1.6;
 
+        // Attach camera to the player and give it a small trailing offset
         player.mesh.add(this);
-        // Set a fixed position relative to the player object
-        this.position.set(0, this.eyeHeight, 0);
+        this.position.set(0, this.eyeHeight, 3); // pull back so we can see ground
     }
 
-    update(delta) {
+    update(/* delta */) {
         // Only handle looking up and down
         this.rotation.order = 'YXZ';
         this.rotation.x = -this.pitch;
         this.rotation.z = 0;
+
+        // Keep camera looking forward from the player
+        const fwd = new THREE.Vector3(0, 0, -1).applyAxisAngle(new THREE.Vector3(0, 1, 0), this.player.rotation);
+        const target = this.player.mesh.position.clone()
+            .add(fwd.multiplyScalar(5))
+            .setY(this.player.mesh.position.y + this.eyeHeight * 0.5);
+        this.lookAt(target);
     }
 }
