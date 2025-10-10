@@ -1,72 +1,72 @@
-// src/main.js — cache-busted dynamic imports for ALL modules
+// src/main.js — no top-level await; mobile/PWA-safe dynamic imports
 
-const V = Date.now(); // cache-buster
+(async function boot() {
+  const V = Date.now(); // cache-buster
 
-const three = await import(`https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js`);
+  const three = await import('https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js');
 
-const { Scene }           = await import(`./scene/Scene.js?v=${V}`);
-const { Player }          = await import(`./player/Player.js?v=${V}`);
-const { Camera }          = await import(`./camera/Camera.js?v=${V}`);
-const { DesktopControls } = await import(`./controls/DesktopControls.js?v=${V}`);
-const { MobileControls }  = await import(`./controls/MobileControls.js?v=${V}`);
+  const { Scene }           = await import(`./scene/Scene.js?v=${V}`);
+  const { Player }          = await import(`./player/Player.js?v=${V}`);
+  const { Camera }          = await import(`./camera/Camera.js?v=${V}`);
+  const { DesktopControls } = await import(`./controls/DesktopControls.js?v=${V}`);
+  const { MobileControls }  = await import(`./controls/MobileControls.js?v=${V}`);
 
-// --- Orientation (best effort) ---
-if (screen.orientation?.lock) { try { await screen.orientation.lock('landscape'); } catch {} }
+  // Orientation (best effort)
+  if (screen.orientation?.lock) { try { await screen.orientation.lock('landscape'); } catch {} }
 
-// --- Renderer ---
-const renderer = new three.WebGLRenderer({ antialias: true });
-renderer.outputEncoding = three.sRGBEncoding;
-renderer.toneMapping = three.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.0;
-renderer.setSize(window.innerWidth, window.innerHeight);
-document.body.appendChild(renderer.domElement);
+  // Renderer
+  const renderer = new three.WebGLRenderer({ antialias: true });
+  // three r169 prefers outputColorSpace:
+  if ('outputColorSpace' in renderer) renderer.outputColorSpace = three.SRGBColorSpace;
+  else renderer.outputEncoding = three.sRGBEncoding; // fallback for older builds
+  renderer.toneMapping = three.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.0;
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  document.body.appendChild(renderer.domElement);
 
-// --- World ---
-const scene  = new Scene();               // adds ground + pad + tower (with lift, etc.)
-const player = new Player();
-scene.add(player.mesh);
-const camera = new Camera(player);
+  // World
+  const scene  = new Scene();
+  const player = new Player();
+  scene.add(player.mesh);
+  const camera = new Camera(player);
 
-// Spawn the player safely outside the flame trench, facing the pad
-player.mesh.position.set(-24, 8, -6);   // y will snap to terrain on first update
-player.rotation = Math.PI * 0.15;       // slight turn toward pad
-camera.pitch = 0;                        // neutral pitch
+  // Spawn safely outside trench
+  player.mesh.position.set(-24, 8, -6);
+  player.rotation = Math.PI * 0.15;
+  camera.pitch = 0;
 
-// Controls
-const isMobile = 'ontouchstart' in window;
-const controls = isMobile
-  ? new MobileControls(player, camera)
-  : new DesktopControls(player, camera);
+  // Controls
+  const isMobile = 'ontouchstart' in window;
+  const controls = isMobile
+    ? new MobileControls(player, camera)
+    : new DesktopControls(player, camera);
 
-// Keep reference to the ground mesh by name
-const landscape = scene.getObjectByName('landscape');
+  const landscape = scene.getObjectByName('landscape');
 
-// Resize
-addEventListener('resize', () => {
-  camera.aspect = innerWidth / innerHeight;
-  camera.updateProjectionMatrix();
-  renderer.setSize(innerWidth, innerHeight);
-});
+  // Resize
+  addEventListener('resize', () => {
+    camera.aspect = innerWidth / innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(innerWidth, innerHeight);
+  });
 
-// Main loop
-const clock = new three.Clock();
-function animate() {
-  requestAnimationFrame(animate);
-  const dt = Math.min(0.05, clock.getDelta());
-  const elapsed = clock.elapsedTime;
+  // Main loop
+  const clock = new three.Clock();
+  function animate() {
+    requestAnimationFrame(animate);
+    const dt = Math.min(0.05, clock.getDelta());
+    const elapsed = clock.elapsedTime;
 
-  controls.update();
-  player.update(landscape, dt);
-  camera.update(dt, player);
+    controls.update();
+    player.update(landscape, dt);
+    camera.update(dt, player);
 
-  // Pass camera & player so the pad's lift logic can read proximity
-  scene.update?.(dt, elapsed, camera, player);
+    scene.update?.(dt, elapsed, camera, player);
+    renderer.render(scene, camera);
+  }
+  animate();
 
-  renderer.render(scene, camera);
-}
-animate();
-
-// Optional: quick visual assert if pad is missing
-if (!scene.getObjectByName?.('launchPad')) {
-  console.warn('LaunchPad not found in scene. Ensure Scene.js imports LaunchPadComplex.js.');
-}
+  if (!scene.getObjectByName?.('launchPad')) {
+    console.warn('LaunchPad not found in scene. Ensure Scene.js imports LaunchPadComplex.js.');
+  }
+})();
