@@ -7,51 +7,42 @@ export class Player {
         this.direction = new THREE.Vector3();
         this.rotation = 0;
 
-        // --- Physics Properties (Earth-like) ---
-        this.walkSpeed = 3.0;              // faster on flat ground
+        // Earth-like locomotion
+        this.walkSpeed = 4.0;     // target m/s on flat ground
         this.desiredVelocity = new THREE.Vector3();
-        this.isGrounded = false;
 
-        this.gravity = 9.81;               // Earth gravity
-        this.hopVelocity = 3.0;            // small step/hop while moving
+        this.accel = 20.0;        // how quickly we reach target speed
+        this.friction = 10.0;     // how quickly we slow when no input
 
+        // cached ray
         this.raycaster = new THREE.Raycaster();
         this.down = new THREE.Vector3(0, -1, 0);
     }
 
-    update(landscape, delta) {
-        // --- Horizontal Movement (lerped towards desired) ---
-        const acceleration = 12.0;
-        this.velocity.x = THREE.MathUtils.lerp(this.velocity.x, this.desiredVelocity.x, acceleration * delta);
-        this.velocity.z = THREE.MathUtils.lerp(this.velocity.z, this.desiredVelocity.z, acceleration * delta);
+    update(landscape, dt) {
+        // Lerp horizontal velocity toward desired
+        this.velocity.x = THREE.MathUtils.damp(this.velocity.x, this.desiredVelocity.x, this.accel, dt);
+        this.velocity.z = THREE.MathUtils.damp(this.velocity.z, this.desiredVelocity.z, this.accel, dt);
 
-        // --- Vertical Movement (Gravity) ---
-        this.velocity.y -= this.gravity * delta;
+        // Apply friction when no input
+        if (this.desiredVelocity.lengthSq() < 0.0001) {
+            this.velocity.x = THREE.MathUtils.damp(this.velocity.x, 0, this.friction, dt);
+            this.velocity.z = THREE.MathUtils.damp(this.velocity.z, 0, this.friction, dt);
+        }
 
-        // --- Integrate ---
-        this.mesh.position.addScaledVector(this.velocity, delta);
+        // Integrate horizontal
+        this.mesh.position.x += this.velocity.x * dt;
+        this.mesh.position.z += this.velocity.z * dt;
+
         this.mesh.rotation.y = this.rotation;
 
-        // --- Grounding against 'landscape' ---
-        this.isGrounded = false;
+        // Ground follow: sample ground height under current XZ
         if (landscape) {
-            const rayOrigin = new THREE.Vector3(this.mesh.position.x, 20, this.mesh.position.z);
+            const rayOrigin = new THREE.Vector3(this.mesh.position.x, 30, this.mesh.position.z);
             this.raycaster.set(rayOrigin, this.down);
-            const intersects = this.raycaster.intersectObject(landscape, false);
-
-            if (intersects.length > 0) {
-                const groundY = intersects[0].point.y;
-                if (this.mesh.position.y <= groundY) {
-                    this.isGrounded = true;
-                    this.mesh.position.y = groundY;
-                    this.velocity.y = 0;
-
-                    // tiny hop to animate steps while moving
-                    if (this.desiredVelocity.length() > 0.1) {
-                        this.velocity.y = this.hopVelocity;
-                        this.isGrounded = false;
-                    }
-                }
+            const hit = this.raycaster.intersectObject(landscape, false);
+            if (hit.length) {
+                this.mesh.position.y = hit[0].point.y; // stick to ground
             }
         }
     }
