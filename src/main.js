@@ -22,6 +22,9 @@ if (isMobile) {
     controls = new DesktopControls(player, camera);
 }
 
+// Find the landscape mesh after it has been created in the Scene
+const landscape = scene.getObjectByName('landscape');
+
 window.addEventListener('resize', () => {
     camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();
@@ -31,7 +34,8 @@ window.addEventListener('resize', () => {
 function animate() {
     requestAnimationFrame(animate);
     controls.update();
-    player.update();
+    // Pass the landscape to the player's update function for collision detection
+    player.update(landscape); 
     camera.update();
     renderer.render(scene, camera);
 }
