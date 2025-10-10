@@ -7,29 +7,29 @@ export class Camera extends THREE.PerspectiveCamera {
         this.pitch = 0;
         this.eyeHeight = 1.6;
 
-        // Head bobbing properties
         this.bobTimer = 0;
-        this.bobSpeed = 0.15;
         this.bobAmount = 0.04;
 
         player.mesh.add(this);
         this.position.set(0, this.eyeHeight, 0);
     }
 
-    update() {
-        // Look up/down
+    update(delta) {
         this.rotation.order = 'YXZ';
         this.rotation.x = -this.pitch;
         this.rotation.z = 0;
 
-        // Head bobbing logic
         const velocityLength = this.player.velocity.length();
-        if (velocityLength > 0.01) { // Player is moving
-            this.bobTimer += this.bobSpeed;
+
+        if (velocityLength > 0.1) {
+            // Bob frequency is proportional to player speed. 2 * PI makes one full cycle.
+            const bobFrequency = 2.5; // Cycles per second
+            this.bobTimer += bobFrequency * Math.PI * 2 * delta;
+            
             const bobOffset = Math.sin(this.bobTimer) * this.bobAmount;
             this.position.y = this.eyeHeight + bobOffset;
-        } else { // Player is standing still
-            // Smoothly return to the default eye height
+        } else {
+            this.bobTimer = 0; // Reset timer when still
             this.position.y = THREE.MathUtils.lerp(this.position.y, this.eyeHeight, 0.1);
         }
     }
