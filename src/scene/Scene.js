@@ -5,10 +5,8 @@ export class Scene extends THREE.Scene {
   constructor() {
     super();
 
-    // Keep SkyDome if you already have one; otherwise solid sky
     this.background = new THREE.Color(0xbfd8ff);
 
-    // Even lighting so edges are easy to see
     this.add(new THREE.AmbientLight(0xffffff, 0.35));
     const hemi = new THREE.HemisphereLight(0xdfeaff, 0x857355, 1.0);
     hemi.position.set(0, 60, 0);
@@ -32,5 +30,10 @@ export class Scene extends THREE.Scene {
     const world = new THREE.Group();
     world.name = 'world';
     this.add(world);
+  }
+
+  // <<< add this so main.js can call scene.update(dt, t) safely >>>
+  update(/* dt, elapsed */) {
+    // no-op for now; keep for future scene tickers
   }
 }
