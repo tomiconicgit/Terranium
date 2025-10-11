@@ -1,5 +1,5 @@
-// src/tools/Builder.js — controller-only, NMS-like snapping
-// R2 place once, L2 remove once, R1/L1 select, B rotates 90° (foundations/ceilings)
+// src/tools/Builder.js — controller-only building with "Metal Flat" + walls
+// R2 place once, L2 remove once, R1/L1 select, B rotates 90° (for half pieces)
 
 import * as THREE from 'three';
 
@@ -24,7 +24,7 @@ export class Builder {
     this.prevKey = '';
 
     // state
-    this.rot = 0; // 0..3 for foundations & ceilings
+    this.rot = 0; // 0..3 for half pieces
     this._lastButtons = [];
     this._hover = null;
   }
@@ -40,7 +40,7 @@ export class Builder {
     // UI
     if (this.pressed(5)) this.hotbar.selectNext(); // R1
     if (this.pressed(4)) this.hotbar.selectPrev(); // L1
-    if (this.pressed(1)) { this.rot = (this.rot + 1) & 3; this.prevKey=''; } // B rotate
+    if (this.pressed(1)) { this.rot = (this.rot + 1) & 3; this.prevKey=''; } // B rotate (halves)
 
     // Raycast from reticle center
     this.ray.setFromCamera(new THREE.Vector2(0,0), this.camera);
@@ -51,7 +51,7 @@ export class Builder {
     const anchorRoot = findPlacedRoot(hit.object);
     const normal = worldNormal(hit);
 
-    const sugg = this.suggest(def, hit.point, normal, anchorRoot);
+    const sugg = this.suggest(def, hit.point, normal, anchorRoot, hit.object);
     if (!sugg) { this.preview.visible=false; this._hover=null; return; }
 
     // build / refresh ghost
@@ -79,50 +79,52 @@ export class Builder {
   }
 
   /* ---------- snap rules ---------- */
-  suggest(def, hitPoint, n, anchorRoot){
+  suggest(def, hitPoint, n, anchorRoot, hitObject){
     const rotYaw = this.rot * Math.PI/2;
     const rotQ = new THREE.Quaternion().setFromAxisAngle(Y, rotYaw);
 
     // 3-unit cell centers: ...,-1.5, 1.5, 4.5, ...
     const snap3 = (x)=> Math.floor((x+1.5)/3)*3 + 1.5;
 
-    // ===== FOUNDATION =====
-    if (def.baseType === 'foundation'){
-      // must be terrain-ish; snap to 3-grid; half respects rotation
-      if (!anchorRoot && Math.abs(hitPoint.y) < 0.6){
+    // ===== METAL FLAT =====
+    if (def.baseType === 'flat'){
+      // Place on terrain grid OR adjacent to an existing flat
+      // a) Terrain -> snap to grid
+      if (!anchorRoot && hitObject === this.terrain && Math.abs(hitPoint.y) < 0.6){
         const cx=snap3(hitPoint.x), cz=snap3(hitPoint.z);
         const pos = new THREE.Vector3(cx, def.thickness/2, cz);
-        const axis = (this.rot & 1) ? 'z' : 'x'; // for the half variant orientation
-        return { pos, rot: rotQ, axis };
+        const axis = (this.rot & 1) ? 'z' : 'x';
+        return { pos, rot: rotQ, axis, foundationCenter: new THREE.Vector3(cx,0,cz) };
       }
-      // next to existing foundation
-      if (anchorRoot?.userData?.part?.type === 'foundation'){
-        const base = anchorRoot; // center at multiples of 3
+      // b) Adjacent to an existing flat (expands the floor)
+      if (anchorRoot?.userData?.part?.type === 'flat'){
+        const base = anchorRoot; // centers at multiples of 3
         const side = pickSide(hitPoint, base.position);
         const out  = outwardVector(side);
-        const span = (def.size.x === 2 ? ((this.rot & 1)? 3 : 2) : 3);
+        const span = 3; // full cell
         const pos = base.position.clone().addScaledVector(out, span);
         pos.y = def.thickness/2;
         const axis = (this.rot & 1) ? 'z' : 'x';
-        return { pos, rot: rotQ, axis };
+        const newCell = base.position.clone().addScaledVector(out, 3);
+        return { pos, rot: rotQ, axis, foundationCenter: newCell };
       }
       return null;
     }
 
-    // derive an anchor cell center (foundation center)
-    let cellCenter = null;
-    if (anchorRoot?.userData?.part){
-      if (anchorRoot.userData.part.type === 'foundation') {
-        cellCenter = anchorRoot.position.clone();
-      } else if (anchorRoot.userData.foundationCenter) {
-        cellCenter = anchorRoot.userData.foundationCenter.clone();
-      }
-    }
-    if (!cellCenter) cellCenter = new THREE.Vector3(snap3(hitPoint.x), 0, snap3(hitPoint.z));
-
     // ===== WALLS =====
     if (def.baseType === 'wall'){
-      // PRIORITY: if we are looking at the TOP of a wall, stack another wall above it
+      // Must be anchored to a Metal Flat (or a wall that's already on a flat). No terrain-only.
+      let cellCenter = null;
+      if (anchorRoot?.userData?.part?.type === 'flat'){
+        cellCenter = anchorRoot.position.clone(); cellCenter.y = 0;
+      } else if (anchorRoot?.userData?.part?.type === 'wall' && anchorRoot.userData.foundationCenter){
+        cellCenter = anchorRoot.userData.foundationCenter.clone();
+      } else {
+        // not on a valid anchor -> disallow
+        return null;
+      }
+
+      // priority: stack above an existing wall if looking at its top
       if (anchorRoot?.userData?.part?.type === 'wall' && Math.abs(n.y) > 0.5){
         const w = anchorRoot;
         const pos2 = w.position.clone(); pos2.y += def.size.y;
@@ -132,18 +134,17 @@ export class Builder {
         return { pos:pos2, rot:rot2, axis:ax2, side:w.userData.meta.side, halfOffset:w.userData.meta.halfOffset };
       }
 
-      // Otherwise, attach to the chosen side of the current cell
+      // otherwise snap to the chosen edge of the Metal Flat's cell
       const side = pickSide(hitPoint, cellCenter);
       const yaw  = yawForSide(side);
       const rot  = new THREE.Quaternion().setFromAxisAngle(Y, yaw);
       const axis = axisForSide(side); // along-edge axis
 
-      // base edge position (flush): outward offset = 1.5 (half cell) + wall_thickness/2
+      // edge center (flush) => offset = half cell + half wall thickness
       const out  = outwardVector(side);
       const pos  = cellCenter.clone()
         .addScaledVector(out, 1.5 + def.thickness/2);
-      // bottom sits on ground (foundation top is 0.25 high but wall is on the side, not atop)
-      pos.y = def.size.y/2;
+      pos.y = def.size.y/2; // bottom at ground (walls rise from ground along the edge)
 
       // half wall: choose left/right half by where we looked along the edge
       const local = hitPoint.clone().sub(cellCenter);
@@ -151,51 +152,10 @@ export class Builder {
         const along = (axis === 'z') ? local.z : local.x;
         const halfOffset = (along >= 0 ? +0.75 : -0.75);
         pos.addScaledVector(edgeAxis(axis), halfOffset);
-        return { pos, rot, axis, side, halfOffset };
+        return { pos, rot, axis, side, halfOffset, foundationCenter: cellCenter.clone() };
       }
 
-      return { pos, rot, axis, side };
-    }
-
-    // ===== CEILINGS =====
-    if (def.baseType === 'ceiling'){
-      // If looking at a wall, put ceiling on the adjacent cell on the side you're looking from.
-      if (anchorRoot?.userData?.part?.type === 'wall'){
-        const wall = anchorRoot;
-        const side = wall.userData.meta.side;
-        const wallNormal = outwardVector(side);          // points "out" of the wall
-        const lookDir = new THREE.Vector3().subVectors(this.camera.position, wall.position).normalize();
-        // if we're on the "inside" of the wall plane, flip direction so the cell is chosen accordingly
-        const dirSign = (lookDir.dot(wallNormal) >= 0) ? +1 : -1;
-        const chosenNormal = wallNormal.clone().multiplyScalar(dirSign);
-
-        const newCell = wall.userData.foundationCenter.clone().addScaledVector(chosenNormal, 3);
-        const axis = (this.rot & 1) ? 'z' : 'x';
-        const rot  = new THREE.Quaternion().setFromAxisAngle(Y, this.rot*Math.PI/2);
-
-        const pos  = newCell.clone();
-        pos.y = wall.userData.part.size.y + def.thickness/2; // sits at wall top
-
-        if (def.size.x === 1.5){
-          const local = hitPoint.clone().sub(newCell);
-          const along = (axis === 'z') ? local.z : local.x;
-          pos.addScaledVector(edgeAxis(axis), (along >= 0 ? +0.75 : -0.75));
-        }
-        return { pos, rot, axis, foundationCenter:newCell };
-      }
-
-      // otherwise: ceiling on current cell (ground/foundation)
-      const axis = (this.rot & 1) ? 'z' : 'x';
-      const rot  = new THREE.Quaternion().setFromAxisAngle(Y, this.rot*Math.PI/2);
-      const pos  = cellCenter.clone(); pos.y = def.thickness/2;
-      if (anchorRoot?.userData?.part?.type === 'foundation') pos.y += anchorRoot.userData.part.thickness;
-
-      if (def.size.x === 1.5){
-        const local = hitPoint.clone().sub(cellCenter);
-        const along = (axis === 'z') ? local.z : local.x;
-        pos.addScaledVector(edgeAxis(axis), (along >= 0 ? +0.75 : -0.75));
-      }
-      return { pos, rot, axis, foundationCenter:cellCenter.clone() };
+      return { pos, rot, axis, side, foundationCenter: cellCenter.clone() };
     }
 
     return null;
@@ -213,7 +173,10 @@ export class Builder {
     // annotate for future snaps
     mesh.userData.part = { type:def.baseType, size:def.size, thickness:def.thickness };
     mesh.userData.meta = { axis:sugg.axis, side:sugg.side, halfOffset:sugg.halfOffset };
-    mesh.userData.foundationCenter = cellFromWorld(mesh.position);
+    // for both walls and flats we keep the owning cell center
+    mesh.userData.foundationCenter = sugg.foundationCenter
+      ? sugg.foundationCenter.clone()
+      : cellFromWorld(mesh.position);
 
     this.world.add(mesh);
   }
@@ -230,22 +193,16 @@ export class Builder {
 ========================= */
 function makeCatalog(){
   return [
-    // Foundations
-    { id:'metal_foundation', name:'Metal Foundation (3×3)', baseType:'foundation', kind:'foundation',
-      size:{x:3,y:0.25,z:3}, thickness:0.25, preview:'#a9b6c4' },
-    { id:'half_foundation',  name:'Half Foundation (2×3)',  baseType:'foundation', kind:'foundation',
-      size:{x:2,y:0.25,z:3}, thickness:0.25, preview:'#a9b6c4' },
-
     // Walls
     { id:'metal_wall', name:'Metal Wall (3×3)', baseType:'wall', kind:'wall',
       size:{x:3,y:3,z:0.2}, thickness:0.2, preview:'#dfe6ee' },
     { id:'half_wall',  name:'Half Wall (1.5×3)', baseType:'wall', kind:'wall',
       size:{x:1.5,y:3,z:0.2}, thickness:0.2, preview:'#dfe6ee' },
 
-    // Ceilings
-    { id:'metal_ceiling', name:'Metal Ceiling (3×3)', baseType:'ceiling', kind:'ceiling',
+    // Metal Flats (formerly Ceilings) — ONLY piece placeable on terrain
+    { id:'metal_flat', name:'Metal Flat (3×3)', baseType:'flat', kind:'flat',
       size:{x:3,y:0.2,z:3}, thickness:0.2, preview:'#b8c2cc' },
-    { id:'half_ceiling',  name:'Half Ceiling (1.5×3)', baseType:'ceiling', kind:'ceiling',
+    { id:'half_flat',  name:'Half Flat (1.5×3)', baseType:'flat', kind:'flat',
       size:{x:1.5,y:0.2,z:3}, thickness:0.2, preview:'#b8c2cc' },
   ];
 }
@@ -257,22 +214,7 @@ function matWall()      { return new THREE.MeshStandardMaterial({ color:0xe6edf5
 
 function buildPart(def, axis='x'){
   const g = new THREE.Group();
-  const EPS = 0.02; // tiny extension to close visual seams at corners
-
-  if (def.baseType === 'foundation'){
-    const top = new THREE.Mesh(new THREE.BoxGeometry(def.size.x, def.thickness, def.size.z), matMetal());
-    top.position.y = def.thickness/2; g.add(top);
-    // subtle braces for readability
-    const ribX = new THREE.Mesh(new THREE.BoxGeometry(def.size.x, 0.06, 0.16), matMetalLite());
-    for (let z=-Math.floor(def.size.z/3); z<=Math.floor(def.size.z/3); z++){
-      const r = ribX.clone(); r.position.set(0, def.thickness+0.03, z*1.5); g.add(r);
-    }
-    const ribZ = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.06, def.size.z), matMetalLite());
-    for (let x=-Math.floor(def.size.x/3); x<=Math.floor(def.size.x/3); x++){
-      const r = ribZ.clone(); r.position.set(x*1.5, def.thickness+0.06, 0); g.add(r);
-    }
-    return g;
-  }
+  const EPS = 0.04; // slightly larger to eliminate corner gaps fully
 
   if (def.baseType === 'wall'){
     // extend a hair on length to close corner gap when two walls meet
@@ -284,9 +226,20 @@ function buildPart(def, axis='x'){
     return g;
   }
 
-  if (def.baseType === 'ceiling'){
+  if (def.baseType === 'flat'){
     const slab = new THREE.Mesh(new THREE.BoxGeometry(def.size.x, def.thickness, def.size.z), matMetal());
     slab.position.y = def.thickness/2; g.add(slab);
+
+    // subtle ribs for readability
+    const ribX = new THREE.Mesh(new THREE.BoxGeometry(def.size.x, 0.06, 0.16), matMetalLite());
+    for (let z=-Math.floor(def.size.z/3); z<=Math.floor(def.size.z/3); z++){
+      const r = ribX.clone(); r.position.set(0, def.thickness+0.03, z*1.5); g.add(r);
+    }
+    const ribZ = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.06, def.size.z), matMetalLite());
+    for (let x=-Math.floor(def.size.x/3); x<=Math.floor(def.size.x/3); x++){
+      const r = ribZ.clone(); r.position.set(x*1.5, def.thickness+0.06, 0); g.add(r);
+    }
+
     if (axis === 'z') g.rotation.y = Math.PI/2;
     return g;
   }
