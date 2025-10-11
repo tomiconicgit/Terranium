@@ -10,13 +10,11 @@
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="mobile-web-app-capable" content="yes" />
-  <link rel="manifest" href="/manifest.json" />
-  <!-- iOS icons (SVG/PNG you generated) -->
-  <link rel="apple-touch-icon" href="/icon-180.png" />
+  <link rel="manifest" href="/manifest.webmanifest" />
   <link rel="icon" href="/icon-192.png" sizes="192x192" />
   <link rel="icon" href="/icon-512.png" sizes="512x512" />
 
-  <!-- Import maps (ThreeJS, examples) -->
+  <!-- Import maps -->
   <script type="importmap">
     {
       "imports": {
@@ -30,8 +28,6 @@
     :root { --bg:#000; --fg:#fff; --accent:#4dd2ff; }
     html, body { height:100%; margin:0; background:var(--bg); color:var(--fg); }
     body { touch-action:none; -webkit-user-select:none; font-family:system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
-
-    /* Fullscreen canvas holder (renderer will append canvas) */
     #app { position:fixed; inset:0; }
 
     /* Error overlay */
@@ -45,8 +41,7 @@
     /* Rotate-to-landscape overlay */
     #rotateOverlay {
       position:fixed; inset:0; z-index:999998; background:#000;
-      color:#fff; display:none; align-items:center; justify-content:center; text-align:center;
-      padding:24px;
+      color:#fff; display:none; align-items:center; justify-content:center; text-align:center; padding:24px;
     }
     #rotateOverlay .card {
       border:1px solid #333; border-radius:16px; padding:24px 28px; max-width:420px;
@@ -56,19 +51,49 @@
     #rotateOverlay h2 { margin:0 0 10px; font-weight:600; letter-spacing:.2px; }
     #rotateOverlay p  { margin:0; opacity:.8; }
 
-    /* Tiny HUD dot (center) – placement reticle if you show one */
+    /* Center reticle */
     #reticle {
       position:fixed; left:50%; top:50%; transform:translate(-50%,-50%);
       width:6px; height:6px; border-radius:50%;
-      background:#fff; opacity:.7; pointer-events:none; z-index:10;
+      background:#ffffff; opacity:.78; pointer-events:none; z-index:10;
+      box-shadow:0 0 0 2px rgba(0,0,0,.35);
+    }
+
+    /* Hotbar */
+    #hotbar {
+      position:fixed; left:50%; bottom:12px; transform:translateX(-50%);
+      display:grid; grid-template-columns: repeat(10, 64px); gap:8px;
+      padding:10px 12px; border-radius:14px; z-index:20;
+      background:rgba(0,0,0,0.55); backdrop-filter: blur(6px);
+      border:1px solid rgba(255,255,255,0.08); user-select:none;
+    }
+    #hotbar .slot {
+      width:64px; height:64px; border-radius:9px;
+      background:rgba(255,255,255,0.04);
+      border:1px solid rgba(255,255,255,0.12);
+      display:flex; flex-direction:column; align-items:center; justify-content:center;
+      box-shadow: inset 0 0 0 1px rgba(0,0,0,0.3); overflow:hidden;
+    }
+    #hotbar .slot.selected {
+      outline:2px solid var(--accent);
+      box-shadow:0 0 0 3px rgba(77,210,255,0.25), inset 0 0 0 1px rgba(0,0,0,0.4);
+    }
+    #hotbar .thumb {
+      width:36px; height:36px; border-radius:6px; background:#888;
+      box-shadow:0 4px 10px rgba(0,0,0,0.35);
+    }
+    #hotbar .label {
+      font-size:10px; line-height:12px; margin-top:4px; color:rgba(255,255,255,0.9);
+      text-align:center; text-overflow:ellipsis; overflow:hidden; white-space:nowrap; width:100%;
     }
   </style>
 </head>
 <body>
   <div id="app"></div>
-  <div id="reticle" hidden></div>
+  <div id="reticle"></div>
+  <div id="hotbar" aria-label="hotbar"></div>
 
-  <!-- Rotate-to-landscape overlay -->
+  <!-- Rotate overlay -->
   <div id="rotateOverlay" aria-live="polite">
     <div class="card">
       <h2>Rotate your device</h2>
@@ -79,7 +104,7 @@
   <!-- Error overlay -->
   <div id="errorOverlay"></div>
 
-  <!-- Error capture (so black screens become readable) -->
+  <!-- Error capture -->
   <script>
     const errorOverlay = document.getElementById('errorOverlay');
     function showError(msg, src, line, col, err){
@@ -97,7 +122,6 @@
   <script>
     (async function setupSW(){
       try {
-        // Nuke any old SWs/caches first so updates are instant
         if ('serviceWorker' in navigator) {
           const regs = await navigator.serviceWorker.getRegistrations();
           await Promise.all(regs.map(r => r.unregister()));
@@ -108,62 +132,36 @@
         }
       } catch(e) { console.warn('Cleanup failed:', e); }
 
-      // Register the no-cache SW (it just claims clients; no fetch handler)
       if ('serviceWorker' in navigator) {
-        try {
-          await navigator.serviceWorker.register('/sw.js', { scope: '/' });
-          // Ensure it controls this page ASAP
-          if (navigator.serviceWorker.controller == null) {
-            navigator.serviceWorker.addEventListener('controllerchange', () => {
-              // optional: location.reload();
-            });
-          }
-        } catch (e) { console.warn('sw register failed', e); }
+        try { await navigator.serviceWorker.register('/sw.js', { scope: '/' }); }
+        catch (e) { console.warn('sw register failed', e); }
       }
     })();
   </script>
 
-  <!-- Robust rotate-to-landscape logic (iOS-friendly) -->
+  <!-- Rotate-to-landscape -->
   <script>
     const rotateOverlay = document.getElementById('rotateOverlay');
-
     function isLandscapeNow() {
       if (window.matchMedia && window.matchMedia('(orientation: landscape)').matches) return true;
       if (typeof window.orientation === 'number' && Math.abs(window.orientation) === 90) return true;
       if (window.innerWidth - window.innerHeight > 60) return true;
-      if (screen.orientation && typeof screen.orientation.type === 'string') {
-        if (screen.orientation.type.startsWith('landscape')) return true;
-      }
+      if (screen.orientation?.type?.startsWith('landscape')) return true;
       return false;
     }
-    function updateRotateOverlay() {
-      rotateOverlay.style.display = isLandscapeNow() ? 'none' : 'flex';
-    }
-    (async () => {
-      if (screen.orientation?.lock) { try { await screen.orientation.lock('landscape'); } catch {} }
-    })();
+    async function lockLandscape(){ try{ await screen.orientation?.lock?.('landscape'); }catch{} }
+    function updateRotateOverlay(){ rotateOverlay.style.display = isLandscapeNow() ? 'none' : 'flex'; }
     window.addEventListener('resize', updateRotateOverlay, { passive:true });
     window.addEventListener('orientationchange', updateRotateOverlay, { passive:true });
     document.addEventListener('visibilitychange', updateRotateOverlay, { passive:true });
-    if (window.visualViewport) {
-      visualViewport.addEventListener('resize', updateRotateOverlay, { passive:true });
-    }
-    // Kick a few times to catch iOS delayed metrics
-    let kicks = 8;
-    const tick = () => { updateRotateOverlay(); if (--kicks>0) setTimeout(tick, 125); };
-    tick();
+    if (window.visualViewport) visualViewport.addEventListener('resize', updateRotateOverlay, { passive:true });
+    updateRotateOverlay(); lockLandscape();
   </script>
 
-  <!-- Boot your app (cache-busted) -->
+  <!-- Boot -->
   <script type="module">
-    const V = Date.now(); // cache-buster so index always loads fresh modules
-    // OPTIONAL: expose the center reticle if your scene needs it
-    // document.getElementById('reticle').hidden = false;
-
-    import('three').then(async (THREE) => {
-      // Load your app entry. Keep your main doing all scene/camera/controller work.
-      await import(`./src/main.js?v=${V}`);
-    }).catch(err => {
+    const V = Date.now();
+    import(`./src/main.js?v=${V}`).catch(err => {
       showError('Failed to load ThreeJS / app modules', '', '', '', err);
     });
   </script>
