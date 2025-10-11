@@ -72,24 +72,37 @@ export class Builder {
     const rotYaw = this.rot * Math.PI/2;
     const rotQ = new THREE.Quaternion().setFromAxisAngle(Y, rotYaw);
     const snap3 = (x)=> Math.floor((x+1.5)/3)*3 + 1.5;
-    const EPSY = 1e-4;
 
     // ===== METAL FLAT =====
     if (def.baseType === 'flat'){
-      // place on terrain -> group.y = 0 (bottom sits on ground)
+      // NEW: Place flat on top of a wall
+      if (anchorRoot?.userData?.part?.type === 'wall' && Math.abs(n.y) > 0.5) {
+        const wall = anchorRoot;
+        const wallTopY = wall.position.y + wall.userData.part.size.y;
+
+        const pos = wall.position.clone();
+        pos.y = wallTopY; // Flat's bottom sits on wall's top
+
+        const axis = (this.rot & 1) ? 'z' : 'x';
+        const foundationCenter = new THREE.Vector3(pos.x, 0, pos.z);
+
+        return { pos, rot: rotQ, axis, foundationCenter };
+      }
+
+      // place on terrain
       if (!anchorRoot && hitObject === this.terrain && Math.abs(hitPoint.y) < 0.6){
         const cx=snap3(hitPoint.x), cz=snap3(hitPoint.z);
-        const pos = new THREE.Vector3(cx, 0, cz);               // bottom at ground
+        const pos = new THREE.Vector3(cx, 0, cz);
         const axis = (this.rot & 1) ? 'z' : 'x';
         return { pos, rot: rotQ, axis, foundationCenter: new THREE.Vector3(cx,0,cz) };
       }
-      // extend from existing flat -> keep same baseline (group.y)
+      // extend from existing flat
       if (anchorRoot?.userData?.part?.type === 'flat'){
         const base = anchorRoot;
         const side = pickSide(hitPoint, base.position);
         const out  = outwardVector(side);
         const pos  = base.position.clone().addScaledVector(out, 3);
-        pos.y = base.position.y;                                 // inherit baseline
+        pos.y = base.position.y;
         const axis = (this.rot & 1) ? 'z' : 'x';
         const newCell = base.position.clone().addScaledVector(out, 3);
         return { pos, rot: rotQ, axis, foundationCenter: newCell };
@@ -99,36 +112,49 @@ export class Builder {
 
     // ===== WALLS =====
     if (def.baseType === 'wall'){
-      // must anchor to flat or to a wall tied to a flat
       let cellCenter = null;
       let wallBaseY  = 0;
 
       if (anchorRoot?.userData?.part?.type === 'flat'){
         cellCenter = anchorRoot.position.clone(); cellCenter.y = 0;
-        const flat = anchorRoot.userData.part;
-        // CORRECTED BUG #1: 'wallBaseY' must be the Y-coordinate of the flat's TOP surface.
-        // This is the flat's bottom position (anchorRoot.position.y) plus its thickness.
-        // The old code incorrectly set this to 0 for flats on the ground.
-        wallBaseY = anchorRoot.position.y + flat.thickness;
+        wallBaseY = anchorRoot.position.y + anchorRoot.userData.part.thickness;
       } else if (anchorRoot?.userData?.part?.type === 'wall' && anchorRoot.userData.foundationCenter){
         cellCenter = anchorRoot.userData.foundationCenter.clone();
-        wallBaseY  = anchorRoot.userData.wallBaseY ?? anchorRoot.userData.baseTopY ?? 0;
+        wallBaseY = anchorRoot.userData.wallBaseY ?? 0; // Fallback
       } else {
-        return null; // disallow wall-on-terrain-alone
+        return null; // Can't place a wall on nothing
       }
 
-      // stack on top if looking at a wall's top
-      if (anchorRoot?.userData?.part?.type === 'wall' && Math.abs(n.y) > 0.5){
+      // AMENDED: Handle wall-on-wall snapping (stacking and side-snapping)
+      if (anchorRoot?.userData?.part?.type === 'wall'){
         const w = anchorRoot;
-        const pos2 = w.position.clone(); pos2.y += w.userData.part.size.y; // Use existing wall's height
-        const rot2 = new THREE.Quaternion().setFromAxisAngle(Y, yawForSide(w.userData.meta.side));
-        const ax2  = w.userData.meta.axis;
-        if (w.userData.meta.halfOffset) pos2.addScaledVector(edgeAxis(ax2), w.userData.meta.halfOffset);
-        return { pos:pos2, rot:rot2, axis:ax2, side:w.userData.meta.side, halfOffset:w.userData.meta.halfOffset,
-                 foundationCenter: w.userData.foundationCenter.clone(), wallBaseY };
+
+        // Stack on top
+        if (Math.abs(n.y) > 0.5){
+          const pos = w.position.clone();
+          pos.y += w.userData.part.size.y; // Place on top of existing wall
+          const rot = w.quaternion.clone(); // Match rotation
+          const axis = w.userData.meta.axis;
+          return { pos, rot, axis, side:w.userData.meta.side, halfOffset:w.userData.meta.halfOffset,
+                   foundationCenter: w.userData.foundationCenter.clone(),
+                   wallBaseY: pos.y };
+        }
+        // NEW: Snap to side
+        else {
+          const out = new THREE.Vector3(Math.round(n.x), 0, Math.round(n.z)).normalize();
+          const pos = w.position.clone().addScaledVector(out, 3);
+          const rot = w.quaternion.clone(); // Match rotation and axis
+          const axis = w.userData.meta.axis;
+          return {
+            pos, rot, axis,
+            side: pickSide(pos, w.userData.foundationCenter),
+            foundationCenter: w.userData.foundationCenter.clone(),
+            wallBaseY: w.position.y // New wall bottom is same as anchor wall bottom
+          };
+        }
       }
 
-      // snap to flat edge
+      // Default: Snap to a flat foundation edge
       const side = pickSide(hitPoint, cellCenter);
       const yaw  = yawForSide(side);
       const rot  = new THREE.Quaternion().setFromAxisAngle(Y, yaw);
@@ -138,14 +164,10 @@ export class Builder {
       const pos  = cellCenter.clone()
         .addScaledVector(out, 1.5 + def.thickness/2);
 
-      // CORRECTED BUG #2: The wall's group origin is its bottom.
-      // So, we just need to set its y-position directly to the calculated base height.
-      // The old code incorrectly added half the wall's height (`def.size.y/2`), pushing it way up.
       pos.y = wallBaseY;
 
-      // half wall: left/right selection
-      const local = hitPoint.clone().sub(cellCenter);
       if (def.size.x === 1.5){
+        const local = hitPoint.clone().sub(cellCenter);
         const along = (axis === 'z') ? local.z : local.x;
         const halfOffset = (along >= 0 ? +0.75 : -0.75);
         pos.addScaledVector(edgeAxis(axis), halfOffset);
@@ -172,9 +194,7 @@ export class Builder {
       ? sugg.foundationCenter.clone()
       : cellFromWorld(mesh.position);
 
-    // CORRECTED BUG #3: When caching the base height for future stacking, it must be the object's
-    // TOP surface, which is its bottom position plus its thickness/height.
-    // The old code incorrectly set this to 0 for flats on the ground.
+    // Cache the Y-coordinate of the TOP surface for future stacking
     if (def.baseType === 'flat'){
       mesh.userData.wallBaseY = mesh.position.y + def.thickness;
     } else if (def.baseType === 'wall'){
@@ -216,7 +236,6 @@ function buildPart(def, axis='x'){
   if (def.baseType === 'wall'){
     const len = def.size.x + EPS;
     const wall = new THREE.Mesh(new THREE.BoxGeometry(len, def.size.y, def.thickness), matWall());
-    // The group's origin is the BOTTOM of the wall.
     wall.position.y = def.size.y/2;
     g.add(wall);
     if (axis === 'z') g.rotation.y = Math.PI/2;
@@ -224,7 +243,6 @@ function buildPart(def, axis='x'){
   }
 
   if (def.baseType === 'flat'){
-    // The group's origin is the BOTTOM of the flat.
     const slab = new THREE.Mesh(new THREE.BoxGeometry(def.size.x, def.thickness, def.size.z), matMetal());
     slab.position.y = def.thickness/2;
     g.add(slab);
