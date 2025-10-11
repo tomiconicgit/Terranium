@@ -6,8 +6,6 @@ export class Scene extends THREE.Scene {
   constructor() {
     super();
     this.background = null;
-    this.userData.uniforms = { time: { value: 0 } };
-    this.userData.tick = [];
 
     // Lighting (even & bright)
     const amb = new THREE.AmbientLight(0xffffff, 0.35); this.add(amb);
@@ -21,35 +19,44 @@ export class Scene extends THREE.Scene {
     // Sky
     this.add(createSkyDome());
 
-    // Flat “Minecraft” ground 100×100 (1×1×1 cubes)
-    const ground = makeGroundInstanced(100, new THREE.MeshStandardMaterial({ color: 0xdbcb9a, roughness: 1, metalness: 0 }));
+    // 100×100 ground voxels as InstancedMesh — we remember size & index mapping for carving
+    const ground = makeGround(100, new THREE.MeshStandardMaterial({ color: 0xdbcb9a, roughness: 1, metalness: 0 }));
     ground.name = 'groundInstanced';
     this.add(ground);
 
-    // Root for placed assets
     const world = new THREE.Group(); world.name = 'world'; this.add(world);
   }
 
-  update(dt, elapsed) {
-    this.userData.uniforms.time.value = elapsed;
-    for (const t of this.userData.tick) t(dt, elapsed);
-  }
+  update() {}
 }
 
-/* helpers */
-function makeGroundInstanced(size, material) {
+function makeGround(size, mat){
   const geom = new THREE.BoxGeometry(1,1,1);
   const count = size*size;
-  const mesh = new THREE.InstancedMesh(geom, material, count);
+  const mesh = new THREE.InstancedMesh(geom, mat, count);
   mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+
   const tmp = new THREE.Object3D();
-  let i = 0, half = Math.floor(size/2);
-  for (let z=0; z<size; z++) for (let x=0; x<size; x++) {
-    tmp.position.set(x - half + 0.5, 0.5, z - half + 0.5);
-    tmp.rotation.set(0,0,0); tmp.scale.set(1,1,1); tmp.updateMatrix();
-    mesh.setMatrixAt(i++, tmp.matrix);
+  let i = 0; const half = Math.floor(size/2);
+  for (let z=0; z<size; z++){
+    for (let x=0; x<size; x++){
+      tmp.position.set(x - half + 0.5, 0.5, z - half + 0.5);
+      tmp.rotation.set(0,0,0); tmp.scale.set(1,1,1); tmp.updateMatrix();
+      mesh.setMatrixAt(i++, tmp.matrix);
+    }
   }
   mesh.instanceMatrix.needsUpdate = true;
   mesh.frustumCulled = false;
+
+  // store mapping so Builder can "carve"
+  mesh.userData.size = size;
+  mesh.userData.half = half;
+  mesh.userData.getIndex = (gx, gz) => {
+    // gx,gz are integer cell coords in world grid
+    const x = gx + half; const z = gz + half;
+    if (x < 0 || x >= size || z < 0 || z >= size) return -1;
+    return z * size + x;
+  };
+
   return mesh;
 }
