@@ -1,4 +1,4 @@
-// src/tools/Builder.js — Metal Flat + Walls (walls sit on flat top, smooth flats)
+// src/tools/Builder.js — Metal Flat + Walls (correct vertical baseline + smooth flats)
 
 import * as THREE from 'three';
 
@@ -110,31 +110,32 @@ export class Builder {
 
     // ===== WALLS =====
     if (def.baseType === 'wall'){
-      // Must anchor to a Metal Flat OR a wall that already knows its owning flat cell
+      // Must anchor to a Metal Flat OR a wall tied to a flat
       let cellCenter = null;
-      let baseY = 0; // <-- vertical baseline so walls sit exactly on flat top
+      let topY = 0; // exact top surface of the owning Metal Flat
 
       if (anchorRoot?.userData?.part?.type === 'flat'){
         cellCenter = anchorRoot.position.clone(); cellCenter.y = 0;
-        baseY = anchorRoot.userData.part.thickness / 2; // flat top height (e.g., 0.1)
+        // group is centered at thickness/2 — so top = centerY + thickness/2
+        topY = anchorRoot.position.y + anchorRoot.userData.part.thickness/2;
       } else if (anchorRoot?.userData?.part?.type === 'wall' && anchorRoot.userData.foundationCenter){
         cellCenter = anchorRoot.userData.foundationCenter.clone();
-        baseY = anchorRoot.userData.baseYOffset || 0; // inherit baseline from the wall we’re aiming at
+        topY = anchorRoot.userData.baseTopY ?? 0;
       } else {
         return null; // disallow wall-on-terrain
       }
 
-      // stack on top if looking at the wall's top
+      // stack on top if looking at a wall's top
       if (anchorRoot?.userData?.part?.type === 'wall' && Math.abs(n.y) > 0.5){
         const w = anchorRoot;
-        const pos2 = w.position.clone(); pos2.y += def.size.y; // keep same base offset automatically
+        const pos2 = w.position.clone(); pos2.y += def.size.y;
         const rot2 = new THREE.Quaternion().setFromAxisAngle(Y, yawForSide(w.userData.meta.side));
         const ax2  = w.userData.meta.axis;
         if (w.userData.meta.halfOffset) pos2.addScaledVector(edgeAxis(ax2), w.userData.meta.halfOffset);
-        return { pos:pos2, rot:rot2, axis:ax2, side:w.userData.meta.side, halfOffset:w.userData.meta.halfOffset, foundationCenter: w.userData.foundationCenter.clone(), baseY };
+        return { pos:pos2, rot:rot2, axis:ax2, side:w.userData.meta.side, halfOffset:w.userData.meta.halfOffset, foundationCenter: w.userData.foundationCenter.clone(), baseTopY: topY };
       }
 
-      // otherwise snap to Metal Flat edge
+      // snap to Metal Flat edge
       const side = pickSide(hitPoint, cellCenter);
       const yaw  = yawForSide(side);
       const rot  = new THREE.Quaternion().setFromAxisAngle(Y, yaw);
@@ -143,19 +144,20 @@ export class Builder {
       const out  = outwardVector(side);
       const pos  = cellCenter.clone()
         .addScaledVector(out, 1.5 + def.thickness/2);
-      // ⬇️ center at half-height + baseline (flat’s top), so bottom rests on flat
-      pos.y = def.size.y/2 + baseY;
 
-      // half wall: choose left/right half by where we looked along the edge
+      // center at half-height + exact flat top, so bottom sits flush on slab
+      pos.y = def.size.y/2 + topY;
+
+      // half wall: choose left/right half
       const local = hitPoint.clone().sub(cellCenter);
       if (def.size.x === 1.5){
         const along = (axis === 'z') ? local.z : local.x;
         const halfOffset = (along >= 0 ? +0.75 : -0.75);
         pos.addScaledVector(edgeAxis(axis), halfOffset);
-        return { pos, rot, axis, side, halfOffset, foundationCenter: cellCenter.clone(), baseY };
+        return { pos, rot, axis, side, halfOffset, foundationCenter: cellCenter.clone(), baseTopY: topY };
       }
 
-      return { pos, rot, axis, side, foundationCenter: cellCenter.clone(), baseY };
+      return { pos, rot, axis, side, foundationCenter: cellCenter.clone(), baseTopY: topY };
     }
 
     return null;
@@ -176,7 +178,8 @@ export class Builder {
     mesh.userData.foundationCenter = sugg.foundationCenter
       ? sugg.foundationCenter.clone()
       : cellFromWorld(mesh.position);
-    mesh.userData.baseYOffset = sugg.baseY || 0; // keep baseline for stacking
+    // store the *exact* top Y of the owning flat to keep stacks aligned
+    if (sugg.baseTopY !== undefined) mesh.userData.baseTopY = sugg.baseTopY;
 
     this.world.add(mesh);
   }
@@ -193,27 +196,26 @@ export class Builder {
 ========================= */
 function makeCatalog(){
   return [
-    // Walls
-    { id:'metal_wall', name:'Metal Wall (3×3)', baseType:'wall', kind:'wall',
-      size:{x:3,y:3,z:0.2}, thickness:0.2, preview:'#dfe6ee' },
-    { id:'half_wall',  name:'Half Wall (1.5×3)', baseType:'wall', kind:'wall',
-      size:{x:1.5,y:3,z:0.2}, thickness:0.2, preview:'#dfe6ee' },
-
-    // Metal Flats (only piece placeable on terrain)
+    // Prefer building floors first in the hotbar order
     { id:'metal_flat', name:'Metal Flat (3×3)', baseType:'flat', kind:'flat',
       size:{x:3,y:0.2,z:3}, thickness:0.2, preview:'#b8c2cc' },
     { id:'half_flat',  name:'Half Flat (1.5×3)', baseType:'flat', kind:'flat',
       size:{x:1.5,y:0.2,z:3}, thickness:0.2, preview:'#b8c2cc' },
+
+    { id:'metal_wall', name:'Metal Wall (3×3)', baseType:'wall', kind:'wall',
+      size:{x:3,y:3,z:0.2}, thickness:0.2, preview:'#dfe6ee' },
+    { id:'half_wall',  name:'Half Wall (1.5×3)', baseType:'wall', kind:'wall',
+      size:{x:1.5,y:3,z:0.2}, thickness:0.2, preview:'#dfe6ee' },
   ];
 }
 
 /* Materials */
-function matMetal()     { return new THREE.MeshStandardMaterial({ color:0x9ea6af, roughness:0.45, metalness:0.85 }); }
-function matWall()      { return new THREE.MeshStandardMaterial({ color:0xe6edf5, roughness:0.4,  metalness:0.9  }); }
+function matMetal() { return new THREE.MeshStandardMaterial({ color:0x9ea6af, roughness:0.45, metalness:0.85 }); }
+function matWall()  { return new THREE.MeshStandardMaterial({ color:0xe6edf5, roughness:0.4,  metalness:0.9  }); }
 
 function buildPart(def, axis='x'){
   const g = new THREE.Group();
-  const EPS = 0.04; // elongate to eliminate corner gaps
+  const EPS = 0.04; // remove corner gaps
 
   if (def.baseType === 'wall'){
     const len = def.size.x + EPS;
