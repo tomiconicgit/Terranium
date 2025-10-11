@@ -1,5 +1,4 @@
-// src/tools/Builder.js — Metal Flat + Walls (no gap; smooth flats)
-
+// Metal Flat + Walls — no vertical gap, smooth flats
 import * as THREE from 'three';
 
 export class Builder {
@@ -16,13 +15,13 @@ export class Builder {
 
     this.ray = new THREE.Raycaster();
 
-    // Ghost preview
+    // ghost
     this.preview = new THREE.Group(); this.preview.visible = false;
     this.preview.name = 'ghost';
     this.scene.add(this.preview);
     this.prevKey = '';
 
-    this.rot = 0;                // 0..3 for half pieces
+    this.rot = 0;
     this._lastButtons = [];
     this._hover = null;
   }
@@ -32,11 +31,10 @@ export class Builder {
 
   update(){
     const def = this.catalog[this.hotbar.index];
-    if (this.pressed(5)) this.hotbar.selectNext(); // R1
-    if (this.pressed(4)) this.hotbar.selectPrev(); // L1
-    if (this.pressed(1)) { this.rot = (this.rot + 1) & 3; this.prevKey=''; } // B
+    if (this.pressed(5)) this.hotbar.selectNext();
+    if (this.pressed(4)) this.hotbar.selectPrev();
+    if (this.pressed(1)) { this.rot = (this.rot + 1) & 3; this.prevKey=''; }
 
-    // center ray
     this.ray.setFromCamera(new THREE.Vector2(0,0), this.camera);
     const hits = this.ray.intersectObjects([this.world, this.terrain], true);
     if (!hits.length || !def){ this.preview.visible=false; this._hover=null; return; }
@@ -48,7 +46,7 @@ export class Builder {
     const sugg = this.suggest(def, hit.point, normal, anchorRoot, hit.object);
     if (!sugg){ this.preview.visible=false; this._hover=null; return; }
 
-    // refresh ghost
+    // build/refresh ghost
     const key = `${def.id}|${sugg.axis}|${this.rot}`;
     if (key !== this.prevKey){
       this.preview.clear();
@@ -65,8 +63,8 @@ export class Builder {
 
     this._hover = { def, sugg, anchorRoot };
 
-    if (this.pressed(7)) this.placeOne();   // R2
-    if (this.pressed(6)) this.removeOne();  // L2
+    if (this.pressed(7)) this.placeOne();
+    if (this.pressed(6)) this.removeOne();
   }
 
   /* ---------- snapping ---------- */
@@ -74,23 +72,24 @@ export class Builder {
     const rotYaw = this.rot * Math.PI/2;
     const rotQ = new THREE.Quaternion().setFromAxisAngle(Y, rotYaw);
     const snap3 = (x)=> Math.floor((x+1.5)/3)*3 + 1.5;
+    const EPSY = 1e-4;
 
     // ===== METAL FLAT =====
     if (def.baseType === 'flat'){
-      // Place from terrain -> bottom at y=0 (no float)
+      // place on terrain -> group.y = 0 (bottom sits on ground)
       if (!anchorRoot && hitObject === this.terrain && Math.abs(hitPoint.y) < 0.6){
         const cx=snap3(hitPoint.x), cz=snap3(hitPoint.z);
-        const pos = new THREE.Vector3(cx, 0, cz);          // <-- bottom at 0
+        const pos = new THREE.Vector3(cx, 0, cz);               // bottom at ground
         const axis = (this.rot & 1) ? 'z' : 'x';
         return { pos, rot: rotQ, axis, foundationCenter: new THREE.Vector3(cx,0,cz) };
       }
-      // Extend from an existing flat (inherit its baseline)
+      // extend from existing flat -> keep same baseline (group.y)
       if (anchorRoot?.userData?.part?.type === 'flat'){
         const base = anchorRoot;
         const side = pickSide(hitPoint, base.position);
         const out  = outwardVector(side);
         const pos  = base.position.clone().addScaledVector(out, 3);
-        pos.y = base.position.y;                             // <-- same baseline
+        pos.y = base.position.y;                                 // inherit baseline
         const axis = (this.rot & 1) ? 'z' : 'x';
         const newCell = base.position.clone().addScaledVector(out, 3);
         return { pos, rot: rotQ, axis, foundationCenter: newCell };
@@ -100,22 +99,24 @@ export class Builder {
 
     // ===== WALLS =====
     if (def.baseType === 'wall'){
-      // Must anchor to a Metal Flat or a wall that knows its flat
+      // must anchor to flat or to a wall tied to a flat
       let cellCenter = null;
-      let flatTopY = 0;
+      let wallBaseY  = 0;
 
       if (anchorRoot?.userData?.part?.type === 'flat'){
         cellCenter = anchorRoot.position.clone(); cellCenter.y = 0;
-        // Top of flat = group.y + thickness (slab is inside at +thickness/2)
-        flatTopY = anchorRoot.position.y + anchorRoot.userData.part.thickness;  // <-- fixed
+        const flat = anchorRoot.userData.part;
+        // if the flat is on terrain (group.y ~ 0) -> wall bottom at 0
+        const flatOnGround = Math.abs(anchorRoot.position.y) < EPSY;
+        wallBaseY = flatOnGround ? 0 : (anchorRoot.position.y + flat.thickness); // else sit on flat top
       } else if (anchorRoot?.userData?.part?.type === 'wall' && anchorRoot.userData.foundationCenter){
         cellCenter = anchorRoot.userData.foundationCenter.clone();
-        flatTopY = anchorRoot.userData.baseTopY ?? 0;
+        wallBaseY  = anchorRoot.userData.wallBaseY ?? anchorRoot.userData.baseTopY ?? 0;
       } else {
-        return null; // no wall-on-terrain
+        return null; // disallow wall-on-terrain-alone
       }
 
-      // Stack on wall top
+      // stack on top if looking at a wall's top
       if (anchorRoot?.userData?.part?.type === 'wall' && Math.abs(n.y) > 0.5){
         const w = anchorRoot;
         const pos2 = w.position.clone(); pos2.y += def.size.y;
@@ -123,10 +124,10 @@ export class Builder {
         const ax2  = w.userData.meta.axis;
         if (w.userData.meta.halfOffset) pos2.addScaledVector(edgeAxis(ax2), w.userData.meta.halfOffset);
         return { pos:pos2, rot:rot2, axis:ax2, side:w.userData.meta.side, halfOffset:w.userData.meta.halfOffset,
-                 foundationCenter: w.userData.foundationCenter.clone(), baseTopY: flatTopY };
+                 foundationCenter: w.userData.foundationCenter.clone(), wallBaseY };
       }
 
-      // Snap to flat edge (bottom flush on slab top)
+      // snap to flat edge
       const side = pickSide(hitPoint, cellCenter);
       const yaw  = yawForSide(side);
       const rot  = new THREE.Quaternion().setFromAxisAngle(Y, yaw);
@@ -135,18 +136,20 @@ export class Builder {
       const out  = outwardVector(side);
       const pos  = cellCenter.clone()
         .addScaledVector(out, 1.5 + def.thickness/2);
-      pos.y = def.size.y/2 + flatTopY;                       // bottom = flatTopY
 
-      // half wall left/right selection
+      // bottom of wall exactly at wallBaseY
+      pos.y = def.size.y/2 + wallBaseY;
+
+      // half wall: left/right selection
       const local = hitPoint.clone().sub(cellCenter);
       if (def.size.x === 1.5){
         const along = (axis === 'z') ? local.z : local.x;
         const halfOffset = (along >= 0 ? +0.75 : -0.75);
         pos.addScaledVector(edgeAxis(axis), halfOffset);
-        return { pos, rot, axis, side, halfOffset, foundationCenter: cellCenter.clone(), baseTopY: flatTopY };
+        return { pos, rot, axis, side, halfOffset, foundationCenter: cellCenter.clone(), wallBaseY };
       }
 
-      return { pos, rot, axis, side, foundationCenter: cellCenter.clone(), baseTopY: flatTopY };
+      return { pos, rot, axis, side, foundationCenter: cellCenter.clone(), wallBaseY };
     }
 
     return null;
@@ -166,11 +169,11 @@ export class Builder {
       ? sugg.foundationCenter.clone()
       : cellFromWorld(mesh.position);
 
+    // cache for future snaps
     if (def.baseType === 'flat'){
-      // cache exact top Y for any walls that snap to this later
-      mesh.userData.baseTopY = mesh.position.y + def.thickness;
-    } else if (sugg.baseTopY !== undefined){
-      mesh.userData.baseTopY = sugg.baseTopY;
+      mesh.userData.wallBaseY = (Math.abs(mesh.position.y) < 1e-4) ? 0 : (mesh.position.y + def.thickness);
+    } else if (sugg.wallBaseY !== undefined){
+      mesh.userData.wallBaseY = sugg.wallBaseY;
     }
 
     this.world.add(mesh);
@@ -203,7 +206,7 @@ function matWall(){  return new THREE.MeshStandardMaterial({ color:0xe6edf5, rou
 
 function buildPart(def, axis='x'){
   const g = new THREE.Group();
-  const EPS = 0.04;
+  const EPS = 0.04; // remove corner seam
 
   if (def.baseType === 'wall'){
     const len = def.size.x + EPS;
@@ -215,9 +218,9 @@ function buildPart(def, axis='x'){
   }
 
   if (def.baseType === 'flat'){
-    // smooth slab (no ribs)
+    // smooth slab
     const slab = new THREE.Mesh(new THREE.BoxGeometry(def.size.x, def.thickness, def.size.z), matMetal());
-    slab.position.y = def.thickness/2; // bottom at 0 relative to group
+    slab.position.y = def.thickness/2; // group.y is the bottom
     g.add(slab);
     if (axis === 'z') g.rotation.y = Math.PI/2;
     return g;
@@ -228,46 +231,11 @@ function buildPart(def, axis='x'){
 
 /* ---------- helpers ---------- */
 const Y = new THREE.Vector3(0,1,0);
-
-function findPlacedRoot(obj){
-  let p = obj;
-  while (p){
-    if (p.parent && p.parent.name === 'world') return p;
-    p = p.parent;
-  }
-  return null;
-}
-function worldNormal(hit){
-  const n = (hit.face?.normal ? hit.face.normal.clone() : new THREE.Vector3(0,1,0));
-  return n.applyMatrix3(new THREE.Matrix3().getNormalMatrix(hit.object.matrixWorld)).normalize();
-}
-function pickSide(point, cellCenter){
-  const d = point.clone().sub(cellCenter);
-  return (Math.abs(d.x) > Math.abs(d.z))
-    ? (d.x >= 0 ? '+x' : '-x')
-    : (d.z >= 0 ? '+z' : '-z');
-}
-function outwardVector(side){
-  switch (side){
-    case '+x': return new THREE.Vector3( 1,0,0);
-    case '-x': return new THREE.Vector3(-1,0,0);
-    case '+z': return new THREE.Vector3( 0,0,1);
-    case '-z': return new THREE.Vector3( 0,0,-1);
-  }
-  return new THREE.Vector3(1,0,0);
-}
-function yawForSide(side){
-  switch (side){
-    case '+x': return  Math.PI/2;
-    case '-x': return -Math.PI/2;
-    case '+z': return 0;
-    case '-z': return Math.PI;
-  }
-  return 0;
-}
+function findPlacedRoot(obj){ let p=obj; while(p){ if (p.parent && p.parent.name==='world') return p; p=p.parent; } return null; }
+function worldNormal(hit){ const n=(hit.face?.normal?hit.face.normal.clone():new THREE.Vector3(0,1,0)); return n.applyMatrix3(new THREE.Matrix3().getNormalMatrix(hit.object.matrixWorld)).normalize(); }
+function pickSide(point, cellCenter){ const d=point.clone().sub(cellCenter); return (Math.abs(d.x)>Math.abs(d.z))?(d.x>=0?'+x':'-x'):(d.z>=0?'+z':'-z'); }
+function outwardVector(side){ switch(side){ case '+x':return new THREE.Vector3(1,0,0); case '-x':return new THREE.Vector3(-1,0,0); case '+z':return new THREE.Vector3(0,0,1); case '-z':return new THREE.Vector3(0,0,-1);} return new THREE.Vector3(1,0,0); }
+function yawForSide(side){ switch(side){ case '+x':return Math.PI/2; case '-x':return -Math.PI/2; case '+z':return 0; case '-z':return Math.PI; } return 0; }
 function axisForSide(side){ return (side.endsWith('x')) ? 'z' : 'x'; }
 function edgeAxis(axis){ return (axis === 'z') ? new THREE.Vector3(0,0,1) : new THREE.Vector3(1,0,0); }
-function cellFromWorld(p){
-  const snap3 = (x)=> Math.floor((x+1.5)/3)*3 + 1.5;
-  return new THREE.Vector3(snap3(p.x), 0, snap3(p.z));
-}
+function cellFromWorld(p){ const snap3=(x)=> Math.floor((x+1.5)/3)*3 + 1.5; return new THREE.Vector3(snap3(p.x),0,snap3(p.z)); }
