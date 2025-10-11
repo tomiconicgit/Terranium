@@ -106,9 +106,8 @@ export class Builder {
       if (anchorRoot?.userData?.part?.type === 'flat'){
         cellCenter = anchorRoot.position.clone(); cellCenter.y = 0;
         const flat = anchorRoot.userData.part;
-        // if the flat is on terrain (group.y ~ 0) -> wall bottom at 0
-        const flatOnGround = Math.abs(anchorRoot.position.y) < EPSY;
-        wallBaseY = flatOnGround ? 0 : (anchorRoot.position.y + flat.thickness); // else sit on flat top
+        // The flat's top surface is its position (bottom) + its thickness
+        wallBaseY = anchorRoot.position.y + flat.thickness; // <--- FIX #1
       } else if (anchorRoot?.userData?.part?.type === 'wall' && anchorRoot.userData.foundationCenter){
         cellCenter = anchorRoot.userData.foundationCenter.clone();
         wallBaseY  = anchorRoot.userData.wallBaseY ?? anchorRoot.userData.baseTopY ?? 0;
@@ -137,8 +136,8 @@ export class Builder {
       const pos  = cellCenter.clone()
         .addScaledVector(out, 1.5 + def.thickness/2);
 
-      // bottom of wall exactly at wallBaseY
-      pos.y = def.size.y/2 + wallBaseY;
+      // The wall group's origin is its bottom, so just set its Y to the base height.
+      pos.y = wallBaseY; // <--- FIX #2
 
       // half wall: left/right selection
       const local = hitPoint.clone().sub(cellCenter);
@@ -189,14 +188,14 @@ export class Builder {
 /* ---------- catalog + builders ---------- */
 function makeCatalog(){
   return [
-    { id:'metal_flat', name:'Metal Flat (3×3)', baseType:'flat', kind:'flat',
+    { id:'metal_flat', name:'Metal Flat (3x3)', baseType:'flat', kind:'flat',
       size:{x:3,y:0.2,z:3}, thickness:0.2, preview:'#b8c2cc' },
-    { id:'half_flat',  name:'Half Flat (1.5×3)', baseType:'flat', kind:'flat',
+    { id:'half_flat',  name:'Half Flat (1.5x3)', baseType:'flat', kind:'flat',
       size:{x:1.5,y:0.2,z:3}, thickness:0.2, preview:'#b8c2cc' },
 
-    { id:'metal_wall', name:'Metal Wall (3×3)', baseType:'wall', kind:'wall',
+    { id:'metal_wall', name:'Metal Wall (3x3)', baseType:'wall', kind:'wall',
       size:{x:3,y:3,z:0.2}, thickness:0.2, preview:'#dfe6ee' },
-    { id:'half_wall',  name:'Half Wall (1.5×3)', baseType:'wall', kind:'wall',
+    { id:'half_wall',  name:'Half Wall (1.5x3)', baseType:'wall', kind:'wall',
       size:{x:1.5,y:3,z:0.2}, thickness:0.2, preview:'#dfe6ee' },
   ];
 }
@@ -211,6 +210,7 @@ function buildPart(def, axis='x'){
   if (def.baseType === 'wall'){
     const len = def.size.x + EPS;
     const wall = new THREE.Mesh(new THREE.BoxGeometry(len, def.size.y, def.thickness), matWall());
+    // The group's origin is the BOTTOM of the wall.
     wall.position.y = def.size.y/2;
     g.add(wall);
     if (axis === 'z') g.rotation.y = Math.PI/2;
@@ -218,9 +218,9 @@ function buildPart(def, axis='x'){
   }
 
   if (def.baseType === 'flat'){
-    // smooth slab
+    // The group's origin is the BOTTOM of the flat.
     const slab = new THREE.Mesh(new THREE.BoxGeometry(def.size.x, def.thickness, def.size.z), matMetal());
-    slab.position.y = def.thickness/2; // group.y is the bottom
+    slab.position.y = def.thickness/2;
     g.add(slab);
     if (axis === 'z') g.rotation.y = Math.PI/2;
     return g;
