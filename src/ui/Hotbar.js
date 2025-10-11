@@ -8,7 +8,7 @@ export class Hotbar {
   setCatalog(list){
     this.root.innerHTML = '';
     this.slots = [];
-    list.slice(0,10).forEach(a=>{
+    list.slice(0,10).forEach((a, i)=>{
       const slot = document.createElement('div');
       slot.className = 'slot';
 
@@ -22,6 +22,7 @@ export class Hotbar {
 
       slot.appendChild(th); slot.appendChild(label);
       this.root.appendChild(slot);
+      slot.addEventListener('click', () => this.select(i));
       this.slots.push(slot);
     });
     this.select(0);
@@ -40,10 +41,9 @@ function swatch(a){
   const c = a.preview || '#8aa';
   const g = (hi, lo)=>`linear-gradient(135deg, ${hi}, ${lo})`;
   switch (a.kind){
-    case 'foundation': return g(shade(c,18), shade(c,-14));
-    case 'wall':       return g(shade(c,10), shade(c,-12));
-    case 'ceiling':    return g(shade(c,14), shade(c,-10));
-    default:           return c;
+    case 'wall': return g(shade(c,10), shade(c,-12));
+    case 'flat': return g(shade(c,14), shade(c,-10));
+    default:     return c;
   }
 }
 function shade(hex, amt){
