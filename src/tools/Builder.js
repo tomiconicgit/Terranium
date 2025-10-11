@@ -75,17 +75,20 @@ export class Builder {
 
     // ===== METAL FLAT =====
     if (def.baseType === 'flat'){
-      // NEW: Place flat on top of a wall
+      // CORRECTED: Place flat on top of a wall (ceiling)
       if (anchorRoot?.userData?.part?.type === 'wall' && Math.abs(n.y) > 0.5) {
         const wall = anchorRoot;
+        // The Y position for the TOP of the wall.
         const wallTopY = wall.position.y + wall.userData.part.size.y;
+        
+        // A flat should be centered on the grid cell, not on the wall itself.
+        // We get this grid cell center from the wall's saved foundationCenter.
+        const foundationCenter = wall.userData.foundationCenter.clone();
 
-        const pos = wall.position.clone();
-        pos.y = wallTopY; // Flat's bottom sits on wall's top
-
+        // The new flat's position is the foundation's X/Z, and the wall's top Y.
+        const pos = new THREE.Vector3(foundationCenter.x, wallTopY, foundationCenter.z);
+        
         const axis = (this.rot & 1) ? 'z' : 'x';
-        const foundationCenter = new THREE.Vector3(pos.x, 0, pos.z);
-
         return { pos, rot: rotQ, axis, foundationCenter };
       }
 
@@ -125,31 +128,31 @@ export class Builder {
         return null; // Can't place a wall on nothing
       }
 
-      // AMENDED: Handle wall-on-wall snapping (stacking and side-snapping)
+      // Handle wall-on-wall snapping (stacking and side-snapping)
       if (anchorRoot?.userData?.part?.type === 'wall'){
         const w = anchorRoot;
 
         // Stack on top
         if (Math.abs(n.y) > 0.5){
           const pos = w.position.clone();
-          pos.y += w.userData.part.size.y; // Place on top of existing wall
-          const rot = w.quaternion.clone(); // Match rotation
+          pos.y += w.userData.part.size.y;
+          const rot = w.quaternion.clone();
           const axis = w.userData.meta.axis;
           return { pos, rot, axis, side:w.userData.meta.side, halfOffset:w.userData.meta.halfOffset,
                    foundationCenter: w.userData.foundationCenter.clone(),
                    wallBaseY: pos.y };
         }
-        // NEW: Snap to side
+        // Snap to side
         else {
           const out = new THREE.Vector3(Math.round(n.x), 0, Math.round(n.z)).normalize();
           const pos = w.position.clone().addScaledVector(out, 3);
-          const rot = w.quaternion.clone(); // Match rotation and axis
+          const rot = w.quaternion.clone();
           const axis = w.userData.meta.axis;
           return {
             pos, rot, axis,
             side: pickSide(pos, w.userData.foundationCenter),
             foundationCenter: w.userData.foundationCenter.clone(),
-            wallBaseY: w.position.y // New wall bottom is same as anchor wall bottom
+            wallBaseY: w.position.y
           };
         }
       }
