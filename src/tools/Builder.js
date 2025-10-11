@@ -106,8 +106,10 @@ export class Builder {
       if (anchorRoot?.userData?.part?.type === 'flat'){
         cellCenter = anchorRoot.position.clone(); cellCenter.y = 0;
         const flat = anchorRoot.userData.part;
-        // The flat's top surface is its position (bottom) + its thickness
-        wallBaseY = anchorRoot.position.y + flat.thickness; // <--- FIX #1
+        // CORRECTED BUG #1: 'wallBaseY' must be the Y-coordinate of the flat's TOP surface.
+        // This is the flat's bottom position (anchorRoot.position.y) plus its thickness.
+        // The old code incorrectly set this to 0 for flats on the ground.
+        wallBaseY = anchorRoot.position.y + flat.thickness;
       } else if (anchorRoot?.userData?.part?.type === 'wall' && anchorRoot.userData.foundationCenter){
         cellCenter = anchorRoot.userData.foundationCenter.clone();
         wallBaseY  = anchorRoot.userData.wallBaseY ?? anchorRoot.userData.baseTopY ?? 0;
@@ -118,7 +120,7 @@ export class Builder {
       // stack on top if looking at a wall's top
       if (anchorRoot?.userData?.part?.type === 'wall' && Math.abs(n.y) > 0.5){
         const w = anchorRoot;
-        const pos2 = w.position.clone(); pos2.y += def.size.y;
+        const pos2 = w.position.clone(); pos2.y += w.userData.part.size.y; // Use existing wall's height
         const rot2 = new THREE.Quaternion().setFromAxisAngle(Y, yawForSide(w.userData.meta.side));
         const ax2  = w.userData.meta.axis;
         if (w.userData.meta.halfOffset) pos2.addScaledVector(edgeAxis(ax2), w.userData.meta.halfOffset);
@@ -136,8 +138,10 @@ export class Builder {
       const pos  = cellCenter.clone()
         .addScaledVector(out, 1.5 + def.thickness/2);
 
-      // The wall group's origin is its bottom, so just set its Y to the base height.
-      pos.y = wallBaseY; // <--- FIX #2
+      // CORRECTED BUG #2: The wall's group origin is its bottom.
+      // So, we just need to set its y-position directly to the calculated base height.
+      // The old code incorrectly added half the wall's height (`def.size.y/2`), pushing it way up.
+      pos.y = wallBaseY;
 
       // half wall: left/right selection
       const local = hitPoint.clone().sub(cellCenter);
@@ -168,11 +172,13 @@ export class Builder {
       ? sugg.foundationCenter.clone()
       : cellFromWorld(mesh.position);
 
-    // cache for future snaps
+    // CORRECTED BUG #3: When caching the base height for future stacking, it must be the object's
+    // TOP surface, which is its bottom position plus its thickness/height.
+    // The old code incorrectly set this to 0 for flats on the ground.
     if (def.baseType === 'flat'){
-      mesh.userData.wallBaseY = (Math.abs(mesh.position.y) < 1e-4) ? 0 : (mesh.position.y + def.thickness);
-    } else if (sugg.wallBaseY !== undefined){
-      mesh.userData.wallBaseY = sugg.wallBaseY;
+      mesh.userData.wallBaseY = mesh.position.y + def.thickness;
+    } else if (def.baseType === 'wall'){
+      mesh.userData.wallBaseY = mesh.position.y + def.size.y;
     }
 
     this.world.add(mesh);
@@ -188,14 +194,14 @@ export class Builder {
 /* ---------- catalog + builders ---------- */
 function makeCatalog(){
   return [
-    { id:'metal_flat', name:'Metal Flat (3x3)', baseType:'flat', kind:'flat',
+    { id:'metal_flat', name:'Metal Flat (3×3)', baseType:'flat', kind:'flat',
       size:{x:3,y:0.2,z:3}, thickness:0.2, preview:'#b8c2cc' },
-    { id:'half_flat',  name:'Half Flat (1.5x3)', baseType:'flat', kind:'flat',
+    { id:'half_flat',  name:'Half Flat (1.5×3)', baseType:'flat', kind:'flat',
       size:{x:1.5,y:0.2,z:3}, thickness:0.2, preview:'#b8c2cc' },
 
-    { id:'metal_wall', name:'Metal Wall (3x3)', baseType:'wall', kind:'wall',
+    { id:'metal_wall', name:'Metal Wall (3×3)', baseType:'wall', kind:'wall',
       size:{x:3,y:3,z:0.2}, thickness:0.2, preview:'#dfe6ee' },
-    { id:'half_wall',  name:'Half Wall (1.5x3)', baseType:'wall', kind:'wall',
+    { id:'half_wall',  name:'Half Wall (1.5×3)', baseType:'wall', kind:'wall',
       size:{x:1.5,y:3,z:0.2}, thickness:0.2, preview:'#dfe6ee' },
   ];
 }
