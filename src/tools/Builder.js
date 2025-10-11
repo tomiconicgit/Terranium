@@ -1,363 +1,287 @@
-// Controller-only builder:
-// • 3×3 face mini-grid (3×1 for slab top/bottom)
-// • Ghost preview aligned to reticle
-// • R2 place one, L2 remove one
-// • R1/L1 cycle hotbar, Y toggle vertical intent, B rotate 90°
-// • Pipes/wires extend when you aim at their ends
+// NMS-style builder (controller-only)
+// - NO mini-grid; snap to 3×3 cells
+// - Ghost preview
+// - Parts: foundations, walls (full/half), ceilings (full/half)
+// - Foundations only at ground y≈0; carve terrain voxels underneath
+// - Walls snap to foundation edges & stack; ceilings snap above walls/foundations
+// Controls: R2 place, L2 remove, R1/L1 hotbar, B rotate 90°, Y toggle attach-outwards
 import * as THREE from 'three';
 
 export class Builder {
-  constructor(scene, camera, hotbar) {
+  constructor(scene, camera, hotbar){
     this.scene = scene;
     this.camera = camera;
     this.hotbar = hotbar;
 
-    this.world = scene.getObjectByName('world') || (()=>{ const g=new THREE.Group(); g.name='world'; scene.add(g); return g; })();
+    this.world = scene.getObjectByName('world');
+    this.ground = scene.getObjectByName('groundInstanced');
 
     this.ray = new THREE.Raycaster();
 
-    // grid visuals
-    const gridMat = new THREE.LineBasicMaterial({ color: 0xffffff, transparent:true, opacity:0.9 });
-    const hotMat  = new THREE.MeshBasicMaterial({ color: 0xff4444, transparent:true, opacity:0.35, depthWrite:false });
-
-    this.gridGroup = new THREE.Group();
-    this.gridLines = new THREE.LineSegments(new THREE.BufferGeometry(), gridMat);
-    this.gridHot = new THREE.Mesh(new THREE.PlaneGeometry(1/3,1/3), hotMat);
-    this.gridHot.position.z = 0.0005;
-    this.gridHot.renderOrder = 10;
-    this.gridGroup.add(this.gridLines, this.gridHot);
-    this.gridGroup.visible = false;
-    this.scene.add(this.gridGroup);
-
-    this.preview = new THREE.Group();
-    this.preview.visible = false;
-    this.preview.name = 'previewGhost';
-    this.scene.add(this.preview);
-
-    this._lastButtons = [];
-    this._hover = null;
-
+    // catalog
     this.catalog = createCatalog();
     this.hotbar.setCatalog(this.catalog);
 
-    this.cache = makeAssetCache();
+    // ghost
+    this.preview = new THREE.Group();
+    this.preview.visible = false;
+    this.scene.add(this.preview);
+    this.prevKey = '';
 
-    this.orientAxis = 'auto';
-    this.rotIndex = 0;
-    this._lastSelectedId = this.catalog[this.hotbar.index]?.id;
+    // state
+    this.rot = 0;             // 0,1,2,3    (90° steps)
+    this.attachOut = false;   // Y toggle
+    this._lastButtons = [];
+    this._hover = null;
   }
 
-  pad() {
-    const pads = navigator.getGamepads?.() || [];
-    for (const p of pads) if (p && p.connected) return p;
-    return null;
-  }
-  pressed(idx) {
-    const p = this.pad();
-    if (!p) return false;
-    const now = !!p.buttons[idx]?.pressed;
-    const prev = !!this._lastButtons[idx];
-    this._lastButtons[idx] = now;
-    return now && !prev;
+  pad(){ const pads = navigator.getGamepads?.()||[]; for (const p of pads) if (p&&p.connected) return p; return null; }
+  pressed(i){
+    const p=this.pad(); if(!p) return false;
+    const now=!!p.buttons[i]?.pressed, prev=!!this._lastButtons[i];
+    this._lastButtons[i]=now; return now && !prev;
   }
 
-  update() {
-    const selected = this.catalog[this.hotbar.index];
-    if (selected?.id !== this._lastSelectedId) {
-      this._lastSelectedId = selected?.id || null;
-      this.orientAxis = 'auto';
-      this.rotIndex   = 0;
-      this.preview.userData.key = '__';
-    }
-
+  update(){
+    const def = this.catalog[this.hotbar.index];
     if (this.pressed(5)) this.hotbar.selectNext(); // R1
     if (this.pressed(4)) this.hotbar.selectPrev(); // L1
-    if (this.pressed(3)) { this.orientAxis = (this.orientAxis === 'vertical') ? 'auto' : 'vertical'; this.preview.userData.key='__'; } // Y
-    if (this.pressed(1)) { this.rotIndex = (this.rotIndex+1)&3; this.preview.userData.key='__'; } // B
+    if (this.pressed(1)) { this.rot=(this.rot+1)&3; this.prevKey=''; } // B rotate
+    if (this.pressed(3)) { this.attachOut=!this.attachOut; this.prevKey=''; } // Y toggle
 
+    // aim
     this.ray.setFromCamera(new THREE.Vector2(0,0), this.camera);
-    const hits = this.ray.intersectObjects([this.world, this.scene.getObjectByName('groundInstanced')], true);
-
-    if (!hits.length || !selected) {
-      this.gridGroup.visible = false;
-      this.preview.visible = false;
-      this._hover = null;
-      return;
-    }
+    const hits = this.ray.intersectObjects([this.world, this.ground], true);
+    if (!hits.length || !def) { this.preview.visible=false; this._hover=null; return; }
 
     const hit = hits[0];
-    const n = (hit.face?.normal ? hit.face.normal.clone() : new THREE.Vector3(0,1,0))
-      .applyMatrix3(new THREE.Matrix3().getNormalMatrix(hit.object.matrixWorld)).normalize();
+    const targetRoot = findRoot(hit.object);
+    const normal = worldNormal(hit);
 
-    const isWorld = underRoot(hit.object, this.world);
-    const refCenter = new THREE.Vector3();
-    const refSize   = new THREE.Vector3(1,1,1);
+    // compute placement suggestion
+    const sugg = this.suggest(def, hit, targetRoot, normal);
+    if (!sugg) { this.preview.visible=false; this._hover=null; return; }
 
-    if (isWorld) {
-      const root = assetRoot(hit.object);
-      const box = new THREE.Box3().setFromObject(root);
-      refCenter.copy(box.getCenter(new THREE.Vector3()));
-      refSize.copy(box.getSize(new THREE.Vector3()));
-    } else {
-      refCenter.copy(snapVec(hit.point, 1.0));
-      refCenter.y = 0.5;
+    // build ghost
+    const wantKey = `${def.id}|${sugg.axis}|${this.rot}`;
+    if (wantKey !== this.prevKey){
+      this.preview.clear();
+      const ghost = makePart(def, sugg.axis);
+      ghost.traverse(o=>{
+        if (o.isMesh){
+          const m=o.material.clone(); m.transparent=true; m.opacity=0.45; m.depthWrite=false; o.material=m;
+        }
+      });
+      this.preview.add(ghost);
+      this.prevKey = wantKey;
     }
-
-    const { uAxis, vAxis, face } = faceBasisFromNormal(n);
-    const faceCenter = refCenter.clone().addScaledVector(n, sizeOn(face, refSize)/2);
-    const local = hit.point.clone().sub(faceCenter);
-    const u = local.dot(uAxis) / sizeOn(faceU(face), refSize);
-    const v = local.dot(vAxis) / sizeOn(faceV(face), refSize);
-
-    const slab = selected.kind === 'slab';
-    const topBottom = (face === 'top' || face === 'bottom');
-    const cols = 3, rows = (slab && topBottom) ? 1 : 3;
-
-    const iu = clampi(Math.floor((u + 0.5) * cols), 0, cols-1);
-    const iv = clampi(Math.floor((v + 0.5) * rows), 0, rows-1);
-
-    const uLen = sizeOn(faceU(face), refSize);
-    const vLen = sizeOn(faceV(face), refSize);
-    const uStep = uLen / cols, vStep = vLen / rows;
-    const uC = (-0.5 + (iu + 0.5) / cols) * uLen;
-    const vC = (-0.5 + (iv + 0.5) / rows) * vLen;
-
-    const cellCenter = faceCenter.clone().addScaledVector(uAxis, uC).addScaledVector(vAxis, vC);
-
-    // draw grid
-    drawGrid(this.gridLines, this.gridGroup, this.gridHot, faceCenter, uAxis, vAxis, n, uLen, vLen, cols, rows, uC, vC, uStep, vStep);
-
-    // preview mesh
-    const axisPref = (this.orientAxis === 'vertical') ? 'y' : 'auto';
-    ensurePreview(this.preview, selected, this.cache, axisPref === 'auto' ? axisFromFace(face) : 'y', this.rotIndex, face);
-
-    const { pos, rot } = computeTransform(selected, face, cellCenter, refCenter, axisPref, this.rotIndex);
-    this.preview.position.copy(pos);
-    this.preview.quaternion.copy(rot);
+    this.preview.position.copy(sugg.pos);
+    this.preview.quaternion.copy(sugg.rot);
     this.preview.visible = true;
 
-    this._hover = { hit, face, refCenter, cellCenter, axisPref, rotIndex: this.rotIndex, selected };
+    this._hover = { def, sugg, targetRoot };
 
-    if (this.pressed(7)) this.placeOne();   // R2
-    if (this.pressed(6)) this.removeOne();  // L2
+    if (this.pressed(7)) this.placeOne();   // R2 place
+    if (this.pressed(6)) this.removeOne();  // L2 remove
   }
 
-  removeOne() {
-    if (!this._hover) return;
-    const root = assetRoot(this._hover.hit.object);
-    if (root && root.parent === this.world) root.parent.remove(root);
-  }
+  /* ---------------- placement recipes ---------------- */
+  suggest(def, hit, targetRoot, n){
+    // rotation quaternion around Y (global) for B steps
+    const qStep = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,1,0), this.rot * Math.PI/2);
 
-  placeOne() {
-    if (!this._hover) return;
-    const { selected, face, refCenter, cellCenter, axisPref, rotIndex, hit } = this._hover;
+    // Ground snap cell for foundations/ceilings when free-placing
+    const snap3 = (x)=> Math.floor(x/3)*3 + 1.5;
 
-    const hitRoot = assetRoot(hit.object);
-    if ((selected.kind === 'pipe' || selected.kind === 'wire') && hitRoot?.userData?.asset?.id === selected.id) {
-      const axis = hitRoot.userData.axis || axisFromFace(face);
-      const dir = axisVec(axis);
-      const step = selected.step || 1.0;
-      const ext = makeMesh(selected, this.cache, axis);
-      ext.position.copy(hitRoot.position).addScaledVector(dir, step);
-      ext.userData.asset = { id: selected.id }; ext.userData.axis = axis;
-      this.world.add(ext);
-      return;
+    const pos = new THREE.Vector3();
+    const rot = new THREE.Quaternion();
+
+    if (def.kind === 'foundation'){
+      // must hit ground and be near y≈0
+      const p = hit.point;
+      const cy = 0.125; // thickness/2
+      const cx = snap3(p.x), cz = snap3(p.z);
+      // only permit when ray is close to floor (or below)
+      if (p.y > 0.6) return null;
+      pos.set(cx, cy, cz);
+      rot.copy(qStep);
+
+      // axis used to choose half-foundation long edge
+      const axis = (this.rot&1) ? 'z' : 'x';
+      return { pos, rot, axis, carve: { cx, cz, w:def.size.x, l:def.size.z } };
     }
 
-    const axis = (axisPref === 'auto') ? axisFromFace(face) : 'y';
-    const mesh = makeMesh(selected, this.cache, axis);
-    const { pos, rot } = computeTransform(selected, face, cellCenter, refCenter, axisPref, rotIndex);
-    mesh.position.copy(pos); mesh.quaternion.copy(rot);
-    mesh.userData.asset = { id: selected.id }; mesh.userData.axis = axis; mesh.name = `asset_${selected.id}`;
+    // If we hit a foundation or wall/ceiling, use that as anchor
+    const anchor = targetRoot && targetRoot.userData?.part;
+    const anchorCenter = anchor ? targetRoot.position.clone() : new THREE.Vector3(snap3(hit.point.x), 0, snap3(hit.point.z));
+
+    if (def.kind === 'wall'){
+      // Snap to nearest side of a foundation or wall; stack if aiming top of wall
+      if (anchor?.type === 'wall' && n.y > 0.5){
+        // stack above
+        pos.copy(targetRoot.position).add(new THREE.Vector3(0, def.size.y, 0));
+        rot.copy(qStep);
+        const axis = sideAxisFromQuat(qStep);
+        return { pos, rot, axis };
+      }
+
+      // find side relative to anchor center from hit point
+      const local = hit.point.clone().sub(anchorCenter);
+      const side = Math.abs(local.x) > Math.abs(local.z) ? (local.x>0?'+x':'-x') : (local.z>0?'+z':'-z');
+      const axis = (side==='±x' || side==='+x' || side==='-x') ? 'x' : 'z';
+
+      const dx = side.startsWith('+') ? +1 : -1;
+      if (side.endsWith('x')) pos.set(anchorCenter.x + dx*(anchor?.type==='wall'?def.thickness/2:1.5 + def.thickness/2),  def.size.y/2, anchorCenter.z);
+      else                    pos.set(anchorCenter.x, def.size.y/2, anchorCenter.z + dx*(anchor?.type==='wall'?def.thickness/2:1.5 + def.thickness/2));
+
+      // rotation: face outward along the side; then apply B-steps
+      const faceY = side.endsWith('x') ? (side.startsWith('+')?  Math.PI/2 : -Math.PI/2) : (side.startsWith('+')? 0 : Math.PI);
+      rot.setFromAxisAngle(new THREE.Vector3(0,1,0), faceY).multiply(qStep);
+
+      return { pos, rot, axis };
+    }
+
+    if (def.kind === 'ceiling'){
+      // If anchor is wall and we're looking at/near its top, place above it.
+      if (anchor?.type === 'wall' && n.y > 0.5){
+        const dir = this.attachOut ? outDirFromQuat(targetRoot.quaternion) : new THREE.Vector3(0,0,0);
+        pos.copy(targetRoot.position).add(new THREE.Vector3(0, anchor.size.y/2 + def.thickness/2, 0)).addScaledVector(dir, 1.5);
+        rot.copy(qStep);
+        const axis = (this.rot&1) ? 'z':'x';
+        return { pos, rot, axis };
+      }
+      // else snap freely above ground/foundation
+      pos.set(snap3(hit.point.x), def.thickness/2 + (anchor?.type==='foundation'?anchor.thickness:0), snap3(hit.point.z));
+      rot.copy(qStep);
+      const axis = (this.rot&1) ? 'z':'x';
+      return { pos, rot, axis };
+    }
+
+    return null;
+  }
+
+  placeOne(){
+    const h = this._hover; if (!h) return;
+    const { def, sugg } = h;
+
+    const mesh = makePart(def, sugg.axis);
+    mesh.position.copy(sugg.pos);
+    mesh.quaternion.copy(sugg.rot);
+    mesh.userData.part = { type: def.baseType, size: def.size, thickness: def.thickness };
     this.world.add(mesh);
+
+    // carve ground if foundation
+    if (sugg.carve) this.carveUnder(sugg.carve.cx, sugg.carve.cz, def.size.x, def.size.z);
+  }
+
+  removeOne(){
+    if (!this._hover?.targetRoot) return;
+    const r = this._hover.targetRoot;
+    if (r.parent === this.world) r.parent.remove(r);
+  }
+
+  carveUnder(cx, cz, w, l){
+    // move ground voxels under [cx-w/2 .. cx+w/2] × [cz-l/2 .. cz+l/2] down to y=-20
+    if (!this.ground) return;
+    const size = this.ground.userData.size, half=this.ground.userData.half, idx=this.ground.userData.getIndex;
+    const tmp = new THREE.Object3D();
+    const minX = Math.floor(cx - w/2), maxX = Math.ceil(cx + w/2);
+    const minZ = Math.floor(cz - l/2), maxZ = Math.ceil(cz + l/2);
+
+    for (let x=minX; x<maxX; x++){
+      for (let z=minZ; z<maxZ; z++){
+        const i = idx(x, z);
+        if (i < 0) continue;
+        // push it far below
+        tmp.position.set(x, -20, z); tmp.rotation.set(0,0,0); tmp.scale.set(1,1,1); tmp.updateMatrix();
+        this.ground.setMatrixAt(i, tmp.matrix);
+      }
+    }
+    this.ground.instanceMatrix.needsUpdate = true;
   }
 }
 
-/* ---------- catalog ---------- */
-function createCatalog() {
+/* ---------------- parts & helpers ---------------- */
+
+function createCatalog(){
   return [
-    { id:'block_grass',    name:'Grass Block', kind:'block',  preview:'#49a84b' },
-    { id:'block_concrete', name:'Concrete',    kind:'block',  preview:'#b9c0c7' },
-    { id:'block_sand',     name:'Sand',        kind:'block',  preview:'#dbc99a' },
-    { id:'block_metal',    name:'Metal',       kind:'block',  preview:'#9ea6af' },
-    { id:'block_iron',     name:'White Iron',  kind:'block',  preview:'#eef2f5' },
-    { id:'block_asphalt',  name:'Asphalt',     kind:'block',  preview:'#1b1b1b' },
-    { id:'slab_concrete',  name:'Slab 1/4',    kind:'slab',   preview:'#b9c0c7' },
-    { id:'pipe_round',     name:'Pipe',        kind:'pipe',   preview:'#caa555', step:1.0 },
-    { id:'wire_thin',      name:'Wire',        kind:'wire',   preview:'#444444', step:1.0 },
-    { id:'window_thin',    name:'Window',      kind:'window', preview:'#88b8f5' }
+    // foundations
+    { id:'metal_foundation', name:'Metal Foundation (3×3)', kind:'foundation', baseType:'foundation', size:{x:3,y:0.25,z:3}, thickness:0.25, preview:'#a9b6c4' },
+    { id:'half_foundation',  name:'Half Foundation (2×3)', kind:'foundation', baseType:'foundation', size:{x:2,y:0.25,z:3}, thickness:0.25, preview:'#a9b6c4' },
+
+    // walls
+    { id:'metal_wall', name:'Metal Wall (3×3)', kind:'wall', baseType:'wall', size:{x:3,y:3,z:0.2}, thickness:0.2, preview:'#dfe6ee' },
+    { id:'half_wall',  name:'Half Wall (2×3)',  kind:'wall', baseType:'wall', size:{x:2,y:3,z:0.2}, thickness:0.2, preview:'#dfe6ee' },
+
+    // ceilings
+    { id:'metal_ceiling', name:'Metal Ceiling (3×3)', kind:'ceiling', baseType:'ceiling', size:{x:3,y:0.2,z:3}, thickness:0.2, preview:'#b8c2cc' },
+    { id:'half_ceiling',  name:'Half Ceiling (2×3)',  kind:'ceiling', baseType:'ceiling', size:{x:2,y:0.2,z:3}, thickness:0.2, preview:'#b8c2cc' }
   ];
 }
 
-/* ---------- asset meshes ---------- */
-function makeAssetCache(){
-  const t = {};
-  t.mats = {
-    grass:    new THREE.MeshStandardMaterial({ color:0x49a84b, roughness:1,   metalness:0 }),
-    concrete: new THREE.MeshStandardMaterial({ color:0xb9c0c7, roughness:0.95, metalness:0.05 }),
-    sand:     new THREE.MeshStandardMaterial({ color:0xdbc99a, roughness:1,   metalness:0 }),
-    metal:    new THREE.MeshStandardMaterial({ color:0x9ea6af, roughness:0.5, metalness:0.9 }),
-    iron:     new THREE.MeshStandardMaterial({ color:0xeef2f5, roughness:0.45, metalness:0.95 }),
-    asphalt:  new THREE.MeshStandardMaterial({ color:0x1b1b1b, roughness:1,   metalness:0 }),
-    pipe:     new THREE.MeshStandardMaterial({ color:0xcaa555, roughness:0.9, metalness:0.2 }),
-    wire:     new THREE.MeshStandardMaterial({ color:0x444444, roughness:1.0, metalness:0.0 }),
-    glass:    new THREE.MeshStandardMaterial({ color:0x88b8f5, roughness:0.15, metalness:0.05, transparent:true, opacity:0.4 })
-  };
-  return t;
-}
-function makeMesh(def, cache, axis='y'){
-  switch(def.id){
-    case 'block_grass':    return new THREE.Mesh(new THREE.BoxGeometry(1,1,1), cache.mats.grass);
-    case 'block_concrete': return new THREE.Mesh(new THREE.BoxGeometry(1,1,1), cache.mats.concrete);
-    case 'block_sand':     return new THREE.Mesh(new THREE.BoxGeometry(1,1,1), cache.mats.sand);
-    case 'block_metal':    return new THREE.Mesh(new THREE.BoxGeometry(1,1,1), cache.mats.metal);
-    case 'block_iron':     return new THREE.Mesh(new THREE.BoxGeometry(1,1,1), cache.mats.iron);
-    case 'block_asphalt':  return new THREE.Mesh(new THREE.BoxGeometry(1,1,1), cache.mats.asphalt);
-    case 'slab_concrete': {
-      const g = axis==='y'? new THREE.BoxGeometry(1,0.25,1) : axis==='x'? new THREE.BoxGeometry(0.25,1,1) : new THREE.BoxGeometry(1,1,0.25);
-      return new THREE.Mesh(g, cache.mats.concrete);
+function makePart(def, axis='x'){
+  // Rotate geometry if B-rotation swaps long edge
+  const g = new THREE.Group();
+
+  if (def.baseType === 'foundation'){
+    const plate = new THREE.Mesh(new THREE.BoxGeometry(def.size.x, def.thickness, def.size.z), metal());
+    plate.position.y = def.thickness/2;
+    g.add(plate);
+
+    // simple beams & plates to look “procedural”
+    const beam = new THREE.Mesh(new THREE.BoxGeometry(def.size.x, 0.06, 0.18), steel());
+    for (let z=-1; z<=1; z++) {
+      const b = beam.clone(); b.position.set(0, def.thickness+0.03, z*1.5); g.add(b);
     }
-    case 'pipe_round': {
-      const r = 0.18; let g;
-      if (axis==='y') g = new THREE.CylinderGeometry(r,r,1,16);
-      else if (axis==='x') g = new THREE.CylinderGeometry(r,r,1,16).rotateZ(Math.PI/2);
-      else g = new THREE.CylinderGeometry(r,r,1,16).rotateX(Math.PI/2);
-      return new THREE.Mesh(g, cache.mats.pipe);
-    }
-    case 'wire_thin': {
-      const r = 0.05; let g;
-      if (axis==='y') g = new THREE.CylinderGeometry(r,r,1,8);
-      else if (axis==='x') g = new THREE.CylinderGeometry(r,r,1,8).rotateZ(Math.PI/2);
-      else g = new THREE.CylinderGeometry(r,r,1,8).rotateX(Math.PI/2);
-      return new THREE.Mesh(g, cache.mats.wire);
-    }
-    case 'window_thin': {
-      let g;
-      if (axis==='x') g = new THREE.BoxGeometry(0.05,1,1);
-      else if (axis==='y') g = new THREE.BoxGeometry(1,0.05,1);
-      else g = new THREE.BoxGeometry(1,1,0.05);
-      return new THREE.Mesh(g, cache.mats.glass);
+    const cross = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.06, def.size.z), steel());
+    for (let x=-1; x<=1; x++) {
+      const c = cross.clone(); c.position.set(x*1.5, def.thickness+0.06, 0); g.add(c);
     }
   }
-  return new THREE.Mesh(new THREE.BoxGeometry(1,1,1), cache.mats.concrete);
+
+  if (def.baseType === 'wall'){
+    const wall = new THREE.Mesh(new THREE.BoxGeometry(def.size.x, def.size.y, def.thickness), wallMetal());
+    wall.position.y = def.size.y/2;
+    g.add(wall);
+
+    // ribs
+    const rib = new THREE.Mesh(new THREE.BoxGeometry(def.size.x, 0.06, 0.08), steel());
+    for (let y=0.5; y<def.size.y; y+=0.5){
+      const r = rib.clone(); r.position.set(0, y, def.thickness/2 + 0.01); g.add(r);
+    }
+  }
+
+  if (def.baseType === 'ceiling'){
+    const slab = new THREE.Mesh(new THREE.BoxGeometry(def.size.x, def.thickness, def.size.z), metal());
+    slab.position.y = def.thickness/2;
+    g.add(slab);
+
+    const brace = new THREE.Mesh(new THREE.BoxGeometry(def.size.x, 0.06, 0.18), steel());
+    for (let z=-1; z<=1; z++){
+      const b = brace.clone(); b.position.set(0, def.thickness+0.03, z*1.5); g.add(b);
+    }
+  }
+
+  return g;
 }
 
-/* ---------- transforms & grid ---------- */
-function computeTransform(def, face, cellCenter, refCenter, axisPref, rotIndex){
-  const pos = new THREE.Vector3().copy(cellCenter);
-  const q = new THREE.Quaternion();
-  const n = normalFromFace(face);
+/* materials */
+function metal(){  return new THREE.MeshStandardMaterial({ color:0x9ea6af, roughness:0.45, metalness:0.85 }); }
+function wallMetal(){ return new THREE.MeshStandardMaterial({ color:0xe6edf5, roughness:0.4, metalness:0.9 }); }
+function steel(){  return new THREE.MeshStandardMaterial({ color:0xb8c2cc, roughness:0.6, metalness:0.7 }); }
 
-  if (def.kind === 'block') {
-    pos.copy(refCenter).addScaledVector(n, 1.0);
-    q.setFromAxisAngle(n, rotIndex * (Math.PI/2));
-    return { pos, rot: q };
-  }
-  if (def.kind === 'slab') {
-    const axis = (axisPref === 'auto') ? axisFromFace(face) : 'y';
-    if (axis === 'y') {
-      const sign = (face === 'top') ? +1 : -1;
-      const y = refCenter.y + sign * 0.5 + sign * 0.125;
-      pos.set(cellCenter.x, y, cellCenter.z);
-    } else if (axis === 'x') {
-      const sign = (face === 'right') ? +1 : -1;
-      const x = refCenter.x + sign * 0.5 + sign * 0.125;
-      pos.set(x, cellCenter.y, cellCenter.z);
-    } else {
-      const sign = (face === 'front') ? +1 : -1;
-      const z = refCenter.z + sign * 0.5 + sign * 0.125;
-      pos.set(cellCenter.x, cellCenter.y, z);
-    }
-    q.setFromAxisAngle(n, rotIndex * (Math.PI/2));
-    return { pos, rot: q };
-  }
-  if (def.kind === 'pipe' || def.kind === 'wire') {
-    const axis = (axisPref === 'auto') ? axisFromFace(face) : 'y';
-    if (axis === 'y') {
-      const sign = (face === 'top') ? +1 : -1;
-      pos.set(cellCenter.x, refCenter.y + sign*(0.5 + 0.5), cellCenter.z);
-    } else if (axis === 'x') {
-      const sign = (face === 'right') ? +1 : -1;
-      pos.set(refCenter.x + sign*(0.5 + 0.5), cellCenter.y, cellCenter.z);
-    } else {
-      const sign = (face === 'front') ? +1 : -1;
-      pos.set(cellCenter.x, cellCenter.y, refCenter.z + sign*(0.5 + 0.5));
-    }
-    q.setFromAxisAngle(n, rotIndex * (Math.PI/2));
-    return { pos, rot: q };
-  }
-  if (def.kind === 'window') {
-    pos.addScaledVector(n, 0.001);
-    q.setFromAxisAngle(n, rotIndex * (Math.PI/2));
-    return { pos, rot: q };
-  }
-  return { pos, rot: q.identity() };
+/* selection helpers */
+function findRoot(o){ for (let p=o; p; p=p.parent){ if (p.parent && p.parent.name==='world') return p; } return null; }
+function worldNormal(hit){
+  const n = (hit.face?.normal ? hit.face.normal.clone() : new THREE.Vector3(0,1,0));
+  return n.applyMatrix3(new THREE.Matrix3().getNormalMatrix(hit.object.matrixWorld)).normalize();
 }
-
-function drawGrid(lines, group, hot, faceCenter, uAxis, vAxis, n, uLen, vLen, cols, rows, uC, vC, uStep, vStep){
-  const arr = [];
-  for (let c=0;c<=cols;c++){
-    const u = -0.5 + (c/cols);
-    const a = faceCenter.clone().addScaledVector(uAxis, u*uLen).addScaledVector(vAxis, -0.5*vLen);
-    const b = faceCenter.clone().addScaledVector(uAxis, u*uLen).addScaledVector(vAxis, +0.5*vLen);
-    arr.push(a,b);
-  }
-  for (let r=0;r<=rows;r++){
-    const v = -0.5 + (r/rows);
-    const a = faceCenter.clone().addScaledVector(uAxis, -0.5*uLen).addScaledVector(vAxis, v*vLen);
-    const b = faceCenter.clone().addScaledVector(uAxis, +0.5*uLen).addScaledVector(vAxis, v*vLen);
-    arr.push(a,b);
-  }
-  const pos = new Float32Array(arr.length*3);
-  arr.forEach((p,i)=>{ pos[i*3]=p.x; pos[i*3+1]=p.y; pos[i*3+2]=p.z; });
-  lines.geometry.setAttribute('position', new THREE.BufferAttribute(pos,3));
-  lines.geometry.computeBoundingSphere();
-
-  const basis = new THREE.Matrix4().makeBasis(uAxis.clone().normalize(), vAxis.clone().normalize(), n);
-  const world = new THREE.Matrix4().copy(basis).setPosition(faceCenter.clone().addScaledVector(n, 0.001));
-  group.matrix.copy(world); group.matrixAutoUpdate = false;
-
-  hot.geometry.dispose(); hot.geometry = new THREE.PlaneGeometry(uStep, vStep);
-  hot.position.set(uC, vC, 0.0005);
-
-  group.visible = true;
+function outDirFromQuat(q){
+  // forward of wall: +Z in local -> world dir
+  return new THREE.Vector3(0,0,1).applyQuaternion(q).setY(0).normalize();
 }
-
-/* ---------- helpers ---------- */
-function underRoot(o, root){ for (let p=o; p; p=p.parent) if (p===root) return true; return false; }
-function assetRoot(o){ for (let p=o; p; p=p.parent) if (p.userData?.asset && p.name?.startsWith('asset_')) return p; return null; }
-function snap(n,g){ return Math.round(n/g)*g; }
-function snapVec(v,g){ return new THREE.Vector3(snap(v.x,g), snap(v.y,g), snap(v.z,g)); }
-function axisFromFace(face){ if (face==='top'||face==='bottom') return 'y'; if (face==='right'||face==='left') return 'x'; return 'z'; }
-function normalFromFace(face){
-  switch(face){ case 'top':return new THREE.Vector3(0,1,0); case 'bottom':return new THREE.Vector3(0,-1,0);
-  case 'right':return new THREE.Vector3(1,0,0); case 'left':return new THREE.Vector3(-1,0,0);
-  case 'front':return new THREE.Vector3(0,0,1); default:return new THREE.Vector3(0,0,-1); }
-}
-function faceBasisFromNormal(n){
-  const ax=Math.abs(n.x), ay=Math.abs(n.y), az=Math.abs(n.z);
-  if (ay>=ax && ay>=az){ return { face: n.y>0?'top':'bottom', uAxis:new THREE.Vector3(1,0,0), vAxis:new THREE.Vector3(0,0,1).multiplyScalar(n.y<0?-1:1) }; }
-  if (ax>=ay && ax>=az){ return { face: n.x>0?'right':'left', uAxis:new THREE.Vector3(0,0,1), vAxis:new THREE.Vector3(0,1,0) }; }
-  return { face: n.z>0?'front':'back', uAxis:new THREE.Vector3(1,0,0), vAxis:new THREE.Vector3(0,1,0) };
-}
-function sizeOn(axis, v){ return axis==='x'?v.x : axis==='y'?v.y : v.z; }
-function faceU(face){ return (face==='top'||face==='bottom') ? 'x' : (face==='right'||face==='left') ? 'z' : 'x'; }
-function faceV(face){ return (face==='top'||face==='bottom') ? 'z' : 'y'; }
-function axisVec(ax){ return ax==='x'? new THREE.Vector3(1,0,0) : ax==='y'? new THREE.Vector3(0,1,0) : new THREE.Vector3(0,0,1); }
-function clampi(x,a,b){ return Math.max(a, Math.min(b,x)); }
-
-function ensurePreview(group, def, cache, axis, rotIdx, face){
-  const key = `${def.id}|${axis}|${rotIdx}|${face}`;
-  if (group.userData.key === key) return;
-  group.clear();
-  const m = makeMesh(def, cache, axis);
-  m.traverse(o=>{
-    if (o.isMesh){
-      const ghost = o.material.clone();
-      ghost.transparent = true; ghost.opacity = 0.45; ghost.depthWrite = false;
-      o.material = ghost;
-    }
-  });
-  group.add(m);
-  group.userData.key = key;
+function sideAxisFromQuat(q){
+  // use yaw to choose X/Z
+  const fwd = new THREE.Vector3(0,0,1).applyQuaternion(q);
+  return Math.abs(fwd.x) > Math.abs(fwd.z) ? 'x' : 'z';
 }
