@@ -1,510 +1,346 @@
-// src/tools/Builder.js — NMS-like snapping with snap nodes (4u grid)
-// Parts:
-//  • Foundations 4×4, Half-Foundations 2×4
-//  • Walls 4×4, Half-Walls 2×4 (thin)
-//  • Ceilings 4×4, Half-Ceilings 2×4
-// Controller: R1/L1 select, B rotate 90°, R2 place once, L2 remove once
+// src/tools/Builder.js — controller-only, NMS-like snapping
+// R2 place once, L2 remove once, R1/L1 select, B rotates 90° (foundations/ceilings)
 
 import * as THREE from 'three';
 
-const U = 4;                      // base cell (units)
-const EPS = 1e-4;
-const SNAP_RADIUS = 1.0;          // how close the reticle must be to a snap
-const GHOST_OK  = 0x7af28b;       // green
-const GHOST_BAD = 0xf06a6a;       // red
-
 export class Builder {
-  constructor(scene, camera, hotbar) {
+  constructor(scene, camera, hotbar){
     this.scene  = scene;
     this.camera = camera;
     this.hotbar = hotbar;
 
-    this.world   = scene.getObjectByName('world') || (() => { const g=new THREE.Group(); g.name='world'; scene.add(g); return g; })();
+    this.world   = scene.getObjectByName('world');
     this.terrain = scene.getObjectByName('terrainPlane');
 
-    // catalog
     this.catalog = makeCatalog();
     this.hotbar.setCatalog(this.catalog);
 
-    // raycaster
     this.ray = new THREE.Raycaster();
 
-    // ghost
-    this.preview = new THREE.Group();
+    // Ghost preview
+    this.preview = new THREE.Group(); this.preview.visible = false;
     this.preview.name = 'ghost';
-    this.preview.visible = false;
     this.scene.add(this.preview);
-    this.previewKey = '';
+    this.prevKey = '';
 
     // state
-    this.rot = 0;              // 0..3 (90° steps)
+    this.rot = 0; // 0..3 for foundations & ceilings
     this._lastButtons = [];
     this._hover = null;
   }
 
   /* ---------- gamepad helpers ---------- */
-  pad(){ const a=navigator.getGamepads?.()||[]; for (const p of a) if (p&&p.connected) return p; return null; }
-  pressed(i){ const p=this.pad(); if(!p) return false; const n=!!p.buttons[i]?.pressed, b=!!this._lastButtons[i]; this._lastButtons[i]=n; return n&&!b; }
+  pad(){ const a=navigator.getGamepads?.()||[]; for (const p of a) if (p && p.connected) return p; return null; }
+  pressed(i){ const p=this.pad(); if(!p) return false; const n=!!p.buttons[i]?.pressed, b=!!this._lastButtons[i]; this._lastButtons[i]=n; return n && !b; }
 
   /* ---------- per-frame ---------- */
-  update() {
+  update(){
     const def = this.catalog[this.hotbar.index];
 
-    // selection / rotate
+    // UI
     if (this.pressed(5)) this.hotbar.selectNext(); // R1
     if (this.pressed(4)) this.hotbar.selectPrev(); // L1
-    if (this.pressed(1)) { this.rot = (this.rot + 1) & 3; this.previewKey=''; } // B
+    if (this.pressed(1)) { this.rot = (this.rot + 1) & 3; this.prevKey=''; } // B rotate
 
-    // raycast from reticle center
+    // Raycast from reticle center
     this.ray.setFromCamera(new THREE.Vector2(0,0), this.camera);
     const hits = this.ray.intersectObjects([this.world, this.terrain], true);
     if (!hits.length || !def) { this.preview.visible=false; this._hover=null; return; }
-    const hit = hits[0];
 
-    // compute suggestion (snap-if-possible, else base-terrain for foundations)
-    const sugg = this._suggestPlacement(def, hit);
+    const hit = hits[0];
+    const anchorRoot = findPlacedRoot(hit.object);
+    const normal = worldNormal(hit);
+
+    const sugg = this.suggest(def, hit.point, normal, anchorRoot);
     if (!sugg) { this.preview.visible=false; this._hover=null; return; }
 
-    // build/refresh ghost mesh per def+axis key
+    // build / refresh ghost
     const key = `${def.id}|${sugg.axis}|${this.rot}`;
-    if (key !== this.previewKey) {
+    if (key !== this.prevKey){
       this.preview.clear();
-      const ghost = buildMesh(def, sugg.axis);
-      // make it translucent and easily re-tintable
-      ghost.traverse(o => {
+      const ghost = buildPart(def, sugg.axis);
+      ghost.traverse(o=>{
         if (o.isMesh) {
-          const m = o.material.clone();
-          m.transparent = true; m.opacity = 0.45; m.depthWrite = false;
-          o.material = m;
+          const m = o.material.clone(); m.transparent=true; m.opacity=0.45; m.depthWrite=false; o.material=m;
         }
       });
       this.preview.add(ghost);
-      this.previewKey = key;
+      this.prevKey = key;
     }
-
-    // update transform
     this.preview.position.copy(sugg.pos);
     this.preview.quaternion.copy(sugg.rot);
-
-    // validate
-    const isValid = this._validate(def, sugg);
-    tintGhost(this.preview, isValid ? GHOST_OK : GHOST_BAD);
     this.preview.visible = true;
 
-    this._hover = { def, sugg, isValid, targetSnap: sugg.targetSnap, anchor: sugg.anchor };
+    this._hover = { def, sugg, anchorRoot };
 
-    // actions (one per press)
-    if (this.pressed(7)) this._placeOnce();  // R2
-    if (this.pressed(6)) this._removeOnce(); // L2
+    // Actions: one per press
+    if (this.pressed(7)) this.placeOne();   // R2
+    if (this.pressed(6)) this.removeOne();  // L2
   }
 
-  /* ---------- find suggestion ---------- */
-  _suggestPlacement(def, hit) {
-    // 1) collect all world snap nodes
-    const allSnaps = collectWorldSnaps(this.world);
+  /* ---------- snap rules ---------- */
+  suggest(def, hitPoint, n, anchorRoot){
+    const rotYaw = this.rot * Math.PI/2;
+    const rotQ = new THREE.Quaternion().setFromAxisAngle(Y, rotYaw);
 
-    // 2) find nearest compatible snap within radius
-    const camPos = this.camera.getWorldPosition(new THREE.Vector3());
-    const look = new THREE.Vector3().copy(hit.point);
+    // 3-unit cell centers: ...,-1.5, 1.5, 4.5, ...
+    const snap3 = (x)=> Math.floor((x+1.5)/3)*3 + 1.5;
 
-    let best = null, bestD = Infinity;
-    for (const sn of allSnaps) {
-      if (sn.occupied) continue;
-      if (!isCompatible(def, sn)) continue;
-      const d = sn.worldPos.distanceTo(look);
-      if (d < SNAP_RADIUS && d < bestD) { best = sn; bestD = d; }
+    // ===== FOUNDATION =====
+    if (def.baseType === 'foundation'){
+      // must be terrain-ish; snap to 3-grid; half respects rotation
+      if (!anchorRoot && Math.abs(hitPoint.y) < 0.6){
+        const cx=snap3(hitPoint.x), cz=snap3(hitPoint.z);
+        const pos = new THREE.Vector3(cx, def.thickness/2, cz);
+        const axis = (this.rot & 1) ? 'z' : 'x'; // for the half variant orientation
+        return { pos, rot: rotQ, axis };
+      }
+      // next to existing foundation
+      if (anchorRoot?.userData?.part?.type === 'foundation'){
+        const base = anchorRoot; // center at multiples of 3
+        const side = pickSide(hitPoint, base.position);
+        const out  = outwardVector(side);
+        const span = (def.size.x === 2 ? ((this.rot & 1)? 3 : 2) : 3);
+        const pos = base.position.clone().addScaledVector(out, span);
+        pos.y = def.thickness/2;
+        const axis = (this.rot & 1) ? 'z' : 'x';
+        return { pos, rot: rotQ, axis };
+      }
+      return null;
     }
 
-    // If we found a compatible target snap, compute aligned transform
-    if (best) {
-      const { pos, rot } = alignToSnap(def, best, this.rot);
-      return {
-        pos, rot,
-        axis: best.axis || 'x',
-        targetSnap: best,
-        anchor: best.owner
-      };
+    // derive an anchor cell center (foundation center)
+    let cellCenter = null;
+    if (anchorRoot?.userData?.part){
+      if (anchorRoot.userData.part.type === 'foundation') {
+        cellCenter = anchorRoot.position.clone();
+      } else if (anchorRoot.userData.foundationCenter) {
+        cellCenter = anchorRoot.userData.foundationCenter.clone();
+      }
+    }
+    if (!cellCenter) cellCenter = new THREE.Vector3(snap3(hitPoint.x), 0, snap3(hitPoint.z));
+
+    // ===== WALLS =====
+    if (def.baseType === 'wall'){
+      // PRIORITY: if we are looking at the TOP of a wall, stack another wall above it
+      if (anchorRoot?.userData?.part?.type === 'wall' && Math.abs(n.y) > 0.5){
+        const w = anchorRoot;
+        const pos2 = w.position.clone(); pos2.y += def.size.y;
+        const rot2 = new THREE.Quaternion().setFromAxisAngle(Y, yawForSide(w.userData.meta.side));
+        const ax2  = w.userData.meta.axis;
+        if (w.userData.meta.halfOffset) pos2.addScaledVector(edgeAxis(ax2), w.userData.meta.halfOffset);
+        return { pos:pos2, rot:rot2, axis:ax2, side:w.userData.meta.side, halfOffset:w.userData.meta.halfOffset };
+      }
+
+      // Otherwise, attach to the chosen side of the current cell
+      const side = pickSide(hitPoint, cellCenter);
+      const yaw  = yawForSide(side);
+      const rot  = new THREE.Quaternion().setFromAxisAngle(Y, yaw);
+      const axis = axisForSide(side); // along-edge axis
+
+      // base edge position (flush): outward offset = 1.5 (half cell) + wall_thickness/2
+      const out  = outwardVector(side);
+      const pos  = cellCenter.clone()
+        .addScaledVector(out, 1.5 + def.thickness/2);
+      // bottom sits on ground (foundation top is 0.25 high but wall is on the side, not atop)
+      pos.y = def.size.y/2;
+
+      // half wall: choose left/right half by where we looked along the edge
+      const local = hitPoint.clone().sub(cellCenter);
+      if (def.size.x === 1.5){
+        const along = (axis === 'z') ? local.z : local.x;
+        const halfOffset = (along >= 0 ? +0.75 : -0.75);
+        pos.addScaledVector(edgeAxis(axis), halfOffset);
+        return { pos, rot, axis, side, halfOffset };
+      }
+
+      return { pos, rot, axis, side };
     }
 
-    // 3) foundations may place on terrain (flat plane), snapped to U grid
-    if (def.baseType === 'foundation' && this.terrain && hit.object === this.terrain) {
-      const yaw = this.rot * Math.PI/2;
-      const rot = new THREE.Quaternion().setFromAxisAngle(Y, yaw);
-      const pos = new THREE.Vector3(
-        snapGrid(hit.point.x, U),
-        def.thickness/2, // sits on terrain y=0
-        snapGrid(hit.point.z, U)
-      );
+    // ===== CEILINGS =====
+    if (def.baseType === 'ceiling'){
+      // If looking at a wall, put ceiling on the adjacent cell on the side you're looking from.
+      if (anchorRoot?.userData?.part?.type === 'wall'){
+        const wall = anchorRoot;
+        const side = wall.userData.meta.side;
+        const wallNormal = outwardVector(side);          // points "out" of the wall
+        const lookDir = new THREE.Vector3().subVectors(this.camera.position, wall.position).normalize();
+        // if we're on the "inside" of the wall plane, flip direction so the cell is chosen accordingly
+        const dirSign = (lookDir.dot(wallNormal) >= 0) ? +1 : -1;
+        const chosenNormal = wallNormal.clone().multiplyScalar(dirSign);
+
+        const newCell = wall.userData.foundationCenter.clone().addScaledVector(chosenNormal, 3);
+        const axis = (this.rot & 1) ? 'z' : 'x';
+        const rot  = new THREE.Quaternion().setFromAxisAngle(Y, this.rot*Math.PI/2);
+
+        const pos  = newCell.clone();
+        pos.y = wall.userData.part.size.y + def.thickness/2; // sits at wall top
+
+        if (def.size.x === 1.5){
+          const local = hitPoint.clone().sub(newCell);
+          const along = (axis === 'z') ? local.z : local.x;
+          pos.addScaledVector(edgeAxis(axis), (along >= 0 ? +0.75 : -0.75));
+        }
+        return { pos, rot, axis, foundationCenter:newCell };
+      }
+
+      // otherwise: ceiling on current cell (ground/foundation)
       const axis = (this.rot & 1) ? 'z' : 'x';
-      return { pos, rot, axis, targetSnap:null, anchor:null };
+      const rot  = new THREE.Quaternion().setFromAxisAngle(Y, this.rot*Math.PI/2);
+      const pos  = cellCenter.clone(); pos.y = def.thickness/2;
+      if (anchorRoot?.userData?.part?.type === 'foundation') pos.y += anchorRoot.userData.part.thickness;
+
+      if (def.size.x === 1.5){
+        const local = hitPoint.clone().sub(cellCenter);
+        const along = (axis === 'z') ? local.z : local.x;
+        pos.addScaledVector(edgeAxis(axis), (along >= 0 ? +0.75 : -0.75));
+      }
+      return { pos, rot, axis, foundationCenter:cellCenter.clone() };
     }
 
-    // otherwise: no valid suggestion
     return null;
   }
 
-  /* ---------- placement / removal ---------- */
-  _placeOnce() {
-    const h = this._hover; if (!h || !h.isValid) return;
-    const { def, sugg, targetSnap } = h;
+  /* ---------- actions ---------- */
+  placeOne(){
+    const h = this._hover; if (!h) return;
+    const { def, sugg } = h;
 
-    const mesh = buildMesh(def, sugg.axis);
+    const mesh = buildPart(def, sugg.axis);
     mesh.position.copy(sugg.pos);
     mesh.quaternion.copy(sugg.rot);
 
-    // annotate part & bounding box
-    mesh.userData.part = {
-      type: def.baseType,
-      id: def.id,
-      size: def.size,
-      thickness: def.thickness
-    };
-
-    // generate this part’s snap nodes in local space (then update to world after adding)
-    mesh.userData.snaps = createSnapsFor(def);
-    markOccupied(targetSnap, mesh); // mark the target snap (other side) as used by this mesh
-
-    // remember "cell" center for stacking helpers if needed
+    // annotate for future snaps
+    mesh.userData.part = { type:def.baseType, size:def.size, thickness:def.thickness };
+    mesh.userData.meta = { axis:sugg.axis, side:sugg.side, halfOffset:sugg.halfOffset };
     mesh.userData.foundationCenter = cellFromWorld(mesh.position);
 
     this.world.add(mesh);
-    // after adding, bake world transforms into snaps
-    updateWorldPosForSnaps(mesh);
-
-    // also set reciprocal occupancy: bind the snap node on this new mesh that mates with targetSnap
-    if (targetSnap) {
-      const mySnap = findMateSnap(mesh, def, targetSnap);
-      if (mySnap) {
-        mySnap.occupied = true;
-        mySnap.occupiedBy = mesh;
-        mySnap.matesWith = targetSnap;
-        targetSnap.matesWith = mySnap;
-      }
-    }
   }
 
-  _removeOnce() {
-    // remove the object we are looking at (top-most in world)
-    this.ray.setFromCamera(new THREE.Vector2(0,0), this.camera);
-    const hits = this.ray.intersectObjects([this.world], true);
-    if (!hits.length) return;
-    const root = findPlacedRoot(hits[0].object);
-    if (!root || root.parent !== this.world) return;
-
-    // free its occupied snaps (and counterpart on mates)
-    const snaps = root.userData.snaps || [];
-    for (const sn of snaps) {
-      if (sn.matesWith) sn.matesWith.occupied = false, sn.matesWith.occupiedBy = null, sn.matesWith.matesWith = null;
-      sn.occupied = false; sn.occupiedBy = null; sn.matesWith = null;
-    }
-
-    root.parent.remove(root);
-  }
-
-  /* ---------- validation ---------- */
-  _validate(def, sugg) {
-    // (a) If snapping, ensure the target snap isn’t already taken (we filtered by .occupied, but double-check)
-    if (sugg.targetSnap && sugg.targetSnap.occupied) return false;
-
-    // (b) Collision test with simple AABB vs all children in world
-    const newBox = computeWorldAABB(def, sugg.pos, sugg.rot);
-    const tmpBox = new THREE.Box3();
-    for (const child of this.world.children) {
-      if (!child.userData?.part) continue;
-      tmpBox.copy(new THREE.Box3().setFromObject(child));
-      if (boxesOverlap(newBox, tmpBox)) return false;
-    }
-
-    // (c) Support: foundations on terrain y≈0; walls/ceilings must be placed via a compatible snap (sugg.targetSnap exists)
-    if (def.baseType !== 'foundation' && !sugg.targetSnap) return false;
-    if (def.baseType === 'foundation') {
-      // forbid hovering in mid-air (terrain is flat at y=0); allow slight embed tolerance
-      if (Math.abs(sugg.pos.y - def.thickness/2) > 0.05) return false;
-    }
-
-    return true;
+  removeOne(){
+    if (!this._hover?.anchorRoot) return;
+    const r = this._hover.anchorRoot;
+    if (r.parent === this.world) r.parent.remove(r);
   }
 }
 
-/* ============================================================================
-   Catalog (4u scale) and mesh builders (plain metal look)
-============================================================================ */
+/* =========================
+   Catalog + mesh builders
+========================= */
 function makeCatalog(){
   return [
     // Foundations
-    { id:'metal_foundation', name:'Metal Foundation (4×4)', baseType:'foundation', kind:'foundation',
-      size:{x:4,y:0.4,z:4}, thickness:0.4, preview:'#a9b6c4' },
-    { id:'half_foundation',  name:'Half Foundation (2×4)',  baseType:'foundation', kind:'foundation',
-      size:{x:2,y:0.4,z:4}, thickness:0.4, preview:'#a9b6c4' },
+    { id:'metal_foundation', name:'Metal Foundation (3×3)', baseType:'foundation', kind:'foundation',
+      size:{x:3,y:0.25,z:3}, thickness:0.25, preview:'#a9b6c4' },
+    { id:'half_foundation',  name:'Half Foundation (2×3)',  baseType:'foundation', kind:'foundation',
+      size:{x:2,y:0.25,z:3}, thickness:0.25, preview:'#a9b6c4' },
 
-    // Walls (thin, vertical)
-    { id:'metal_wall', name:'Metal Wall (4×4)', baseType:'wall', kind:'wall',
-      size:{x:4,y:4,z:0.2}, thickness:0.2, preview:'#dfe6ee' },
-    { id:'half_wall',  name:'Half Wall (2×4)',  baseType:'wall', kind:'wall',
-      size:{x:2,y:4,z:0.2}, thickness:0.2, preview:'#dfe6ee' },
+    // Walls
+    { id:'metal_wall', name:'Metal Wall (3×3)', baseType:'wall', kind:'wall',
+      size:{x:3,y:3,z:0.2}, thickness:0.2, preview:'#dfe6ee' },
+    { id:'half_wall',  name:'Half Wall (1.5×3)', baseType:'wall', kind:'wall',
+      size:{x:1.5,y:3,z:0.2}, thickness:0.2, preview:'#dfe6ee' },
 
-    // Ceilings / floors
-    { id:'metal_ceiling', name:'Metal Ceiling (4×4)', baseType:'ceiling', kind:'ceiling',
-      size:{x:4,y:0.25,z:4}, thickness:0.25, preview:'#b8c2cc' },
-    { id:'half_ceiling',  name:'Half Ceiling (2×4)',  baseType:'ceiling', kind:'ceiling',
-      size:{x:2,y:0.25,z:4}, thickness:0.25, preview:'#b8c2cc' },
+    // Ceilings
+    { id:'metal_ceiling', name:'Metal Ceiling (3×3)', baseType:'ceiling', kind:'ceiling',
+      size:{x:3,y:0.2,z:3}, thickness:0.2, preview:'#b8c2cc' },
+    { id:'half_ceiling',  name:'Half Ceiling (1.5×3)', baseType:'ceiling', kind:'ceiling',
+      size:{x:1.5,y:0.2,z:3}, thickness:0.2, preview:'#b8c2cc' },
   ];
 }
 
-function matMetal()    { return new THREE.MeshStandardMaterial({ color:0x9ea6af, roughness:0.45, metalness:0.85 }); }
-function matMetalLite(){ return new THREE.MeshStandardMaterial({ color:0xb8c2cc, roughness:0.6,  metalness:0.7  }); }
-function matWall()     { return new THREE.MeshStandardMaterial({ color:0xe6edf5, roughness:0.4,  metalness:0.9  }); }
+/* Plain, smooth metal look */
+function matMetal()     { return new THREE.MeshStandardMaterial({ color:0x9ea6af, roughness:0.45, metalness:0.85 }); }
+function matMetalLite() { return new THREE.MeshStandardMaterial({ color:0xb8c2cc, roughness:0.6,  metalness:0.7  }); }
+function matWall()      { return new THREE.MeshStandardMaterial({ color:0xe6edf5, roughness:0.4,  metalness:0.9  }); }
 
-function buildMesh(def, axis='x'){
-  const g = new THREE.Group(); g.name = `piece_${def.id}`;
+function buildPart(def, axis='x'){
+  const g = new THREE.Group();
+  const EPS = 0.02; // tiny extension to close visual seams at corners
 
-  if (def.baseType === 'foundation' || def.baseType === 'ceiling') {
-    const slab = new THREE.Mesh(new THREE.BoxGeometry(def.size.x, def.thickness, def.size.z), matMetal());
-    slab.position.y = def.thickness/2; g.add(slab);
+  if (def.baseType === 'foundation'){
+    const top = new THREE.Mesh(new THREE.BoxGeometry(def.size.x, def.thickness, def.size.z), matMetal());
+    top.position.y = def.thickness/2; g.add(top);
     // subtle braces for readability
-    const ribX = new THREE.Mesh(new THREE.BoxGeometry(def.size.x, 0.06, 0.18), matMetalLite());
-    for (let z=-Math.floor(def.size.z/U); z<=Math.floor(def.size.z/U); z++){
-      const r = ribX.clone(); r.position.set(0, def.thickness+0.03, z*(U/2)); g.add(r);
+    const ribX = new THREE.Mesh(new THREE.BoxGeometry(def.size.x, 0.06, 0.16), matMetalLite());
+    for (let z=-Math.floor(def.size.z/3); z<=Math.floor(def.size.z/3); z++){
+      const r = ribX.clone(); r.position.set(0, def.thickness+0.03, z*1.5); g.add(r);
     }
-    const ribZ = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.06, def.size.z), matMetalLite());
-    for (let x=-Math.floor(def.size.x/U); x<=Math.floor(def.size.x/U); x++){
-      const r = ribZ.clone(); r.position.set(x*(U/2), def.thickness+0.06, 0); g.add(r);
+    const ribZ = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.06, def.size.z), matMetalLite());
+    for (let x=-Math.floor(def.size.x/3); x<=Math.floor(def.size.x/3); x++){
+      const r = ribZ.clone(); r.position.set(x*1.5, def.thickness+0.06, 0); g.add(r);
     }
     return g;
   }
 
-  if (def.baseType === 'wall') {
-    // long along X, thin along Z; rotate group 90° around Y if we later need along Z (comes from snap)
-    const wall = new THREE.Mesh(new THREE.BoxGeometry(def.size.x, def.size.y, def.thickness), matWall());
-    wall.position.y = def.size.y/2; g.add(wall);
+  if (def.baseType === 'wall'){
+    // extend a hair on length to close corner gap when two walls meet
+    const len = def.size.x + EPS;
+    const wall = new THREE.Mesh(new THREE.BoxGeometry(len, def.size.y, def.thickness), matWall());
+    wall.position.y = def.size.y/2;
+    g.add(wall);
+    if (axis === 'z') g.rotation.y = Math.PI/2;
+    return g;
+  }
+
+  if (def.baseType === 'ceiling'){
+    const slab = new THREE.Mesh(new THREE.BoxGeometry(def.size.x, def.thickness, def.size.z), matMetal());
+    slab.position.y = def.thickness/2; g.add(slab);
+    if (axis === 'z') g.rotation.y = Math.PI/2;
     return g;
   }
 
   return g;
 }
 
-/* ============================================================================
-   Snap system
-   - Each placed mesh carries userData.snaps: localPos, worldPos, kind, face, axis, occupied flags
-============================================================================ */
-function createSnapsFor(def){
-  const snaps = [];
-  const t = def.thickness;
-  const halfX = def.size.x/2, halfY = def.size.y/2, halfZ = def.size.z/2;
-
-  if (def.baseType === 'foundation') {
-    // Edge snaps (for walls / half walls) — centers on each side, just outside the slab
-    snaps.push(snap('+x','edge','z', new THREE.Vector3(+halfX + t/2, halfY, 0)));
-    snaps.push(snap('-x','edge','z', new THREE.Vector3(-halfX - t/2, halfY, 0)));
-    snaps.push(snap('+z','edge','x', new THREE.Vector3(0, halfY, +halfZ + t/2)));
-    snaps.push(snap('-z','edge','x', new THREE.Vector3(0, halfY, -halfZ - t/2)));
-
-    // Top snaps (for ceilings) — at slab top center
-    snaps.push(snap('top','top','x', new THREE.Vector3(0, def.thickness + EPS, 0)));
-    // Bottom snap not exposed (terrain handles support)
-  }
-
-  if (def.baseType === 'wall') {
-    // bottom snap to sit on foundation edge (mates with foundation edge)
-    snaps.push(snap('bottom','edge-accept','z_or_x', new THREE.Vector3(0, 0, 0)));
-    // top snap to take ceiling
-    snaps.push(snap('top','top-accept','x', new THREE.Vector3(0, def.size.y + EPS, 0)));
-    // side snaps to chain walls (left/right).
-    snaps.push(snap('left','wall-side','x',  new THREE.Vector3(-def.size.x/2, def.size.y/2, 0)));
-    snaps.push(snap('right','wall-side','x', new THREE.Vector3(+def.size.x/2, def.size.y/2, 0)));
-  }
-
-  if (def.baseType === 'ceiling') {
-    // mates to foundation top or wall top
-    snaps.push(snap('bottom','top','x', new THREE.Vector3(0, 0, 0)));
-  }
-
-  return snaps;
-}
-function snap(face, kind, axis, localPos){
-  return {
-    face, kind, axis, localPos: localPos.clone(),
-    worldPos: new THREE.Vector3(),
-    occupied:false, occupiedBy:null, matesWith:null,
-    owner:null
-  };
-}
-
-function updateWorldPosForSnaps(root){
-  const snaps = root.userData.snaps || [];
-  for (const s of snaps) {
-    s.owner = root;
-    s.worldPos.copy(s.localPos).applyMatrix4(root.matrixWorld);
-  }
-}
-
-function collectWorldSnaps(world){
-  const out = [];
-  world.updateMatrixWorld(true);
-  for (const child of world.children) {
-    const snaps = child.userData?.snaps || [];
-    for (const s of snaps) {
-      s.owner = child;
-      s.worldPos.copy(s.localPos).applyMatrix4(child.matrixWorld);
-      out.push(s);
-    }
-  }
-  return out;
-}
-
-/* compatibility rules:
-   - Foundation.edge   <-> Wall.bottom (edge-accept)
-   - Wall.top-accept   <-> Ceiling.bottom (top)
-   - Wall.wall-side    <-> Wall.wall-side  (for chaining)  [optional future]
-   - Foundation.top    <-> Ceiling.bottom  (allow ceiling directly on foundation)
-*/
-function isCompatible(def, targetSnap){
-  if (targetSnap.kind === 'edge') {
-    return def.baseType === 'wall';
-  }
-  if (targetSnap.kind === 'top') {
-    return def.baseType === 'ceiling';
-  }
-  if (targetSnap.kind === 'top-accept') {
-    return def.baseType === 'ceiling';
-  }
-  if (targetSnap.kind === 'edge-accept') {
-    // snapping another wall on top edge doesn't make sense; walls stack using wall top via terrain rule; keep false
-    return false;
-  }
-  if (targetSnap.kind === 'wall-side') {
-    return def.baseType === 'wall'; // chaining walls — optional
-  }
-  return false;
-}
-
-/* align placing part so its own "mate snap" lands on targetSnap */
-function alignToSnap(def, targetSnap, rotIndex){
-  const yaw = rotIndex * Math.PI/2;
-  const rot = new THREE.Quaternion().setFromAxisAngle(Y, yaw);
-
-  // Which snap on the incoming part should mate with the target?
-  // - to foundation.edge -> use our wall.bottom (edge-accept)
-  // - to wall.top-accept -> use our ceiling.bottom (top)
-  // - to foundation.top  -> use our ceiling.bottom (top)
-  // - to wall.wall-side  -> use our wall.wall-side opposite (simplify: use left/right by side)
-  const mySnaps = createSnapsFor(def);
-
-  let mateKindNeeded = null;
-  if (targetSnap.kind === 'edge') mateKindNeeded = 'edge-accept';
-  if (targetSnap.kind === 'top' || targetSnap.kind === 'top-accept') mateKindNeeded = 'top';
-
-  // Choose the first matching snap on the incoming part
-  let mySnap = mySnaps.find(s => s.kind === mateKindNeeded) || mySnaps[0];
-
-  // rotate mySnap local into world with desired yaw
-  const m = new THREE.Matrix4().makeRotationFromQuaternion(rot);
-  const mySnapWorldOffset = mySnap.localPos.clone().applyMatrix4(m);
-
-  // We also need to orient walls to face outward from the foundation edge they snap to:
-  let extraYaw = 0;
-  if (def.baseType === 'wall' && targetSnap.kind === 'edge') {
-    // face outward from target face
-    extraYaw = yawForFace(targetSnap.face);
-    rot.multiply(new THREE.Quaternion().setFromAxisAngle(Y, extraYaw));
-    // recalc after extra yaw
-    const m2 = new THREE.Matrix4().makeRotationFromQuaternion(new THREE.Quaternion().setFromAxisAngle(Y, rotIndex*Math.PI/2 + extraYaw));
-    mySnapWorldOffset.copy(mySnap.localPos).applyMatrix4(m2);
-  }
-
-  // position so our snap sits exactly at target snap world pos
-  const pos = targetSnap.worldPos.clone().sub(mySnapWorldOffset);
-
-  return { pos, rot };
-}
-
-function yawForFace(face){
-  switch(face){
-    case '+x': return  Math.PI/2;
-    case '-x': return -Math.PI/2;
-    case '+z': return 0;
-    case '-z': return Math.PI;
-    case 'top': return 0;
-    default: return 0;
-  }
-}
-
-function markOccupied(targetSnap, newOwner){
-  if (!targetSnap) return;
-  targetSnap.occupied = true;
-  targetSnap.occupiedBy = newOwner;
-}
-
-function findMateSnap(mesh, def, targetSnap){
-  const snaps = mesh.userData.snaps || [];
-  if (targetSnap.kind === 'edge')      return snaps.find(s => s.kind === 'edge-accept');
-  if (targetSnap.kind === 'top')       return snaps.find(s => s.kind === 'top');
-  if (targetSnap.kind === 'top-accept')return snaps.find(s => s.kind === 'top');
-  if (targetSnap.kind === 'wall-side') return snaps.find(s => s.kind === 'wall-side');
-  return null;
-}
-
-/* ============================================================================
-   Validation helpers
-============================================================================ */
-function computeWorldAABB(def, pos, rotQ){
-  // approximate with a box of def.size, centered around the mesh’s center
-  const half = new THREE.Vector3(def.size.x/2, def.size.y/2 || def.thickness/2, def.size.z/2);
-  // center Y: wall center at y=def.size.y/2; slabs at y=thickness/2
-  const center = new THREE.Vector3(
-    0,
-    def.baseType === 'wall' ? def.size.y/2 : (def.thickness/2),
-    0
-  );
-
-  const box = new THREE.Box3().setFromCenterAndSize(center, new THREE.Vector3(def.size.x, def.size.y || def.thickness, def.size.z));
-  const mat = new THREE.Matrix4().compose(pos, rotQ, new THREE.Vector3(1,1,1));
-
-  // Transform 8 corners, build world box
-  const pts = [
-    new THREE.Vector3(box.min.x, box.min.y, box.min.z),
-    new THREE.Vector3(box.min.x, box.min.y, box.max.z),
-    new THREE.Vector3(box.min.x, box.max.y, box.min.z),
-    new THREE.Vector3(box.min.x, box.max.y, box.max.z),
-    new THREE.Vector3(box.max.x, box.min.y, box.min.z),
-    new THREE.Vector3(box.max.x, box.min.y, box.max.z),
-    new THREE.Vector3(box.max.x, box.max.y, box.min.z),
-    new THREE.Vector3(box.max.x, box.max.y, box.max.z),
-  ].map(p => p.applyMatrix4(mat));
-
-  const worldBox = new THREE.Box3();
-  worldBox.setFromPoints(pts);
-  return worldBox;
-}
-
-function boxesOverlap(a, b){
-  return !(a.max.x < b.min.x - EPS || a.min.x > b.max.x + EPS ||
-           a.max.y < b.min.y - EPS || a.min.y > b.max.y + EPS ||
-           a.max.z < b.min.z - EPS || a.min.z > b.max.z + EPS);
-}
-
-/* ============================================================================
-   Misc utilities
-============================================================================ */
+/* =========================
+   Math / snap helpers
+========================= */
 const Y = new THREE.Vector3(0,1,0);
 
 function findPlacedRoot(obj){
   let p = obj;
-  while (p){ if (p.parent && p.parent.name === 'world') return p; p = p.parent; }
+  while (p){
+    if (p.parent && p.parent.name === 'world') return p;
+    p = p.parent;
+  }
   return null;
 }
-function cellFromWorld(p){
-  return new THREE.Vector3(snapGrid(p.x, U), 0, snapGrid(p.z, U));
+function worldNormal(hit){
+  const n = (hit.face?.normal ? hit.face.normal.clone() : new THREE.Vector3(0,1,0));
+  return n.applyMatrix3(new THREE.Matrix3().getNormalMatrix(hit.object.matrixWorld)).normalize();
 }
-function snapGrid(v, step){ return Math.round(v / step) * step; }
-
-function tintGhost(g, hex){
-  g.traverse(o=>{
-    if (o.isMesh && o.material) {
-      // tint by color; keep opacity
-      const m = o.material;
-      if (m.color) m.color.setHex(hex);
-      if ('emissive' in m) m.emissive.setHex(0x000000);
-    }
-  });
+function pickSide(point, cellCenter){
+  const d = point.clone().sub(cellCenter);
+  return (Math.abs(d.x) > Math.abs(d.z))
+    ? (d.x >= 0 ? '+x' : '-x')
+    : (d.z >= 0 ? '+z' : '-z');
+}
+function outwardVector(side){
+  switch (side){
+    case '+x': return new THREE.Vector3( 1,0,0);
+    case '-x': return new THREE.Vector3(-1,0,0);
+    case '+z': return new THREE.Vector3( 0,0,1);
+    case '-z': return new THREE.Vector3( 0,0,-1);
+  }
+  return new THREE.Vector3(1,0,0);
+}
+function yawForSide(side){
+  switch (side){
+    case '+x': return  Math.PI/2;
+    case '-x': return -Math.PI/2;
+    case '+z': return 0;
+    case '-z': return Math.PI;
+  }
+  return 0;
+}
+function axisForSide(side){
+  // along-edge axis: if side is ±x, edge runs along Z; if ±z, edge runs along X
+  return (side.endsWith('x')) ? 'z' : 'x';
+}
+function edgeAxis(axis){ return (axis === 'z') ? new THREE.Vector3(0,0,1) : new THREE.Vector3(1,0,0); }
+function cellFromWorld(p){
+  const snap3 = (x)=> Math.floor((x+1.5)/3)*3 + 1.5;
+  return new THREE.Vector3(snap3(p.x), 0, snap3(p.z));
 }
