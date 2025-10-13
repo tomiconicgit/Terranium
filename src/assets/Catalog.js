@@ -38,42 +38,43 @@ export function buildPart(def) {
 function matMetal(){ return new THREE.MeshStandardMaterial({ color:0x9ea6af, roughness:0.45, metalness:0.85 }); }
 function matWall(){  return new THREE.MeshStandardMaterial({ color:0xe6edf5, roughness:0.4,  metalness:0.9  }); }
 
-// Procedural Concrete Material
+// Procedural Concrete Material (CORRECTED)
 function matConcrete() {
   const concreteMaterial = new THREE.MeshStandardMaterial({
     color: 0xb0b0b0,
-    roughness: 0.85,
-    metalness: 0.0, // Concrete is not metallic
+    roughness: 0.9,
+    metalness: 0.0,
   });
 
-  // Add custom procedural noise using onBeforeCompile
+  // Attach custom shader logic
   concreteMaterial.onBeforeCompile = (shader) => {
-    shader.uniforms.uTime = { value: 0 };
-
+    // Pass the object's world position from the vertex shader to the fragment shader
     shader.vertexShader = 'varying vec3 vWorldPosition;\n' + shader.vertexShader;
     shader.vertexShader = shader.vertexShader.replace(
       '#include <worldpos_vertex>',
       `
       #include <worldpos_vertex>
-      vWorldPosition = (modelMatrix * vec4(position, 1.0)).xyz;
+      vWorldPosition = worldPosition.xyz;
       `
     );
 
+    // Add our procedural noise functions and modify the final color
     shader.fragmentShader = 'varying vec3 vWorldPosition;\n' + shader.fragmentShader;
     shader.fragmentShader = shader.fragmentShader.replace(
       '#include <common>',
       `
       #include <common>
 
-      // Simple procedural noise function
+      // 2D pseudo-random function
       float rand(vec2 n) {
         return fract(sin(dot(n, vec2(12.9898, 4.1414))) * 43758.5453);
       }
 
+      // 2D value noise function
       float noise(vec2 p) {
         vec2 ip = floor(p);
         vec2 u = fract(p);
-        u = u*u*(3.0-2.0*u); // smoothstep
+        u = u*u*(3.0-2.0*u); // Smoothstep
 
         float res = mix(
           mix(rand(ip), rand(ip + vec2(1.0, 0.0)), u.x),
@@ -82,23 +83,33 @@ function matConcrete() {
       }
       `
     );
+
+    // Inject our color modification logic at the end of the shader
     shader.fragmentShader = shader.fragmentShader.replace(
-      'vec4 diffuseColor = vec4( diffuse, opacity );',
+      /$/, // This regex matches the end of the string
       `
-      // Use world position to map noise, so it's seamless across objects
-      vec2 uv1 = vWorldPosition.xz * 1.2; // Larger blobs
-      vec2 uv2 = vWorldPosition.xz * 3.5; // Finer grain
+      // Apply procedural noise after main() runs
+      void main() {
+        super_main(); // Run the original main function
 
-      float noise1 = noise(uv1) * 0.4;
-      float noise2 = noise(uv2) * 0.25;
+        // Use world position for seamless noise across objects
+        vec2 uv1 = vWorldPosition.xz * 1.1; // Larger blobs
+        vec2 uv2 = vWorldPosition.xz * 4.0; // Finer grain
 
-      // Combine noise and apply to the base diffuse color
-      float totalNoise = (noise1 + noise2) - 0.3;
-      vec3 finalColor = diffuse * (1.0 - totalNoise);
+        float n = (noise(uv1) * 0.6) + (noise(uv2) * 0.4);
 
-      vec4 diffuseColor = vec4( finalColor, opacity );
+        // Darken the color in spots to create a concrete look
+        float darkness = smoothstep(0.4, 0.8, n) * 0.15;
+        gl_FragColor.rgb -= darkness;
+      }
       `
     );
+    // We need to rename the original main function so we can call it
+    shader.fragmentShader = shader.fragmentShader.replace('void main()', 'void super_main()');
   };
+
+  // Add a custom property to identify our special material
+  concreteMaterial.isProcedural = true;
+
   return concreteMaterial;
 }
