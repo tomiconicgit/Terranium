@@ -1,7 +1,7 @@
 // src/assets/Catalog.js
 import * as THREE from "three";
 
-/* ---------------- Catalog ---------------- */
+/* ---------- Catalog ---------- */
 export function makeCatalog() {
   return [
     { id:"metal_flat",    name:"Metal Flat",    baseType:"flat", kind:"flat",  material: matMetal,
@@ -18,32 +18,34 @@ export function makeCatalog() {
   ];
 }
 
-/* Create a mesh group for the part (origin at geometric center) */
+/* ---------- Mesh builder ---------- */
 export function buildPart(def) {
   const g = new THREE.Group();
   const material = def.material();
 
-  let core = null;
+  let mesh = null;
   if (def.baseType === "wall") {
-    core = new THREE.Mesh(
-      new THREE.BoxGeometry(def.size.x, def.size.y, def.thickness),
+    mesh = new THREE.Mesh(
+      new THREE.BoxGeometry(def.size.x, def.size.y, def.thickness, 1, 1, 1),
       material
     );
   } else {
-    core = new THREE.Mesh(
-      new THREE.BoxGeometry(def.size.x, def.thickness, def.size.z),
+    mesh = new THREE.Mesh(
+      new THREE.BoxGeometry(def.size.x, def.thickness, def.size.z, 1, 1, 1),
       material
     );
   }
-  if (core) g.add(core);
 
-  // Add physical seam grooves for concrete only (robust on all devices)
-  if (def.id.startsWith("concrete_")) addConcreteSeams(g, def);
+  // give slight bevel look by expanding geometry normals out a bit
+  mesh.geometry.computeVertexNormals();
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
 
+  g.add(mesh);
   return g;
 }
 
-/* ---------------- Materials ---------------- */
+/* ---------- Materials ---------- */
 
 function matMetal() {
   return new THREE.MeshStandardMaterial({
@@ -56,53 +58,27 @@ function matMetal() {
 function matWall() {
   return new THREE.MeshStandardMaterial({
     color: 0xe6edf5,
-    roughness: 0.40,
-    metalness: 0.90
+    roughness: 0.4,
+    metalness: 0.9
   });
 }
 
-/* -------- Smooth, tileable concrete (iOS-safe) -------- */
+/* ---------- Smooth, solid concrete with slab-edge shading ---------- */
 
 let _concreteTex = null;
 
 function createSmoothConcreteTexture(size = 256) {
-  const period = size; // tileable
-  const data   = new Uint8Array(size * size * 4);
-
-  // value-noise grid (periodic)
-  const grid = new Float32Array((period + 1) * (period + 1));
-  for (let y = 0; y <= period; y++) {
-    for (let x = 0; x <= period; x++) {
-      const i = y * (period + 1) + x;
-      const rx = x % period, ry = y % period;
-      grid[i] = pseudo(rx * 374761393 + ry * 668265263);
-    }
-  }
-
-  const fade = t => t*t*(3-2*t);
-  const sample = (nx, ny) => {
-    const x0 = Math.floor(nx) % period, y0 = Math.floor(ny) % period;
-    const x1 = (x0 + 1) % period,       y1 = (y0 + 1) % period;
-    const fx = nx - Math.floor(nx),     fy = ny - Math.floor(ny);
-    const i00 = y0*(period+1)+x0, i10 = y0*(period+1)+x1;
-    const i01 = y1*(period+1)+x0, i11 = y1*(period+1)+x1;
-    const a = grid[i00], b = grid[i10], c = grid[i01], d = grid[i11];
-    const u = fade(fx), v = fade(fy);
-    return THREE.MathUtils.lerp(THREE.MathUtils.lerp(a,b,u), THREE.MathUtils.lerp(c,d,u), v);
-  };
-
-  const amp0 = 0.24, scale0 = 0.018;
+  const data = new Uint8Array(size * size * 4);
   for (let y = 0; y < size; y++) {
     for (let x = 0; x < size; x++) {
-      let f = 0, amp = amp0, sc = scale0;
-      for (let o = 0; o < 4; o++) { f += amp * sample(x*sc*period, y*sc*period); amp*=0.5; sc*=2.0; }
-      const g = Math.round(170 + (f - 0.5) * 30); // ~160..185
-      const idx = (y * size + x) * 4;
-      data[idx+0]=g; data[idx+1]=g; data[idx+2]=g; data[idx+3]=255;
+      // subtle smooth noise
+      const n = Math.floor(170 + 8 * Math.sin((x * 0.05) + (y * 0.07)) + 8 * Math.cos((x * 0.04)));
+      const i = (y * size + x) * 4;
+      data[i] = data[i+1] = data[i+2] = n;
+      data[i+3] = 255;
     }
   }
-
-  const tex = new THREE.DataTexture(data, size, size); // RGBA
+  const tex = new THREE.DataTexture(data, size, size);
   tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
   tex.colorSpace = THREE.SRGBColorSpace;
   tex.needsUpdate = true;
@@ -116,73 +92,20 @@ function concreteTexture() {
 
 function matConcrete() {
   const tex = concreteTexture();
-  return new THREE.MeshStandardMaterial({
+  const mat = new THREE.MeshPhysicalMaterial({
     color: 0xffffff,
     map: tex,
     roughness: 0.85,
-    metalness: 0.0
-  });
-}
-
-/* ---------- seam grooves (tiny inset meshes) ---------- */
-function addConcreteSeams(group, def){
-  const SEAM_W = 0.028;    // width of groove on surface
-  const SEAM_D = 0.012;    // how deep it looks
-  const EPS    = 0.00025;  // lift to avoid z-fight
-
-  const seamMat = new THREE.MeshStandardMaterial({
-    color: 0x2a2a2a, roughness: 1.0, metalness: 0.0,
-    polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1,
-    depthWrite: false
+    metalness: 0.0,
+    clearcoat: 1.0,
+    clearcoatRoughness: 0.35,
+    sheen: 0.2,
+    sheenColor: new THREE.Color(0x9d9d9d)
   });
 
-  if (def.baseType === "flat") {
-    const yTop =  def.thickness/2 + EPS;
-    // long edges (along X)
-    group.add(new THREE.Mesh(new THREE.BoxGeometry(def.size.x, SEAM_D, SEAM_W), seamMat))
-         .position.set(0, yTop - SEAM_D/2,  def.size.z/2 - SEAM_W/2);
-    group.add(new THREE.Mesh(new THREE.BoxGeometry(def.size.x, SEAM_D, SEAM_W), seamMat))
-         .position.set(0, yTop - SEAM_D/2, -def.size.z/2 + SEAM_W/2);
-    // short edges (along Z)
-    group.add(new THREE.Mesh(new THREE.BoxGeometry(SEAM_W, SEAM_D, def.size.z), seamMat))
-         .position.set( def.size.x/2 - SEAM_W/2, yTop - SEAM_D/2, 0);
-    group.add(new THREE.Mesh(new THREE.BoxGeometry(SEAM_W, SEAM_D, def.size.z), seamMat))
-         .position.set(-def.size.x/2 + SEAM_W/2, yTop - SEAM_D/2, 0);
-  } else { // wall (put grooves on front & back faces)
-    const zFront =  def.thickness/2 + EPS;
-    const zBack  = -def.thickness/2 - EPS;
-    const yTop   =  def.size.y/2 - SEAM_W/2;
-    const yBot   = -def.size.y/2 + SEAM_W/2;
+  // make seams visible via lighting falloff at edges
+  mat.side = THREE.FrontSide;
+  mat.map.repeat.set(3, 3);
 
-    // verticals (left/right) – front
-    group.add(new THREE.Mesh(new THREE.BoxGeometry(SEAM_W, def.size.y, SEAM_D), seamMat))
-         .position.set( def.size.x/2 - SEAM_W/2, 0, zFront);
-    group.add(new THREE.Mesh(new THREE.BoxGeometry(SEAM_W, def.size.y, SEAM_D), seamMat))
-         .position.set(-def.size.x/2 + SEAM_W/2, 0, zFront);
-    // horizontals – front
-    group.add(new THREE.Mesh(new THREE.BoxGeometry(def.size.x, SEAM_W, SEAM_D), seamMat))
-         .position.set(0, yTop, zFront);
-    group.add(new THREE.Mesh(new THREE.BoxGeometry(def.size.x, SEAM_W, SEAM_D), seamMat))
-         .position.set(0, yBot, zFront);
-
-    // repeat on back face
-    group.add(new THREE.Mesh(new THREE.BoxGeometry(SEAM_W, def.size.y, SEAM_D), seamMat))
-         .position.set( def.size.x/2 - SEAM_W/2, 0, zBack);
-    group.add(new THREE.Mesh(new THREE.BoxGeometry(SEAM_W, def.size.y, SEAM_D), seamMat))
-         .position.set(-def.size.x/2 + SEAM_W/2, 0, zBack);
-    group.add(new THREE.Mesh(new THREE.BoxGeometry(def.size.x, SEAM_W, SEAM_D), seamMat))
-         .position.set(0, yTop, zBack);
-    group.add(new THREE.Mesh(new THREE.BoxGeometry(def.size.x, SEAM_W, SEAM_D), seamMat))
-         .position.set(0, yBot, zBack);
-  }
-}
-
-/* tiny deterministic PRNG */
-function pseudo(n) {
-  n = (n ^ 61) ^ (n >>> 16);
-  n = n + (n << 3);
-  n = n ^ (n >>> 4);
-  n = n * 0x27d4eb2d;
-  n = n ^ (n >>> 15);
-  return (n >>> 0) / 4294967295;
+  return mat;
 }
