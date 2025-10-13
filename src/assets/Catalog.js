@@ -23,19 +23,12 @@ export function buildPart(def) {
   const g = new THREE.Group();
   const material = def.material();
 
-  let mesh = null;
-  if (def.baseType === "wall") {
-    mesh = new THREE.Mesh(
-      new THREE.BoxGeometry(def.size.x, def.size.y, def.thickness),
-      material
-    );
-  } else {
-    mesh = new THREE.Mesh(
-      new THREE.BoxGeometry(def.size.x, def.thickness, def.size.z),
-      material
-    );
-  }
-  if (mesh) g.add(mesh);
+  const mesh = new THREE.Mesh(
+    new THREE.BoxGeometry(def.size.x, def.size.y, def.size.z),
+    material
+  );
+
+  g.add(mesh);
   return g;
 }
 
