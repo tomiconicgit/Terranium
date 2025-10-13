@@ -56,8 +56,6 @@ export class Builder {
         if (o.isMesh){
           const m = o.material.clone();
           m.transparent = true; m.opacity = 0.45; m.depthWrite = false;
-          if (m.emissive) m.emissive.multiplyScalar(0.5);
-          else { m.emissive = new THREE.Color(0x888888); m.emissiveIntensity = 0.2; }
           o.material = m;
         }
       });
@@ -83,7 +81,6 @@ export class Builder {
     // ===== FLATS =====
     if (def.baseType === 'flat'){
       if (hitObject === this.terrain) {
-        // snap to 3m grid in XZ and sit on *actual terrain height*
         const cx = snap3(hitPoint.x);
         const cz = snap3(hitPoint.z);
         const h  = this.scene.getTerrainHeightAt(cx, cz);
@@ -101,7 +98,7 @@ export class Builder {
         const base = anchorRoot;
         const out = new THREE.Vector3(Math.round(n.x), 0, Math.round(n.z));
         const pos = base.position.clone().addScaledVector(out, 3);
-        pos.y = base.position.y;
+        pos.y = base.position.y; // Snap to existing floor height
         const foundationCenter = new THREE.Vector3(pos.x, 0, pos.z);
         return { pos, rot: rotQ, foundationCenter };
       }
@@ -126,7 +123,6 @@ export class Builder {
         const out = outwardVector(side);
         const yaw = yawForSide(side);
         const rot = new THREE.Quaternion().setFromAxisAngle(Y, yaw);
-
         const pos = cellCenter.clone().addScaledVector(out, 1.5 - (def.size.z / 2));
         pos.y = flat.position.y + (flat.userData.part.size.y / 2) + (def.size.y / 2);
         return { pos, rot, foundationCenter: cellCenter.clone() };
@@ -139,32 +135,28 @@ export class Builder {
 
   placeOne(){
     const h = this._hover; if (!h) return;
-    const { def, sugg } = h;
+    const { def, sugg, anchorRoot } = h;
 
     const mesh = buildPart(def);
     mesh.position.copy(sugg.pos);
     mesh.quaternion.copy(sugg.rot);
-
-    // shadows for placed parts
     mesh.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
-
-    // Store definition for later reference
     mesh.userData.part = def;
     mesh.userData.foundationCenter = sugg.foundationCenter.clone();
-
     this.world.add(mesh);
 
     // Press sand + blend when placing a flat on terrain
-    if (def.baseType === 'flat' && this.scene.pressSand) {
+    if (def.baseType === 'flat' && this.scene.pressSand && (!anchorRoot || anchorRoot.name === 'terrainPlane')) {
       const bottomY = mesh.position.y - def.size.y / 2;
-      const innerR  = 1.55; // within slab footprint
-      const outerR  = 3.2;  // nice falloff
+      // BEHAVIOR TWEAK: Make the deformation wider and smoother
+      const innerR  = 1.6;  // Radius of full depression
+      const outerR  = 4.5;  // Radius of the falloff blend
       this.scene.pressSand(
         new THREE.Vector3(sugg.foundationCenter.x, 0, sugg.foundationCenter.z),
         bottomY,
         innerR,
         outerR,
-        0.08
+        0.1 // Press slightly deeper
       );
     }
   }
