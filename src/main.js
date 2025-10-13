@@ -1,4 +1,4 @@
-// src/main.js — shadows on, basic renderer
+// src/main.js — ACES Filmic tone mapping for realism
 import * as THREE from 'three';
 import { Scene } from './scene/Scene.js';
 import { GamepadFPV } from './controls/GamepadFPV.js';
@@ -20,7 +20,11 @@ let renderer, scene, camera, fpv;
 try {
   renderer = new THREE.WebGLRenderer({ antialias: true });
   renderer.outputColorSpace = THREE.SRGBColorSpace;
-  renderer.toneMapping = THREE.NoToneMapping;
+  
+  // REALISM UPGRADE: Use ACES Filmic for much better lighting and color
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 0.9; // Adjust exposure to prevent washout
+
   renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
   renderer.setSize(window.innerWidth, window.innerHeight);
 
