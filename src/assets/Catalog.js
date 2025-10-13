@@ -38,78 +38,28 @@ export function buildPart(def) {
 function matMetal(){ return new THREE.MeshStandardMaterial({ color:0x9ea6af, roughness:0.45, metalness:0.85 }); }
 function matWall(){  return new THREE.MeshStandardMaterial({ color:0xe6edf5, roughness:0.4,  metalness:0.9  }); }
 
-// Procedural Concrete Material (CORRECTED)
+
+// --- NEW RELIABLE CONCRETE MATERIAL ---
+// We create the texture loader once and reuse it.
+const textureLoader = new THREE.TextureLoader();
+let concreteTexture = null;
+
+// The texture is embedded as a Base64 string, so no extra files are needed.
+const concreteTextureBase64 = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAIAAAACACAYAAADDPmHLAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAdNSURBVHhe7d1Nc5pQFAfwz/sCgSBCwAEEgkYgZUIkgiBCwAEIgkYgZUIkghgQCAIeIHc3PT29yTjL6apTde7p+/S9j93bVf1d3e2uY+v5/v5+JpPJzGYzS6VSmUwm1Go1q1ar6b1+n8lkQpblv31a0y0Wi8VisUjG/9jM8vv9vt/vRzP/x2aGq/cHDx4wGo0wDAPLssjlcuj1enA4HHA4HHA4HHA4HDAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAaj-g/w0T0/1W99tXvS0Wi01NTWEYBkqlkr/tD3e7XY7HY+L5aDRqNBqhVCphGEZZlr/7tKbbi4uLKIpCX18fDocjcXwaDAY4nU7i+TQajVAqleJyuWBZ1u9+W9NtNBqFQqFwOBwIBoPc7u5umUymX8/v98NisfD7/XC5XHA4HJBKpTBNE6vVCr7vYRgGvu9xOp243W5cLhcsy+Lz+bBarXC73ThdLuL5LBaLwWDw632u3/f7fa1W+3W/3+/n52fkeX5/f8/v98NisYinwzAMXC4XpmmiVCpxu91yuVxYLBY4nU6MxiMMw2AymWCxWJDP8+u+0WgUvu/xeDzIZVmm0+l6v5/JZIKu6+VyOQzDIJ/PI5PJEAqFMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMB-AARL2qY76EAAA';
+
 function matConcrete() {
-  const concreteMaterial = new THREE.MeshStandardMaterial({
-    color: 0xb0b0b0,
-    roughness: 0.9,
-    metalness: 0.0,
+  // Load the texture only once and reuse it for all concrete materials.
+  if (!concreteTexture) {
+    concreteTexture = textureLoader.load(concreteTextureBase64);
+    concreteTexture.wrapS = THREE.RepeatWrapping;
+    concreteTexture.wrapT = THREE.RepeatWrapping;
+    concreteTexture.repeat.set(2, 2); // Tiles the texture 2x2 on a 3x3 surface
+  }
+
+  return new THREE.MeshStandardMaterial({
+    color: 0xffffff, // Set to white to show the texture's true colors
+    map: concreteTexture,
+    roughness: 0.85,
+    metalness: 0.1, // A tiny bit of metalness helps it catch light nicely
   });
-
-  // Attach custom shader logic
-  concreteMaterial.onBeforeCompile = (shader) => {
-    // Pass the object's world position from the vertex shader to the fragment shader
-    shader.vertexShader = 'varying vec3 vWorldPosition;\n' + shader.vertexShader;
-    shader.vertexShader = shader.vertexShader.replace(
-      '#include <worldpos_vertex>',
-      `
-      #include <worldpos_vertex>
-      vWorldPosition = worldPosition.xyz;
-      `
-    );
-
-    // Add our procedural noise functions and modify the final color
-    shader.fragmentShader = 'varying vec3 vWorldPosition;\n' + shader.fragmentShader;
-    shader.fragmentShader = shader.fragmentShader.replace(
-      '#include <common>',
-      `
-      #include <common>
-
-      // 2D pseudo-random function
-      float rand(vec2 n) {
-        return fract(sin(dot(n, vec2(12.9898, 4.1414))) * 43758.5453);
-      }
-
-      // 2D value noise function
-      float noise(vec2 p) {
-        vec2 ip = floor(p);
-        vec2 u = fract(p);
-        u = u*u*(3.0-2.0*u); // Smoothstep
-
-        float res = mix(
-          mix(rand(ip), rand(ip + vec2(1.0, 0.0)), u.x),
-          mix(rand(ip + vec2(0.0, 1.0)), rand(ip + vec2(1.0, 1.0)), u.x), u.y);
-        return res*res;
-      }
-      `
-    );
-
-    // Inject our color modification logic at the end of the shader
-    shader.fragmentShader = shader.fragmentShader.replace(
-      /$/, // This regex matches the end of the string
-      `
-      // Apply procedural noise after main() runs
-      void main() {
-        super_main(); // Run the original main function
-
-        // Use world position for seamless noise across objects
-        vec2 uv1 = vWorldPosition.xz * 1.1; // Larger blobs
-        vec2 uv2 = vWorldPosition.xz * 4.0; // Finer grain
-
-        float n = (noise(uv1) * 0.6) + (noise(uv2) * 0.4);
-
-        // Darken the color in spots to create a concrete look
-        float darkness = smoothstep(0.4, 0.8, n) * 0.15;
-        gl_FragColor.rgb -= darkness;
-      }
-      `
-    );
-    // We need to rename the original main function so we can call it
-    shader.fragmentShader = shader.fragmentShader.replace('void main()', 'void super_main()');
-  };
-
-  // Add a custom property to identify our special material
-  concreteMaterial.isProcedural = true;
-
-  return concreteMaterial;
 }
