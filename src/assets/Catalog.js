@@ -57,10 +57,11 @@ function matWall() {
   });
 }
 
-/* -------- Smooth, tileable concrete (world-space friendly) --------
-   - RGBA DataTexture tagged sRGB (works on iOS; avoids black)
-   - Low-frequency, tileable value-noise for a smooth slab look
-------------------------------------------------------------------- */
+/* -------- Smooth, tileable concrete + world-space seams --------
+   - RGBA DataTexture tagged sRGB (iOS-safe)
+   - Low-frequency, tileable value-noise for a smooth slab
+   - onBeforeCompile adds a world-grid “crevice” along cell edges
+---------------------------------------------------------------- */
 
 let _concreteTex = null;
 
@@ -107,17 +108,16 @@ function createSmoothConcreteTexture(size = 256) {
         amp *= 0.5;
         sc  *= 2.0;
       }
-      // Light grey range resembling smooth concrete
       const g = Math.round(170 + (f - 0.5) * 30); // ~160..185
       const idx = (y * size + x) * 4;
       data[idx+0] = g;
       data[idx+1] = g;
       data[idx+2] = g;
-      data[idx+3] = 255; // ensure SRGB8_ALPHA8 path
+      data[idx+3] = 255; // SRGB8_ALPHA8 path
     }
   }
 
-  const tex = new THREE.DataTexture(data, size, size); // RGBA by default
+  const tex = new THREE.DataTexture(data, size, size); // RGBA
   tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
   tex.colorSpace = THREE.SRGBColorSpace;
   tex.needsUpdate = true;
@@ -131,12 +131,50 @@ function concreteTexture() {
 
 function matConcrete() {
   const tex = concreteTexture();
-  return new THREE.MeshStandardMaterial({
-    color: 0xffffff,     // let the map carry tone
-    map: tex,            // sRGB RGBA DataTexture
+  const mat = new THREE.MeshStandardMaterial({
+    color: 0xffffff,
+    map: tex,
     roughness: 0.85,
     metalness: 0.0
   });
+
+  // Add world-space “crevice” along 3m grid lines (matches your cell size)
+  mat.onBeforeCompile = (shader) => {
+    shader.uniforms.uCellSize      = { value: 3.0 };   // world units
+    shader.uniforms.uSeamWidth     = { value: 0.06 };  // world width of groove
+    shader.uniforms.uSeamIntensity = { value: 0.60 };  // 1=none, 0=black
+
+    // pass world position
+    shader.vertexShader =
+      "varying vec3 vWorldPos;\n" +
+      shader.vertexShader.replace(
+        "#include <worldpos_vertex>",
+        "#include <worldpos_vertex>\n vWorldPos = worldPosition.xyz;"
+      );
+
+    // darken near grid lines in X/Z (shared across flats & walls)
+    shader.fragmentShader =
+      "varying vec3 vWorldPos;\n" +
+      "uniform float uCellSize, uSeamWidth, uSeamIntensity;\n" +
+      shader.fragmentShader.replace(
+        "vec4 diffuseColor = vec4( diffuse, opacity );",
+        `
+        vec4 diffuseColor = vec4( diffuse, opacity );
+
+        // distance to nearest grid line along X/Z (period = uCellSize)
+        float dx = mod(vWorldPos.x, uCellSize); dx = min(dx, uCellSize - dx);
+        float dz = mod(vWorldPos.z, uCellSize); dz = min(dz, uCellSize - dz);
+        float d  = min(dx, dz);
+
+        // seam factor: 1 outside, -> uSeamIntensity in the groove
+        float seam = smoothstep(uSeamWidth, 0.0, d);
+        float seamAO = mix(1.0, uSeamIntensity, seam);
+        diffuseColor.rgb *= seamAO;
+        `
+      );
+  };
+
+  return mat;
 }
 
 /* tiny deterministic PRNG */
