@@ -1,3 +1,4 @@
+// src/tools/Builder.js
 import * as THREE from 'three';
 import { makeCatalog, buildPart } from '../assets/Catalog.js';
 
@@ -51,8 +52,11 @@ export class Builder {
       const ghost = buildPart(def);
       ghost.traverse(o => {
         if (o.isMesh){
+          // Make ghost material slightly emissive for visibility in dark areas
           const m = o.material.clone();
           m.transparent = true; m.opacity = 0.45; m.depthWrite = false;
+          if (m.emissive) m.emissive.multiplyScalar(0.5);
+          else { m.emissive = new THREE.Color(0x888888); m.emissiveIntensity = 0.2; }
           o.material = m;
         }
       });
@@ -75,51 +79,54 @@ export class Builder {
     const rotQ = new THREE.Quaternion().setFromAxisAngle(Y, rotYaw);
     const snap3 = (v) => Math.round(v / 3) * 3;
 
-    // ===== BEAM (1×1 tile column / I-beam) =====
+    // ===== BEAM (now uses 'wall' logic but with smaller footprint) =====
     if (def.baseType === 'beam') {
-      // On top of a flat
-      if (anchorRoot?.userData?.part?.type === 'flat' && n.y > 0.9) {
-        const flat = anchorRoot;
-        const cellCenter = flat.userData.foundationCenter.clone();
-        const pos = cellCenter.clone();
-        pos.y = flat.position.y + (flat.userData.part.thickness / 2) + (def.size.y / 2);
-        // rotate with user yaw
-        return { pos, rot: rotQ, foundationCenter: cellCenter };
-      }
-      // Stack on another beam/wall (top face)
-      if (anchorRoot && n.y > 0.9 && (anchorRoot.userData.part.type === 'beam' || anchorRoot.userData.part.type === 'wall')) {
-        const base = anchorRoot;
-        const pos = base.position.clone();
-        pos.y += base.userData.part.size.y / 2 + def.size.y / 2;
-        const foundationCenter = base.userData.foundationCenter?.clone() || new THREE.Vector3(Math.round(pos.x/3)*3, 0, Math.round(pos.z/3)*3);
-        return { pos, rot: rotQ, foundationCenter };
-      }
-      // Or directly on terrain (snapped cell)
+      // On terrain
       if (hitObject === this.terrain) {
         const cx = snap3(hitPoint.x);
         const cz = snap3(hitPoint.z);
         const pos = new THREE.Vector3(cx, def.size.y / 2, cz);
         return { pos, rot: rotQ, foundationCenter: new THREE.Vector3(cx, 0, cz) };
       }
+      // On top of a flat
+      if (anchorRoot?.userData?.part?.baseType === 'flat' && n.y > 0.9) {
+          const flat = anchorRoot;
+          // Snap beam to corners/center of the flat tile
+          const fc = flat.userData.foundationCenter;
+          const localHit = hitPoint.clone().sub(fc);
+          const snapX = Math.round(localHit.x / 1.5) * 1.5;
+          const snapZ = Math.round(localHit.z / 1.5) * 1.5;
+          const pos = new THREE.Vector3(fc.x + snapX, 0, fc.z + snapZ);
+          pos.y = flat.position.y + (flat.userData.part.size.y / 2) + (def.size.y / 2);
+          return { pos, rot: rotQ, foundationCenter: flat.userData.foundationCenter.clone() };
+      }
+       // Stack on another beam/wall (top face)
+      if (anchorRoot && n.y > 0.9 && (anchorRoot.userData.part.baseType === 'beam' || anchorRoot.userData.part.baseType === 'wall')) {
+        const base = anchorRoot;
+        const pos = base.position.clone();
+        pos.y += base.userData.part.size.y / 2 + def.size.y / 2;
+        const foundationCenter = base.userData.foundationCenter?.clone() || new THREE.Vector3(Math.round(pos.x/3)*3, 0, Math.round(pos.z/3)*3);
+        return { pos, rot: rotQ, foundationCenter };
+      }
       return null;
     }
 
     // ===== FLATS =====
     if (def.baseType === 'flat'){
-      if (anchorRoot?.userData?.part?.type === 'wall' && n.y > 0.9) {
+      if (anchorRoot?.userData?.part?.baseType === 'wall' && n.y > 0.9) {
         const wall = anchorRoot;
         const foundationCenter = wall.userData.foundationCenter;
         const pos = new THREE.Vector3(foundationCenter.x, 0, foundationCenter.z);
-        pos.y = wall.position.y + (wall.userData.part.size.y / 2) + (def.thickness / 2);
+        pos.y = wall.position.y + (wall.userData.part.size.y / 2) + (def.size.y / 2);
         return { pos, rot: rotQ, foundationCenter: foundationCenter.clone() };
       }
       if (hitObject === this.terrain) {
         const cx = snap3(hitPoint.x);
         const cz = snap3(hitPoint.z);
-        const pos = new THREE.Vector3(cx, def.thickness / 2, cz);
+        const pos = new THREE.Vector3(cx, def.size.y / 2, cz);
         return { pos, rot: rotQ, foundationCenter: new THREE.Vector3(cx, 0, cz) };
       }
-      if (anchorRoot?.userData?.part?.type === 'flat' && Math.abs(n.y) < 0.1) {
+      if (anchorRoot?.userData?.part?.baseType === 'flat' && Math.abs(n.y) < 0.1) {
         const base = anchorRoot;
         const out = new THREE.Vector3(Math.round(n.x), 0, Math.round(n.z));
         const pos = base.position.clone().addScaledVector(out, 3);
@@ -133,7 +140,7 @@ export class Builder {
     // ===== WALLS =====
     if (def.baseType === 'wall'){
       if (!anchorRoot) return null;
-      if (anchorRoot.userData.part.type === 'wall' && n.y > 0.9) {
+      if (anchorRoot.userData.part.baseType === 'wall' && n.y > 0.9) {
         const baseWall = anchorRoot;
         const pos = baseWall.position.clone();
         pos.y += baseWall.userData.part.size.y;
@@ -141,7 +148,7 @@ export class Builder {
         const foundationCenter = baseWall.userData.foundationCenter.clone();
         return { pos, rot, foundationCenter };
       }
-      if (anchorRoot.userData.part.type === 'flat' && n.y > 0.9) {
+      if (anchorRoot.userData.part.baseType === 'flat' && n.y > 0.9) {
         const flat = anchorRoot;
         const cellCenter = flat.userData.foundationCenter;
         const side = pickSide(hitPoint, cellCenter);
@@ -149,8 +156,9 @@ export class Builder {
         const yaw = yawForSide(side);
         const rot = new THREE.Quaternion().setFromAxisAngle(Y, yaw);
 
-        const pos = cellCenter.clone().addScaledVector(out, 1.5 - (def.thickness / 2));
-        pos.y = flat.position.y + (flat.userData.part.thickness / 2) + (def.size.y / 2);
+        // Use def.size.z for thickness
+        const pos = cellCenter.clone().addScaledVector(out, 1.5 - (def.size.z / 2));
+        pos.y = flat.position.y + (flat.userData.part.size.y / 2) + (def.size.y / 2);
 
         return { pos, rot, foundationCenter: cellCenter.clone() };
       }
@@ -168,7 +176,8 @@ export class Builder {
     mesh.position.copy(sugg.pos);
     mesh.quaternion.copy(sugg.rot);
 
-    mesh.userData.part = { type: def.baseType, size: def.size, thickness: def.thickness };
+    // Store the original definition on the object for later reference
+    mesh.userData.part = def;
     mesh.userData.foundationCenter = sugg.foundationCenter.clone();
 
     this.world.add(mesh);
