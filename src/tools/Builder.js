@@ -64,7 +64,7 @@ export class Builder {
     this._hover = { def, sugg, anchorRoot };
 
     if (this.pressed(7)) this.placeOne();
-    if (this.pressed(6)) this.removeOne();
+    if (this.pressed(6)) this.removeOne(); // <<< RE-ADDED THIS LINE
   }
 
   /* ---------- snapping ---------- */
@@ -79,9 +79,9 @@ export class Builder {
       if (anchorRoot?.userData?.part?.type === 'wall' && n.y > 0.9) {
         const wall = anchorRoot;
         const foundationCenter = wall.userData.foundationCenter;
-        // The top of the wall stack is the base Y of the wall + its height.
-        const wallTopY = wall.position.y + wall.userData.part.size.y;
-        const pos = new THREE.Vector3(foundationCenter.x, wallTopY, foundationCenter.z);
+        const pos = new THREE.Vector3(foundationCenter.x, 0, foundationCenter.z);
+        // Position flat's center on top of the wall's top surface
+        pos.y = wall.position.y + (wall.userData.part.size.y / 2) + (def.thickness / 2);
         return { pos, rot: rotQ, foundationCenter: foundationCenter.clone() };
       }
 
@@ -89,36 +89,33 @@ export class Builder {
       if (hitObject === this.terrain) {
         const cx = snap3(hitPoint.x);
         const cz = snap3(hitPoint.z);
-        const pos = new THREE.Vector3(cx, 0, cz);
-        return { pos, rot: rotQ, foundationCenter: pos.clone() };
+        const pos = new THREE.Vector3(cx, def.thickness / 2, cz);
+        return { pos, rot: rotQ, foundationCenter: new THREE.Vector3(cx, 0, cz) };
       }
 
       // Case 3: Extend from an existing flat (on the side)
       if (anchorRoot?.userData?.part?.type === 'flat' && Math.abs(n.y) < 0.1) {
         const base = anchorRoot;
-        // Determine side based on the world normal of the face we hit
         const out = new THREE.Vector3(Math.round(n.x), 0, Math.round(n.z));
         const pos = base.position.clone().addScaledVector(out, 3);
-        pos.y = base.position.y; // Keep same height
-        const foundationCenter = pos.clone();
+        pos.y = base.position.y;
+        const foundationCenter = new THREE.Vector3(pos.x, 0, pos.z);
         return { pos, rot: rotQ, foundationCenter };
       }
 
-      return null; // Can't place a flat here
+      return null;
     }
 
     // ===== WALLS =====
     if (def.baseType === 'wall'){
-      // Rule: Walls can't be placed on terrain.
-      if (hitObject === this.terrain) return null;
       if (!anchorRoot) return null;
 
       // Case 1: Stack on top of another wall
       if (anchorRoot.userData.part.type === 'wall' && n.y > 0.9) {
         const baseWall = anchorRoot;
         const pos = baseWall.position.clone();
-        pos.y += baseWall.userData.part.size.y;
-        const rot = baseWall.quaternion.clone(); // Inherit rotation
+        pos.y += baseWall.userData.part.size.y; // Stack center on center
+        const rot = baseWall.quaternion.clone();
         const foundationCenter = baseWall.userData.foundationCenter.clone();
         return { pos, rot, foundationCenter };
       }
@@ -126,24 +123,20 @@ export class Builder {
       // Case 2: Place on the edge of a flat
       if (anchorRoot.userData.part.type === 'flat' && n.y > 0.9) {
         const flat = anchorRoot;
-        const cellCenter = flat.position; // This is the foundationCenter
-        
+        const cellCenter = flat.userData.foundationCenter;
         const side = pickSide(hitPoint, cellCenter);
         const out = outwardVector(side);
         const yaw = yawForSide(side);
         const rot = new THREE.Quaternion().setFromAxisAngle(Y, yaw);
 
-        // Position the wall so its outer face is flush with the 3x3 cell boundary.
+        // Position wall's outer face flush with the grid boundary
         const pos = cellCenter.clone().addScaledVector(out, 1.5 - (def.thickness / 2));
-        
-        // Position wall's base on top of the flat.
-        pos.y = flat.position.y + flat.userData.part.thickness;
+        // Position wall's center on top of the flat's top surface
+        pos.y = flat.position.y + (flat.userData.part.thickness / 2) + (def.size.y / 2);
 
-        const foundationCenter = cellCenter.clone();
-        return { pos, rot, foundationCenter };
+        return { pos, rot, foundationCenter: cellCenter.clone() };
       }
       
-      // All other wall placements are invalid (e.g., on side of wall)
       return null;
     }
 
@@ -158,7 +151,6 @@ export class Builder {
     mesh.position.copy(sugg.pos);
     mesh.quaternion.copy(sugg.rot);
 
-    // Store essential data on the placed object
     mesh.userData.part = { type: def.baseType, size: def.size, thickness: def.thickness };
     mesh.userData.foundationCenter = sugg.foundationCenter.clone();
 
@@ -187,25 +179,16 @@ function matWall(){  return new THREE.MeshStandardMaterial({ color:0xe6edf5, rou
 
 function buildPart(def){
   const g = new THREE.Group();
+  let mesh;
 
   if (def.baseType === 'wall'){
-    const wall = new THREE.Mesh(new THREE.BoxGeometry(def.size.x, def.size.y, def.thickness), matWall());
-    // The group's origin is the center of the wall's base.
-    // So we move the mesh up by half its height.
-    wall.position.y = def.size.y / 2;
-    g.add(wall);
-    return g;
+    mesh = new THREE.Mesh(new THREE.BoxGeometry(def.size.x, def.size.y, def.thickness), matWall());
+  } else if (def.baseType === 'flat'){
+    mesh = new THREE.Mesh(new THREE.BoxGeometry(def.size.x, def.thickness, def.size.z), matMetal());
   }
 
-  if (def.baseType === 'flat'){
-    const slab = new THREE.Mesh(new THREE.BoxGeometry(def.size.x, def.thickness, def.size.z), matMetal());
-    // The group's origin is the center of the flat's base.
-    // So we move the mesh up by half its thickness.
-    slab.position.y = def.thickness / 2;
-    g.add(slab);
-    return g;
-  }
-
+  if (mesh) g.add(mesh);
+  // The mesh's origin IS the group's origin now (center of the box)
   return g;
 }
 
