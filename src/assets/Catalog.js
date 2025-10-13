@@ -15,77 +15,95 @@ export function makeCatalog() {
 /* ---------- Mesh builder (simple box) ---------- */
 export function buildPart(def) {
   const g = new THREE.Group();
-  const material = def.material(); // returns a MeshStandardMaterial
-
+  const material = def.material();
   const mesh = new THREE.Mesh(
     new THREE.BoxGeometry(def.size.x, def.size.y, def.size.z, 1, 1, 1),
     material
   );
   mesh.castShadow = true;
   mesh.receiveShadow = true;
-
   g.add(mesh);
   return g;
 }
 
-/* ---------- Concrete material (procedural) ---------- */
-let _concreteTex = null;
-function createSmoothConcreteTexture(size = 256) {
-  const period = size;
-  const data   = new Uint8Array(size * size * 4);
-  const grid = new Float32Array((period + 1) * (period + 1));
-  for (let y = 0; y <= period; y++) {
-    for (let x = 0; x <= period; x++) {
-      const i = y * (period + 1) + x;
-      const rx = x % period, ry = y % period;
-      grid[i] = pseudo(rx * 374761393 + ry * 668265263);
+/* ---------- Realistic Concrete Material (Procedural Color + Normals) ---------- */
+let _concreteMaps = null;
+
+function createConcreteMaps(size = 512) {
+  const mapData = new Uint8Array(size * size * 4);
+  const normalData = new Uint8Array(size * size * 4);
+
+  // High-quality noise function for realism
+  const fbm = (x, y, octaves) => {
+    let sum = 0, amp = 0.5, freq = 2.0;
+    for (let i = 0; i < octaves; i++) {
+      sum += amp * pseudo(x * freq + y * freq * 57.0);
+      amp *= 0.5; freq *= 2.0;
     }
-  }
-  const fade = t => t*t*(3-2*t);
-  const sample = (nx, ny) => {
-    const x0 = Math.floor(nx) % period, y0 = Math.floor(ny) % period;
-    const x1 = (x0 + 1) % period,       y1 = (y0 + 1) % period;
-    const fx = nx - Math.floor(nx),     fy = ny - Math.floor(ny);
-    const i00 = y0*(period+1)+x0, i10 = y0*(period+1)+x1;
-    const i01 = y1*(period+1)+x0, i11 = y1*(period+1)+x1;
-    const a = grid[i00], b = grid[i10], c = grid[i01], d = grid[i11];
-    const u = fade(fx), v = fade(fy);
-    return THREE.MathUtils.lerp(THREE.MathUtils.lerp(a,b,u), THREE.MathUtils.lerp(c,d,u), v);
+    return sum;
   };
 
-  const amp0 = 0.22, scale0 = 0.018;
   for (let y = 0; y < size; y++) {
     for (let x = 0; x < size; x++) {
-      let f = 0, amp = amp0, sc = scale0;
-      for (let o = 0; o < 4; o++) { f += amp * sample(x*sc*period, y*sc*period); amp*=0.5; sc*=2.0; }
-      const g = Math.round(172 + (f - 0.5) * 26);
       const i = (y * size + x) * 4;
-      data[i+0]=g; data[i+1]=g; data[i+2]=g; data[i+3]=255;
+      const nx = x / size, ny = y / size;
+
+      // --- Color Map ---
+      let c = 0.6 + fbm(nx, ny, 5) * 0.1; // Base grey
+      c += fbm(nx * 3.0, ny * 3.0, 6) * 0.05; // Mottling/stains
+      c = THREE.MathUtils.clamp(c, 0.0, 1.0);
+      const g = Math.round(c * 255);
+      mapData[i] = mapData[i+1] = mapData[i+2] = g;
+      mapData[i+3] = 255;
+
+      // --- Normal Map (from noise gradient) ---
+      const strength = 0.4;
+      const e = 1 / size; // epsilon for sampling neighbors
+      const h_center = fbm(nx, ny, 4);
+      const h_x = fbm(nx + e, ny, 4);
+      const h_y = fbm(nx, ny + e, 4);
+      
+      const n = new THREE.Vector3(
+        (h_center - h_x) * strength,
+        (h_center - h_y) * strength,
+        1.0
+      ).normalize();
+      
+      normalData[i]   = (n.x * 0.5 + 0.5) * 255; // R
+      normalData[i+1] = (n.y * 0.5 + 0.5) * 255; // G
+      normalData[i+2] = (n.z * 0.5 + 0.5) * 255; // B
+      normalData[i+3] = 255;
     }
   }
-  const tex = new THREE.DataTexture(data, size, size);
-  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-  tex.minFilter = THREE.LinearMipmapLinearFilter;
-  tex.magFilter = THREE.LinearFilter;
-  tex.generateMipmaps = true;
-  tex.colorSpace = THREE.SRGBColorSpace;
-  tex.needsUpdate = true;
-  return tex;
+
+  const map = new THREE.DataTexture(mapData, size, size);
+  map.wrapS = map.wrapT = THREE.RepeatWrapping;
+  map.colorSpace = THREE.SRGBColorSpace;
+  map.needsUpdate = true;
+  
+  const normalMap = new THREE.DataTexture(normalData, size, size);
+  normalMap.wrapS = normalMap.wrapT = THREE.RepeatWrapping;
+  normalMap.needsUpdate = true;
+
+  return { map, normalMap };
 }
-function concreteTexture() {
-  if (!_concreteTex) _concreteTex = createSmoothConcreteTexture(256);
-  return _concreteTex;
+
+function getConcreteMaps() {
+  if (!_concreteMaps) _concreteMaps = createConcreteMaps();
+  return _concreteMaps;
 }
+
 function matConcrete() {
-  const tex = concreteTexture();
+  const { map, normalMap } = getConcreteMaps();
   return new THREE.MeshStandardMaterial({
-    color: 0xffffff,
-    map: tex,
-    roughness: 0.98,
+    map: map,
+    normalMap: normalMap,
+    normalScale: new THREE.Vector2(0.8, 0.8), // Adjust strength of bumps
+    roughness: 0.85,
     metalness: 0.0,
-    envMapIntensity: 0
   });
 }
+
 function pseudo(n) {
   n = (n ^ 61) ^ (n >>> 16);
   n = n + (n << 3);
