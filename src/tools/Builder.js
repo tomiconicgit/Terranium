@@ -52,25 +52,16 @@ export class Builder {
       this.preview.clear();
       const ghost = buildPart(def);
 
-      // --- GHOST MATERIAL FIX ---
+      // Standard ghost material logic (no special handling needed now)
       ghost.traverse(o => {
         if (o.isMesh){
-          const originalMat = o.material;
-          const ghostMat = originalMat.clone();
-
+          const ghostMat = o.material.clone();
           ghostMat.transparent = true;
           ghostMat.opacity = 0.45;
           ghostMat.depthWrite = false;
-
-          // Manually copy procedural shader logic if it exists
-          if (originalMat.isProcedural) {
-            ghostMat.onBeforeCompile = originalMat.onBeforeCompile;
-          }
-
           o.material = ghostMat;
         }
       });
-      // --- END FIX ---
 
       this.preview.add(ghost);
       this.prevKey = key;
