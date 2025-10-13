@@ -133,38 +133,37 @@ function matConcrete() {
 
   // Add world-space “crevice” along 3m grid lines (matches your cell size)
   mat.onBeforeCompile = (shader) => {
-    shader.uniforms.uCellSize      = { value: 3.0 };   // world units
-    shader.uniforms.uSeamWidth     = { value: 0.06 };  // world width of groove
-    shader.uniforms.uSeamIntensity = { value: 0.60 };  // 1=none, 0=black
+    shader.uniforms.uCellSize      = { value: 3.0 };
+    shader.uniforms.uSeamWidth     = { value: 0.06 };
+    shader.uniforms.uSeamIntensity = { value: 0.60 };
 
-    // pass world position
+    // 1. Pass world position from Vertex to Fragment shader
     shader.vertexShader =
       "varying vec3 vWorldPos;\n" +
       shader.vertexShader.replace(
         "#include <worldpos_vertex>",
-        "#include <worldpos_vertex>\n vWorldPos = worldPosition.xyz;"
+        "#include <worldpos_vertex>\n  vWorldPos = worldPosition.xyz;"
       );
 
-    // darken near grid lines in X/Z (shared across flats & walls)
+    // 2. Add uniforms and the seam-calculating code to the Fragment shader
     shader.fragmentShader =
       "varying vec3 vWorldPos;\n" +
       "uniform float uCellSize, uSeamWidth, uSeamIntensity;\n" +
-      shader.fragmentShader.replace(
-        "vec4 diffuseColor = vec4( diffuse, opacity );",
-        `
-        vec4 diffuseColor = vec4( diffuse, opacity );
+      shader.fragmentShader;
 
-        // distance to nearest grid line along X/Z (period = uCellSize)
+    // 3. Apply the seam color modification at the end of the main() function
+    // This is more robust than replacing a specific line.
+    shader.fragmentShader = shader.fragmentShader.replace(
+      /}\s*$/, // Regex to find the closing brace of main()
+      `
         float dx = mod(vWorldPos.x, uCellSize); dx = min(dx, uCellSize - dx);
         float dz = mod(vWorldPos.z, uCellSize); dz = min(dz, uCellSize - dz);
         float d  = min(dx, dz);
-
-        // seam factor: 1 outside, -> uSeamIntensity in the groove
-        float seam = smoothstep(uSeamWidth, 0.0, d);
-        float seamAO = mix(1.0, uSeamIntensity, seam);
-        diffuseColor.rgb *= seamAO;
-        `
-      );
+        float seam = smoothstep(0.0, uSeamWidth, d);
+        float seamAO = mix(uSeamIntensity, 1.0, seam);
+        gl_FragColor.rgb *= seamAO;
+      }`
+    );
   };
 
   return mat;
