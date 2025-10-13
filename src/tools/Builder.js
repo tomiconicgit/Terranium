@@ -160,7 +160,7 @@ export class Builder {
 
     this.world.add(mesh);
 
-    // NEW: lock concrete (and any mapped material) to world so slabs blend
+    // Lock concrete textures to world so slabs blend (and seams line up)
     lockWorldConcreteUV(mesh, def);
   }
 
@@ -181,12 +181,12 @@ function yawForSide(side){ switch(side){ case '+x':return Math.PI/2; case '-x':r
 
 /* --- World-locked UVs so neighbouring slabs/walls share one pattern --- */
 function lockWorldConcreteUV(root, def){
-  const UNITS_PER_REPEAT = 4.0; // higher = calmer pattern & fewer seams
+  const UNITS_PER_REPEAT = 4.0; // higher = calmer pattern
 
   root.traverse(o=>{
     if (!o.isMesh) return;
     const m = o.material;
-    if (!m || !m.map) return; // only act on textured materials (e.g., concrete)
+    if (!m || !m.map) return; // only textured (concrete)
 
     // per-instance clone so each piece can have its own offset/repeat
     const tex = m.map = m.map.clone();
@@ -198,14 +198,12 @@ function lockWorldConcreteUV(root, def){
     const c = root.userData.foundationCenter || new THREE.Vector3();
 
     if (def.baseType === "flat") {
-      // anchor to the world-space left/near edges of the 3×3 cell
       const left = c.x - def.size.x/2;
       const near = c.z - def.size.z/2;
       tex.offset.set(left/UNITS_PER_REPEAT, near/UNITS_PER_REPEAT);
     } else { // wall
-      // align along its facing axis
       const yaw = new THREE.Euler().setFromQuaternion(root.quaternion, "YXZ").y;
-      const alongX = Math.abs(Math.cos(yaw)) > 0.7071; // ~0°/180° => X aligned
+      const alongX = Math.abs(Math.cos(yaw)) > 0.7071;
       if (alongX) {
         const left = c.x - def.size.x/2;
         tex.offset.set(left/UNITS_PER_REPEAT, 0);
