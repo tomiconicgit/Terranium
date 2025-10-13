@@ -1,5 +1,6 @@
-// Metal Flat + Walls — no vertical gap, smooth flats
 import * as THREE from 'three';
+// Import the new catalog and build function
+import { makeCatalog, buildPart } from '../assets/Catalog.js';
 
 export class Builder {
   constructor(scene, camera, hotbar){
@@ -10,12 +11,12 @@ export class Builder {
     this.world   = scene.getObjectByName('world');
     this.terrain = scene.getObjectByName('terrainPlane');
 
+    // Get catalog from the new file
     this.catalog = makeCatalog();
     this.hotbar.setCatalog(this.catalog);
 
     this.ray = new THREE.Raycaster();
 
-    // ghost
     this.preview = new THREE.Group(); this.preview.visible = false;
     this.preview.name = 'ghost';
     this.scene.add(this.preview);
@@ -46,10 +47,10 @@ export class Builder {
     const sugg = this.suggest(def, hit.point, normal, anchorRoot, hit.object);
     if (!sugg){ this.preview.visible=false; this._hover=null; return; }
 
-    // build/refresh ghost
     const key = `${def.id}|${sugg.pos.x.toFixed(2)},${sugg.pos.y.toFixed(2)},${sugg.pos.z.toFixed(2)}|${sugg.rot.y.toFixed(2)}`;
     if (key !== this.prevKey){
       this.preview.clear();
+      // Use the imported buildPart function
       const ghost = buildPart(def);
       ghost.traverse(o=>{
         if (o.isMesh){ const m=o.material.clone(); m.transparent=true; m.opacity=0.45; m.depthWrite=false; o.material=m; }
@@ -64,7 +65,7 @@ export class Builder {
     this._hover = { def, sugg, anchorRoot };
 
     if (this.pressed(7)) this.placeOne();
-    if (this.pressed(6)) this.removeOne(); // <<< RE-ADDED THIS LINE
+    if (this.pressed(6)) this.removeOne();
   }
 
   /* ---------- snapping ---------- */
@@ -80,7 +81,6 @@ export class Builder {
         const wall = anchorRoot;
         const foundationCenter = wall.userData.foundationCenter;
         const pos = new THREE.Vector3(foundationCenter.x, 0, foundationCenter.z);
-        // Position flat's center on top of the wall's top surface
         pos.y = wall.position.y + (wall.userData.part.size.y / 2) + (def.thickness / 2);
         return { pos, rot: rotQ, foundationCenter: foundationCenter.clone() };
       }
@@ -114,7 +114,7 @@ export class Builder {
       if (anchorRoot.userData.part.type === 'wall' && n.y > 0.9) {
         const baseWall = anchorRoot;
         const pos = baseWall.position.clone();
-        pos.y += baseWall.userData.part.size.y; // Stack center on center
+        pos.y += baseWall.userData.part.size.y;
         const rot = baseWall.quaternion.clone();
         const foundationCenter = baseWall.userData.foundationCenter.clone();
         return { pos, rot, foundationCenter };
@@ -129,9 +129,7 @@ export class Builder {
         const yaw = yawForSide(side);
         const rot = new THREE.Quaternion().setFromAxisAngle(Y, yaw);
 
-        // Position wall's outer face flush with the grid boundary
         const pos = cellCenter.clone().addScaledVector(out, 1.5 - (def.thickness / 2));
-        // Position wall's center on top of the flat's top surface
         pos.y = flat.position.y + (flat.userData.part.thickness / 2) + (def.size.y / 2);
 
         return { pos, rot, foundationCenter: cellCenter.clone() };
@@ -147,6 +145,7 @@ export class Builder {
     const h = this._hover; if (!h) return;
     const { def, sugg } = h;
 
+    // Use the imported buildPart function
     const mesh = buildPart(def);
     mesh.position.copy(sugg.pos);
     mesh.quaternion.copy(sugg.rot);
@@ -164,35 +163,7 @@ export class Builder {
   }
 }
 
-/* ---------- catalog + builders ---------- */
-function makeCatalog(){
-  return [
-    { id:'metal_flat', name:'Metal Flat (3×3)', baseType:'flat', kind:'flat',
-      size:{x:3, y:0.2, z:3}, thickness:0.2, preview:'#b8c2cc' },
-    { id:'metal_wall', name:'Metal Wall (3×3)', baseType:'wall', kind:'wall',
-      size:{x:3, y:3, z:0.2}, thickness:0.2, preview:'#dfe6ee' },
-  ];
-}
-
-function matMetal(){ return new THREE.MeshStandardMaterial({ color:0x9ea6af, roughness:0.45, metalness:0.85 }); }
-function matWall(){  return new THREE.MeshStandardMaterial({ color:0xe6edf5, roughness:0.4,  metalness:0.9  }); }
-
-function buildPart(def){
-  const g = new THREE.Group();
-  let mesh;
-
-  if (def.baseType === 'wall'){
-    mesh = new THREE.Mesh(new THREE.BoxGeometry(def.size.x, def.size.y, def.thickness), matWall());
-  } else if (def.baseType === 'flat'){
-    mesh = new THREE.Mesh(new THREE.BoxGeometry(def.size.x, def.thickness, def.size.z), matMetal());
-  }
-
-  if (mesh) g.add(mesh);
-  // The mesh's origin IS the group's origin now (center of the box)
-  return g;
-}
-
-/* ---------- helpers ---------- */
+/* ---------- helpers (no changes below this line) ---------- */
 const Y = new THREE.Vector3(0,1,0);
 function findPlacedRoot(obj){ let p=obj; while(p){ if (p.parent && p.parent.name==='world') return p; p=p.parent; } return null; }
 function worldNormal(hit){ const n=(hit.face?.normal?hit.face.normal.clone():new THREE.Vector3(0,1,0)); return n.applyMatrix3(new THREE.Matrix3().getNormalMatrix(hit.object.matrixWorld)).normalize(); }
