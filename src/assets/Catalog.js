@@ -33,15 +33,32 @@ function createConcreteMaps(size = 512) {
   const mapData = new Uint8Array(size * size * 4);
   const normalData = new Uint8Array(size * size * 4);
 
-  // High-quality noise function for realism
+  // --- Start of robust 2D noise implementation ---
+  const lerp = (a, b, t) => a + (b - a) * t;
+  const fade = (t) => t * t * (3 - 2 * t);
+  function hash(x, y) {
+    let n = x * 374761393 + y * 668265263;
+    n = (n ^ (n >> 13)) * 1274126177;
+    return ((n ^ (n >> 16)) >>> 0) / 4294967295;
+  }
+  function valueNoise(x, y) {
+    const xi = Math.floor(x), yi = Math.floor(y);
+    const xf = x - xi,        yf = y - yi;
+    const s = hash(xi,   yi), t = hash(xi+1, yi);
+    const u = hash(xi,   yi+1), v = hash(xi+1, yi+1);
+    const sx = fade(xf), sy = fade(yf);
+    const a = lerp(s, t, sx), b = lerp(u, v, sx);
+    return lerp(a, b, sy);
+  }
   const fbm = (x, y, octaves) => {
-    let sum = 0, amp = 0.5, freq = 2.0;
+    let sum = 0, amp = 0.5, freq = 1.0;
     for (let i = 0; i < octaves; i++) {
-      sum += amp * pseudo(x * freq + y * freq * 57.0);
+      sum += amp * valueNoise(x * freq, y * freq);
       amp *= 0.5; freq *= 2.0;
     }
     return sum;
   };
+  // --- End of robust 2D noise implementation ---
 
   for (let y = 0; y < size; y++) {
     for (let x = 0; x < size; x++) {
@@ -49,29 +66,29 @@ function createConcreteMaps(size = 512) {
       const nx = x / size, ny = y / size;
 
       // --- Color Map ---
-      let c = 0.6 + fbm(nx, ny, 5) * 0.1; // Base grey
-      c += fbm(nx * 3.0, ny * 3.0, 6) * 0.05; // Mottling/stains
+      let c = 0.6 + fbm(nx * 2, ny * 2, 5) * 0.2;  // Base grey
+      c += fbm(nx * 8, ny * 8, 4) * 0.05;         // Mottling/stains
       c = THREE.MathUtils.clamp(c, 0.0, 1.0);
       const g = Math.round(c * 255);
       mapData[i] = mapData[i+1] = mapData[i+2] = g;
       mapData[i+3] = 255;
 
       // --- Normal Map (from noise gradient) ---
-      const strength = 0.4;
-      const e = 1 / size; // epsilon for sampling neighbors
-      const h_center = fbm(nx, ny, 4);
-      const h_x = fbm(nx + e, ny, 4);
-      const h_y = fbm(nx, ny + e, 4);
+      const strength = 0.5;
+      const e = 1 / size;
+      const h_center = fbm(nx * 4, ny * 4, 4);
+      const h_x = fbm((nx + e) * 4, ny * 4, 4);
+      const h_y = fbm(nx * 4, (ny + e) * 4, 4);
       
       const n = new THREE.Vector3(
         (h_center - h_x) * strength,
         (h_center - h_y) * strength,
-        1.0
+        e // The Z component is related to the sample distance
       ).normalize();
       
       normalData[i]   = (n.x * 0.5 + 0.5) * 255; // R
       normalData[i+1] = (n.y * 0.5 + 0.5) * 255; // G
-      normalData[i+2] = (n.z * 0.5 + 0.5) * 255; // B
+      normalData[i+2] = 1.0 * 255;               // B (point up)
       normalData[i+3] = 255;
     }
   }
@@ -98,17 +115,8 @@ function matConcrete() {
   return new THREE.MeshStandardMaterial({
     map: map,
     normalMap: normalMap,
-    normalScale: new THREE.Vector2(0.8, 0.8), // Adjust strength of bumps
+    normalScale: new THREE.Vector2(0.8, 0.8),
     roughness: 0.85,
     metalness: 0.0,
   });
-}
-
-function pseudo(n) {
-  n = (n ^ 61) ^ (n >>> 16);
-  n = n + (n << 3);
-  n = n ^ (n >>> 4);
-  n = n * 0x27d4eb2d;
-  n = n ^ (n >>> 15);
-  return (n >>> 0) / 4294967295;
 }
