@@ -4,16 +4,20 @@ import * as THREE from "three";
 /* ---------- Catalog ---------- */
 export function makeCatalog() {
   return [
-    { id:"metal_flat",    name:"Metal Flat",    baseType:"flat", kind:"flat",  material: matMetal,
+    { id:"metal_flat",    name:"Metal Flat",    baseType:"flat",  kind:"flat",  material: matMetal,
       size:{x:3, y:0.2, z:3}, thickness:0.2, preview:"#b8c2cc" },
 
-    { id:"metal_wall",    name:"Metal Wall",    baseType:"wall", kind:"wall",  material: matWall,
+    { id:"metal_wall",    name:"Metal Wall",    baseType:"wall",  kind:"wall",  material: matWall,
       size:{x:3, y:3,   z:0.2}, thickness:0.2, preview:"#dfe6ee" },
 
-    { id:"concrete_flat", name:"Concrete Flat", baseType:"flat", kind:"flat",  material: matConcrete,
+    // NEW: Metal Beam (1×1 tile footprint, height = wall)
+    { id:"metal_beam",    name:"Metal Beam",    baseType:"beam",  kind:"pillar", material: matBeam,
+      size:{x:3, y:3,   z:3},  thickness:0.0, preview:"#c7ccd2" },
+
+    { id:"concrete_flat", name:"Concrete Flat", baseType:"flat",  kind:"flat",  material: matConcrete,
       size:{x:3, y:0.2, z:3}, thickness:0.2, preview:"#b9b9b9" },
 
-    { id:"concrete_wall", name:"Concrete Wall", baseType:"wall", kind:"wall",  material: matConcrete,
+    { id:"concrete_wall", name:"Concrete Wall", baseType:"wall",  kind:"wall",  material: matConcrete,
       size:{x:3, y:3,   z:0.2}, thickness:0.2, preview:"#c7c7c7" },
   ];
 }
@@ -23,13 +27,36 @@ export function buildPart(def) {
   const g = new THREE.Group();
   const material = def.material();
 
+  // Beam: build an I-beam inside a 3×3 footprint, height = def.size.y
+  if (def.baseType === "beam") {
+    const H = def.size.y;        // 3
+    const W = 2.6;               // flange width (X) inside tile
+    const D = 1.0;               // flange/web depth (Z)
+    const t = 0.22;              // flange thickness (Y)
+    const tw = 0.36;             // web thickness (X)
+
+    const top    = new THREE.Mesh(new THREE.BoxGeometry(W, t, D), material);
+    const bottom = new THREE.Mesh(new THREE.BoxGeometry(W, t, D), material);
+    const web    = new THREE.Mesh(new THREE.BoxGeometry(tw, H - 2*t, D), material);
+
+    top.position.set(0,  H/2 - t/2, 0);
+    bottom.position.set(0, -H/2 + t/2, 0);
+    web.position.set(0, 0, 0);
+
+    [top,bottom,web].forEach(m => { m.castShadow = true; m.receiveShadow = true; });
+
+    g.add(top, bottom, web);
+    return g;
+  }
+
+  // Walls & flats as before
   let mesh;
   if (def.baseType === "wall") {
     mesh = new THREE.Mesh(
       new THREE.BoxGeometry(def.size.x, def.size.y, def.thickness, 1, 1, 1),
       material
     );
-  } else {
+  } else { // flat
     mesh = new THREE.Mesh(
       new THREE.BoxGeometry(def.size.x, def.thickness, def.size.z, 1, 1, 1),
       material
@@ -59,6 +86,15 @@ function matWall() {
     color: 0xe6edf5,
     roughness: 0.40,
     metalness: 0.90
+  });
+}
+
+// Steel beam: slightly darker, a touch rougher than wall metal
+function matBeam() {
+  return new THREE.MeshStandardMaterial({
+    color: 0x9aa3ab,     // cool steel
+    roughness: 0.55,
+    metalness: 0.85
   });
 }
 
