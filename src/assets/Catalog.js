@@ -39,23 +39,27 @@ function matMetal(){ return new THREE.MeshStandardMaterial({ color:0x9ea6af, rou
 function matWall(){  return new THREE.MeshStandardMaterial({ color:0xe6edf5, roughness:0.4,  metalness:0.9  }); }
 
 
-// --- NEW, 100% PROCEDURAL CONCRETE MATERIAL ---
+// --- CORRECTED 100% PROCEDURAL CONCRETE MATERIAL ---
 
 // We create the procedural textures only once and reuse them.
 let concreteColorMap = null;
 let concreteRoughnessMap = null;
 
 /**
- * Generates a DataTexture with a simple noise pattern.
- * This is 100% procedural as it creates the texture from pure code.
+ * Generates a DataTexture with a noise pattern in a specific grayscale range.
+ * @param {number} width - Texture width.
+ * @param {number} height - Texture height.
+ * @param {number} baseGray - The base grayscale value (0-255).
+ * @param {number} range - The range of random noise to add to the base (e.g., 50).
  */
-function createNoiseTexture(width, height) {
+function createNoiseTexture(width, height, baseGray, range) {
   const size = width * height;
   const data = new Uint8Array(3 * size); // 3 for R, G, B channels
 
   for (let i = 0; i < size; i++) {
     const stride = i * 3;
-    const gray = Math.random() * 255;
+    // Generate a grayscale value within the specified range
+    const gray = Math.floor(baseGray + Math.random() * range);
     data[stride] = gray;
     data[stride + 1] = gray;
     data[stride + 2] = gray;
@@ -71,24 +75,29 @@ function createNoiseTexture(width, height) {
 function matConcrete() {
   // Generate the textures on the first call, then reuse them.
   if (!concreteColorMap) {
-    concreteColorMap = createNoiseTexture(64, 64);
-    concreteRoughnessMap = createNoiseTexture(128, 128);
+    // Create a lighter grey noise texture. Values will be between 170 and (170+70=240).
+    concreteColorMap = createNoiseTexture(64, 64, 170, 70);
+    
+    // Roughness map can have full contrast to create varied patches
+    concreteRoughnessMap = createNoiseTexture(128, 128, 0, 255);
   }
 
   const mat = new THREE.MeshStandardMaterial({
-    color: 0x999999,      // A base gray color for the concrete
-    map: concreteColorMap, // The main texture giving it a mottled look
+    // Use a white base color so the full color of the texture map is used.
+    // A grey base color was multiplying with the texture, making it too dark.
+    color: 0xffffff,
+    map: concreteColorMap,
 
-    metalness: 0.0,       // Not metallic
-    roughness: 0.9,       // Very rough surface overall
+    metalness: 0.0,
+    roughness: 0.85,
 
-    // Use a second noise map to vary the roughness across the surface
+    // Use a second noise map to vary the roughness for a more realistic surface
     roughnessMap: concreteRoughnessMap,
   });
 
-  // This scales the texture so it looks good on the 3x3 surfaces
-  mat.map.repeat.set(3, 3);
-  mat.roughnessMap.repeat.set(4, 4);
+  // Scale the textures to look good on the 3x3 surfaces
+  mat.map.repeat.set(2.5, 2.5);
+  mat.roughnessMap.repeat.set(3, 3);
 
   return mat;
 }
