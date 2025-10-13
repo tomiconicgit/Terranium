@@ -50,7 +50,7 @@ let concreteRoughnessMap = null;
  * @param {number} width - Texture width.
  * @param {number} height - Texture height.
  * @param {number} baseGray - The base grayscale value (0-255).
- * @param {number} range - The range of random noise to add to the base (e.g., 50).
+ * @param {number} range - The range of random noise to add to the base.
  */
 function createNoiseTexture(width, height, baseGray, range) {
   const size = width * height;
@@ -58,7 +58,6 @@ function createNoiseTexture(width, height, baseGray, range) {
 
   for (let i = 0; i < size; i++) {
     const stride = i * 3;
-    // Generate a grayscale value within the specified range
     const gray = Math.floor(baseGray + Math.random() * range);
     data[stride] = gray;
     data[stride + 1] = gray;
@@ -68,6 +67,12 @@ function createNoiseTexture(width, height, baseGray, range) {
   const texture = new THREE.DataTexture(data, width, height, THREE.RGBFormat);
   texture.wrapS = THREE.RepeatWrapping;
   texture.wrapT = THREE.RepeatWrapping;
+
+  // --- THIS IS THE FIX ---
+  // Tell Three.js this texture data is in linear color space and not sRGB.
+  texture.colorSpace = THREE.LinearSRGBColorSpace;
+  // --------------------
+
   texture.needsUpdate = true;
   return texture;
 }
@@ -84,7 +89,6 @@ function matConcrete() {
 
   const mat = new THREE.MeshStandardMaterial({
     // Use a white base color so the full color of the texture map is used.
-    // A grey base color was multiplying with the texture, making it too dark.
     color: 0xffffff,
     map: concreteColorMap,
 
