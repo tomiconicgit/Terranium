@@ -1,7 +1,7 @@
 // src/assets/Catalog.js
 import * as THREE from "three";
 import { createMetalPanelMaterial } from "../materials/ProcPanel.js";
-import { buildSciFiPart } from './SciFiGenerator.js'; // Import the new generator
+import { buildSciFiPart } from './SciFiGenerator.js'; // This path must be correct
 
 /* ---------- Catalog ---------- */
 export function makeCatalog() {
@@ -39,7 +39,6 @@ export function makeCatalog() {
       },
       preview: "#72798a"
     },
-
 
     // --- Original Parts (kept for variety) ---
     { id:"metal_wall", name:"Metal Wall", baseType:"wall", kind:"wall",
@@ -87,7 +86,6 @@ export function buildPart(def) {
 
 
 /* ---------- Materials (Originals) ---------- */
-// ... (the rest of the file remains unchanged) ...
 function matMetalFlat() {
   return createMetalPanelMaterial({
     baseColor: 0x8fa2b3,
