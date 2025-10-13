@@ -39,27 +39,56 @@ function matMetal(){ return new THREE.MeshStandardMaterial({ color:0x9ea6af, rou
 function matWall(){  return new THREE.MeshStandardMaterial({ color:0xe6edf5, roughness:0.4,  metalness:0.9  }); }
 
 
-// --- NEW RELIABLE CONCRETE MATERIAL ---
-// We create the texture loader once and reuse it.
-const textureLoader = new THREE.TextureLoader();
-let concreteTexture = null;
+// --- NEW, 100% PROCEDURAL CONCRETE MATERIAL ---
 
-// The texture is embedded as a Base64 string, so no extra files are needed.
-const concreteTextureBase64 = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAIAAAACACAYAAADDPmHLAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAdNSURBVHhe7d1Nc5pQFAfwz/sCgSBCwAEEgkYgZUIkgiBCwAEIgkYgZUIkghgQCAIeIHc3PT29yTjL6apTde7p+/S9j93bVf1d3e2uY+v5/v5+JpPJzGYzS6VSmUwm1Go1q1ar6b1+n8lkQpblv31a0y0Wi8VisUjG/9jM8vv9vt/vRzP/x2aGq/cHDx4wGo0wDAPLssjlcuj1enA4HHA4HHA4HHA4HDAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAajTAaj-g/w0T0/1W99tXvS0Wi01NTWEYBkqlkr/tD3e7XY7HY+L5aDRqNBqhVCphGEZZlr/7tKbbi4uLKIpCX18fDocjcXwaDAY4nU7i+TQajVAqleJyuWBZ1u9+W9NtNBqFQqFwOBwIBoPc7u5umUymX8/v98NisfD7/XC5XHA4HJBKpTBNE6vVCr7vYRgGvu9xOp243W5cLhcsy+Lz+bBarXC73ThdLuL5LBaLwWDw632u3/f7fa1W+3W/3+/n52fkeX5/f8/v98NisYinwzAMXC4XpmmiVCpxu91yuVxYLBY4nU6MxiMMw2AymWCxWJDP8+u+0WgUvu/xeDzIZVmm0+l6v5/JZIKu6+VyOQzDIJ/PI5PJEAqFMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMBqNMB-AARL2qY76EAAA';
+// We create the procedural textures only once and reuse them.
+let concreteColorMap = null;
+let concreteRoughnessMap = null;
 
-function matConcrete() {
-  // Load the texture only once and reuse it for all concrete materials.
-  if (!concreteTexture) {
-    concreteTexture = textureLoader.load(concreteTextureBase64);
-    concreteTexture.wrapS = THREE.RepeatWrapping;
-    concreteTexture.wrapT = THREE.RepeatWrapping;
-    concreteTexture.repeat.set(2, 2); // Tiles the texture 2x2 on a 3x3 surface
+/**
+ * Generates a DataTexture with a simple noise pattern.
+ * This is 100% procedural as it creates the texture from pure code.
+ */
+function createNoiseTexture(width, height) {
+  const size = width * height;
+  const data = new Uint8Array(3 * size); // 3 for R, G, B channels
+
+  for (let i = 0; i < size; i++) {
+    const stride = i * 3;
+    const gray = Math.random() * 255;
+    data[stride] = gray;
+    data[stride + 1] = gray;
+    data[stride + 2] = gray;
   }
 
-  return new THREE.MeshStandardMaterial({
-    color: 0xffffff, // Set to white to show the texture's true colors
-    map: concreteTexture,
-    roughness: 0.85,
-    metalness: 0.1, // A tiny bit of metalness helps it catch light nicely
+  const texture = new THREE.DataTexture(data, width, height, THREE.RGBFormat);
+  texture.wrapS = THREE.RepeatWrapping;
+  texture.wrapT = THREE.RepeatWrapping;
+  texture.needsUpdate = true;
+  return texture;
+}
+
+function matConcrete() {
+  // Generate the textures on the first call, then reuse them.
+  if (!concreteColorMap) {
+    concreteColorMap = createNoiseTexture(64, 64);
+    concreteRoughnessMap = createNoiseTexture(128, 128);
+  }
+
+  const mat = new THREE.MeshStandardMaterial({
+    color: 0x999999,      // A base gray color for the concrete
+    map: concreteColorMap, // The main texture giving it a mottled look
+
+    metalness: 0.0,       // Not metallic
+    roughness: 0.9,       // Very rough surface overall
+
+    // Use a second noise map to vary the roughness across the surface
+    roughnessMap: concreteRoughnessMap,
   });
+
+  // This scales the texture so it looks good on the 3x3 surfaces
+  mat.map.repeat.set(3, 3);
+  mat.roughnessMap.repeat.set(4, 4);
+
+  return mat;
 }
