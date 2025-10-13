@@ -49,18 +49,13 @@ export class Builder {
     if (key !== this.prevKey){
       this.preview.clear();
       const ghost = buildPart(def);
-
-      // transparent ghost
       ghost.traverse(o => {
         if (o.isMesh){
-          const ghostMat = o.material.clone();
-          ghostMat.transparent = true;
-          ghostMat.opacity = 0.45;
-          ghostMat.depthWrite = false;
-          o.material = ghostMat;
+          const m = o.material.clone();
+          m.transparent = true; m.opacity = 0.45; m.depthWrite = false;
+          o.material = m;
         }
       });
-
       this.preview.add(ghost);
       this.prevKey = key;
     }
@@ -80,9 +75,37 @@ export class Builder {
     const rotQ = new THREE.Quaternion().setFromAxisAngle(Y, rotYaw);
     const snap3 = (v) => Math.round(v / 3) * 3;
 
+    // ===== BEAM (1×1 tile column / I-beam) =====
+    if (def.baseType === 'beam') {
+      // On top of a flat
+      if (anchorRoot?.userData?.part?.type === 'flat' && n.y > 0.9) {
+        const flat = anchorRoot;
+        const cellCenter = flat.userData.foundationCenter.clone();
+        const pos = cellCenter.clone();
+        pos.y = flat.position.y + (flat.userData.part.thickness / 2) + (def.size.y / 2);
+        // rotate with user yaw
+        return { pos, rot: rotQ, foundationCenter: cellCenter };
+      }
+      // Stack on another beam/wall (top face)
+      if (anchorRoot && n.y > 0.9 && (anchorRoot.userData.part.type === 'beam' || anchorRoot.userData.part.type === 'wall')) {
+        const base = anchorRoot;
+        const pos = base.position.clone();
+        pos.y += base.userData.part.size.y / 2 + def.size.y / 2;
+        const foundationCenter = base.userData.foundationCenter?.clone() || new THREE.Vector3(Math.round(pos.x/3)*3, 0, Math.round(pos.z/3)*3);
+        return { pos, rot: rotQ, foundationCenter };
+      }
+      // Or directly on terrain (snapped cell)
+      if (hitObject === this.terrain) {
+        const cx = snap3(hitPoint.x);
+        const cz = snap3(hitPoint.z);
+        const pos = new THREE.Vector3(cx, def.size.y / 2, cz);
+        return { pos, rot: rotQ, foundationCenter: new THREE.Vector3(cx, 0, cz) };
+      }
+      return null;
+    }
+
     // ===== FLATS =====
     if (def.baseType === 'flat'){
-      // on top of a wall (ceiling)
       if (anchorRoot?.userData?.part?.type === 'wall' && n.y > 0.9) {
         const wall = anchorRoot;
         const foundationCenter = wall.userData.foundationCenter;
@@ -90,16 +113,12 @@ export class Builder {
         pos.y = wall.position.y + (wall.userData.part.size.y / 2) + (def.thickness / 2);
         return { pos, rot: rotQ, foundationCenter: foundationCenter.clone() };
       }
-
-      // on terrain
       if (hitObject === this.terrain) {
         const cx = snap3(hitPoint.x);
         const cz = snap3(hitPoint.z);
         const pos = new THREE.Vector3(cx, def.thickness / 2, cz);
         return { pos, rot: rotQ, foundationCenter: new THREE.Vector3(cx, 0, cz) };
       }
-
-      // extend from existing flat (side)
       if (anchorRoot?.userData?.part?.type === 'flat' && Math.abs(n.y) < 0.1) {
         const base = anchorRoot;
         const out = new THREE.Vector3(Math.round(n.x), 0, Math.round(n.z));
@@ -108,15 +127,12 @@ export class Builder {
         const foundationCenter = new THREE.Vector3(pos.x, 0, pos.z);
         return { pos, rot: rotQ, foundationCenter };
       }
-
       return null;
     }
 
     // ===== WALLS =====
     if (def.baseType === 'wall'){
       if (!anchorRoot) return null;
-
-      // stack on another wall
       if (anchorRoot.userData.part.type === 'wall' && n.y > 0.9) {
         const baseWall = anchorRoot;
         const pos = baseWall.position.clone();
@@ -125,8 +141,6 @@ export class Builder {
         const foundationCenter = baseWall.userData.foundationCenter.clone();
         return { pos, rot, foundationCenter };
       }
-
-      // on the edge of a flat
       if (anchorRoot.userData.part.type === 'flat' && n.y > 0.9) {
         const flat = anchorRoot;
         const cellCenter = flat.userData.foundationCenter;
@@ -140,7 +154,6 @@ export class Builder {
 
         return { pos, rot, foundationCenter: cellCenter.clone() };
       }
-      
       return null;
     }
 
@@ -159,9 +172,6 @@ export class Builder {
     mesh.userData.foundationCenter = sugg.foundationCenter.clone();
 
     this.world.add(mesh);
-
-    // Lock concrete textures to world so slabs blend (and seams line up)
-    lockWorldConcreteUV(mesh, def);
   }
 
   removeOne(){
@@ -178,40 +188,3 @@ function worldNormal(hit){ const n=(hit.face?.normal?hit.face.normal.clone():new
 function pickSide(point, cellCenter){ const d=point.clone().sub(cellCenter); return (Math.abs(d.x)>Math.abs(d.z))?(d.x>=0?'+x':'-x'):(d.z>=0?'+z':'-z'); }
 function outwardVector(side){ switch(side){ case '+x':return new THREE.Vector3(1,0,0); case '-x':return new THREE.Vector3(-1,0,0); case '+z':return new THREE.Vector3(0,0,1); case '-z':return new THREE.Vector3(0,0,-1);} return new THREE.Vector3(1,0,0); }
 function yawForSide(side){ switch(side){ case '+x':return Math.PI/2; case '-x':return -Math.PI/2; case '+z':return 0; case '-z':return Math.PI; } return 0; }
-
-/* --- World-locked UVs so neighbouring slabs/walls share one pattern --- */
-function lockWorldConcreteUV(root, def){
-  const UNITS_PER_REPEAT = 4.0; // higher = calmer pattern
-
-  root.traverse(o=>{
-    if (!o.isMesh) return;
-    const m = o.material;
-    if (!m || !m.map) return; // only textured (concrete)
-
-    // per-instance clone so each piece can have its own offset/repeat
-    const tex = m.map = m.map.clone();
-    tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-    tex.center.set(0,0);
-    tex.rotation = 0;
-    tex.repeat.set(1/UNITS_PER_REPEAT, 1/UNITS_PER_REPEAT);
-
-    const c = root.userData.foundationCenter || new THREE.Vector3();
-
-    if (def.baseType === "flat") {
-      const left = c.x - def.size.x/2;
-      const near = c.z - def.size.z/2;
-      tex.offset.set(left/UNITS_PER_REPEAT, near/UNITS_PER_REPEAT);
-    } else { // wall
-      const yaw = new THREE.Euler().setFromQuaternion(root.quaternion, "YXZ").y;
-      const alongX = Math.abs(Math.cos(yaw)) > 0.7071;
-      if (alongX) {
-        const left = c.x - def.size.x/2;
-        tex.offset.set(left/UNITS_PER_REPEAT, 0);
-      } else {
-        const near = c.z - def.size.x/2;
-        tex.offset.set(near/UNITS_PER_REPEAT, 0);
-      }
-    }
-    tex.needsUpdate = true;
-  });
-}
