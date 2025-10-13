@@ -1,4 +1,4 @@
-// src/main.js — basics only (no bloom, no post-processing)
+// src/main.js — shadows on, basic renderer
 import * as THREE from 'three';
 import { Scene } from './scene/Scene.js';
 import { GamepadFPV } from './controls/GamepadFPV.js';
@@ -20,16 +20,21 @@ let renderer, scene, camera, fpv;
 try {
   renderer = new THREE.WebGLRenderer({ antialias: true });
   renderer.outputColorSpace = THREE.SRGBColorSpace;
-  renderer.toneMapping = THREE.NoToneMapping;      // keep exposure neutral
+  renderer.toneMapping = THREE.NoToneMapping;
   renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
   renderer.setSize(window.innerWidth, window.innerHeight);
+
+  // SHADOWS
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
   mount.appendChild(renderer.domElement);
 
-  scene = new Scene();
+  scene = new Scene(renderer); // pass renderer for shadow tuning
 
-  camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 1000);
+  camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 1500);
   fpv = new GamepadFPV(camera);
-  fpv.position.set(0, 2, 6);
+  fpv.position.set(0, 3, 10);
   scene.add(fpv);
 } catch (e) {
   die('Renderer/scene init', e);
@@ -55,7 +60,6 @@ window.addEventListener('resize', () => {
 
 /* ---------- Loop ---------- */
 const clock = new THREE.Clock();
-
 function animate(){
   requestAnimationFrame(animate);
   const dt = Math.min(0.05, clock.getDelta());
@@ -67,5 +71,4 @@ function animate(){
 
   renderer.render(scene, camera);
 }
-
 animate();
