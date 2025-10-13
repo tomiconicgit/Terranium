@@ -62,6 +62,7 @@ export function buildSciFiPart(def) {
 
     // --- Finalize and Merge ---
     if (mainGeos.length > 0) {
+        // *** FIXED LINE ***
         const mergedMainGeo = BufferGeometryUtils.mergeGeometries(mainGeos);
         mergedMainGeo.computeVertexNormals();
         const mainMesh = new THREE.Mesh(
@@ -78,6 +79,7 @@ export function buildSciFiPart(def) {
     }
 
     if (lightGeos.length > 0) {
+        // *** FIXED LINE ***
         const mergedLightGeo = BufferGeometryUtils.mergeGeometries(lightGeos);
         const lightMesh = new THREE.Mesh(mergedLightGeo, getEmissiveMaterial(params.lightColor));
         group.add(lightMesh);
