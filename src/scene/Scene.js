@@ -132,53 +132,48 @@ function createSandMaterial() {
 
   mat.onBeforeCompile = (shader) => {
     shader.uniforms.uTime = { value: 0 };
-    // Pass world position from vertex to fragment shader
     shader.vertexShader = 'varying vec3 vWorldPosition;\n' + shader.vertexShader;
     shader.vertexShader = shader.vertexShader.replace(
       '#include <worldpos_vertex>',
       '#include <worldpos_vertex>\nvWorldPosition = worldPosition.xyz;'
     );
-    // Add procedural noise logic to fragment shader
     shader.fragmentShader = `
       uniform float uTime;
       varying vec3 vWorldPosition;
       
-      // FBM noise function (from scene file)
-      float hash(vec2 p) {
-        float n = dot(p, vec2(37.47, 66.82));
-        return fract(sin(n) * 43758.5453);
-      }
+      float hash(vec2 p) { return fract(sin(dot(p, vec2(37.47, 66.82))) * 43758.54); }
       float noise(vec2 p) {
-        vec2 i = floor(p); vec2 f = fract(p);
-        f = f*f*(3.0-2.0*f);
-        float a = hash(i); float b = hash(i + vec2(1.,0.));
-        float c = hash(i + vec2(0.,1.)); float d = hash(i + vec2(1.,1.));
-        return mix(mix(a,b,f.x), mix(c,d,f.x), f.y);
+        vec2 i = floor(p); vec2 f = fract(p); f = f*f*(3.0-2.0*f);
+        return mix(mix(hash(i), hash(i+vec2(1,0)), f.x), mix(hash(i+vec2(0,1)), hash(i+vec2(1,1)), f.x), f.y);
       }
-      float fbm(vec2 p, int octaves) {
-        float amp = 0.5, freq = 2.0, sum = 0.0;
-        for (int i=0; i<octaves; i++) {
-          sum += amp * noise(p * freq);
-          freq *= 2.0; amp *= 0.5;
-        }
+
+      // *** FIXED FBM FUNCTION ***
+      // The for-loop has been "unrolled" to guarantee it compiles on all GPUs.
+      float fbm(vec2 p) {
+        float sum = 0.0;
+        float amp = 0.5;
+        float freq = 2.0;
+        sum += amp * noise(p * freq); amp *= 0.5; freq *= 2.0;
+        sum += amp * noise(p * freq); amp *= 0.5; freq *= 2.0;
+        sum += amp * noise(p * freq); amp *= 0.5; freq *= 2.0;
+        sum += amp * noise(p * freq);
         return sum;
       }
       
       ` + shader.fragmentShader;
     
-    // Modify color and normals
     shader.fragmentShader = shader.fragmentShader.replace(
       '#include <color_fragment>',
       `#include <color_fragment>
       
       // Color variation
-      float n_color = fbm(vWorldPosition.xz * 0.2, 3);
+      float n_color = fbm(vWorldPosition.xz * 0.2);
       vec3 sand_dark = vec3(0.8, 0.7, 0.5);
       vec3 sand_light = vec3(1.0, 0.9, 0.7);
       diffuseColor.rgb *= mix(sand_dark, sand_light, n_color);
       
       // Normal map variation (wind ripples)
-      float n_ripple = sin(vWorldPosition.x * 2.0 + fbm(vWorldPosition.xz * 0.5, 2) * 2.0) * 0.5 + 0.5;
+      float n_ripple = sin(vWorldPosition.x * 2.0 + fbm(vWorldPosition.xz * 0.5) * 2.0) * 0.5 + 0.5;
       vec3 normal_ripple = vec3(0.0, 1.0, 0.05 * -cos(vWorldPosition.x * 2.0));
       
       // Subtle bumps
@@ -187,7 +182,6 @@ function createSandMaterial() {
       float n_bump_c = noise(vWorldPosition.xz * 15.0 + vec2(0.0, 0.01));
       vec3 normal_bump = vec3(n_bump_a - n_bump_b, 1.0, n_bump_a - n_bump_c);
       
-      // Combine and apply
       normal = normalize(vNormal + normalize(normal_ripple).zyx * 0.1 + normalize(normal_bump) * 0.05);
       `
     );
