@@ -50,11 +50,28 @@ export class Builder {
     const key = `${def.id}|${sugg.pos.x.toFixed(2)},${sugg.pos.y.toFixed(2)},${sugg.pos.z.toFixed(2)}|${sugg.rot.y.toFixed(2)}`;
     if (key !== this.prevKey){
       this.preview.clear();
-      // Use the imported buildPart function
       const ghost = buildPart(def);
-      ghost.traverse(o=>{
-        if (o.isMesh){ const m=o.material.clone(); m.transparent=true; m.opacity=0.45; m.depthWrite=false; o.material=m; }
+
+      // --- GHOST MATERIAL FIX ---
+      ghost.traverse(o => {
+        if (o.isMesh){
+          const originalMat = o.material;
+          const ghostMat = originalMat.clone();
+
+          ghostMat.transparent = true;
+          ghostMat.opacity = 0.45;
+          ghostMat.depthWrite = false;
+
+          // Manually copy procedural shader logic if it exists
+          if (originalMat.isProcedural) {
+            ghostMat.onBeforeCompile = originalMat.onBeforeCompile;
+          }
+
+          o.material = ghostMat;
+        }
       });
+      // --- END FIX ---
+
       this.preview.add(ghost);
       this.prevKey = key;
     }
@@ -74,7 +91,7 @@ export class Builder {
     const rotQ = new THREE.Quaternion().setFromAxisAngle(Y, rotYaw);
     const snap3 = (v) => Math.round(v / 3) * 3;
 
-    // ===== METAL FLAT =====
+    // ===== FLATS (Metal, Concrete, etc.) =====
     if (def.baseType === 'flat'){
       // Case 1: Place on top of a wall (ceiling)
       if (anchorRoot?.userData?.part?.type === 'wall' && n.y > 0.9) {
@@ -106,7 +123,7 @@ export class Builder {
       return null;
     }
 
-    // ===== WALLS =====
+    // ===== WALLS (Metal, Concrete, etc.) =====
     if (def.baseType === 'wall'){
       if (!anchorRoot) return null;
 
