@@ -58,7 +58,7 @@ export function createMetalPanelMaterial({
         float ax = abs(p.x - round(p.x / uCell) * uCell);
         float ay = abs(p.y - round(p.y / uCell) * uCell);
         float d = min(ax, ay);
-        return smoothstep(uSeamWidth, 0.0, d); // 1 inside groove → 0 far away
+        return smoothstep(uSeamWidth, 0.0, d); // 1 inside groove -> 0 far away
       }
 
       // distance to nearest corner (for bolt dot)
@@ -74,8 +74,8 @@ export function createMetalPanelMaterial({
         vec3 an = abs(normalize(vWorldN));
         if (uIsWall == 1) {
           // for walls we prefer X/Y or Y/Z depending on which face
-          if (an.z > an.x) return vec2(vWorldPos.x, vWorldPos.y); // facing ±Z
-          else             return vec2(vWorldPos.z, vWorldPos.y); // facing ±X
+          if (an.z > an.x) return vec2(vWorldPos.x, vWorldPos.y); // facing Z
+          else             return vec2(vWorldPos.z, vWorldPos.y); // facing X
         } else {
           // flats: use X/Z
           return vec2(vWorldPos.x, vWorldPos.z);
