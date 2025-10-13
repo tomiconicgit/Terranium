@@ -1,15 +1,9 @@
-// src/main.js
+// src/main.js — basics only (no bloom, no post-processing)
 import * as THREE from 'three';
 import { Scene } from './scene/Scene.js';
 import { GamepadFPV } from './controls/GamepadFPV.js';
 import { Hotbar } from './ui/Hotbar.js';
 import { Builder } from './tools/Builder.js';
-
-// --- Post-processing imports ---
-import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
-import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
-import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
-
 
 const mount    = document.getElementById('app');
 const hotbarEl = document.getElementById('hotbar');
@@ -22,12 +16,11 @@ function die(msg, err){
 }
 
 /* ---------- Three ---------- */
-let renderer, scene, camera, fpv, composer, bloomPass; // Add composer and bloomPass
+let renderer, scene, camera, fpv;
 try {
   renderer = new THREE.WebGLRenderer({ antialias: true });
   renderer.outputColorSpace = THREE.SRGBColorSpace;
-  renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 1.1; // Slightly increase exposure for better bloom
+  renderer.toneMapping = THREE.NoToneMapping;      // keep exposure neutral
   renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
   renderer.setSize(window.innerWidth, window.innerHeight);
   mount.appendChild(renderer.domElement);
@@ -38,16 +31,6 @@ try {
   fpv = new GamepadFPV(camera);
   fpv.position.set(0, 2, 6);
   scene.add(fpv);
-
-  // --- Post-processing setup ---
-  composer = new EffectComposer(renderer);
-  composer.addPass(new RenderPass(scene, camera));
-
-  bloomPass = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 1.2, 0.4, 0.6);
-  // bloomPass params: (resolution, strength, radius, threshold)
-  composer.addPass(bloomPass);
-
-
 } catch (e) {
   die('Renderer/scene init', e);
 }
@@ -68,7 +51,6 @@ window.addEventListener('resize', () => {
   camera.aspect = w / h;
   camera.updateProjectionMatrix();
   renderer.setSize(w, h);
-  composer.setSize(w, h); // Also resize the composer
 });
 
 /* ---------- Loop ---------- */
@@ -83,8 +65,7 @@ function animate(){
   builder.update(dt);
   if (typeof scene.update === 'function') scene.update(dt, t);
 
-  // Use the composer to render instead of the renderer directly
-  composer.render();
+  renderer.render(scene, camera);
 }
 
 animate();
