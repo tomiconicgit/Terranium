@@ -32,7 +32,6 @@ export class Scene extends THREE.Scene {
     this.add(world);
   }
 
-  // <<< add this so main.js can call scene.update(dt, t) safely >>>
   update(/* dt, elapsed */) {
     // no-op for now; keep for future scene tickers
   }
