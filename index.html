@@ -15,7 +15,7 @@
   <link rel="icon" href="./icon-192.png" sizes="192x192" />
   <link rel="icon" href="./icon-512.png" sizes="512x512" />
 
-  <!-- Import maps -->
+  <!-- Import map (three only) -->
   <script type="importmap">
     {
       "imports": {
@@ -110,7 +110,7 @@
     const errorOverlay = document.getElementById('errorOverlay');
     function showError(msg, src, line, col, err){
       const extra = [
-        src ? `\nSource: ${src}:${line||''}:${col||''}` : '',
+        src ? `\nSource: ${src}${line?':'+line:''}${col?':'+col:''}` : '',
         err?.message ? `\nReason: ${err.message}` : '',
         err?.name ? `\nType: ${err.name}` : '',
         err?.stack ? `\n\n${err.stack}` : ''
@@ -163,30 +163,57 @@
     updateRotateOverlay(); lockLandscape();
   </script>
 
-  <!-- Boot with import-map preflight -->
+  <!-- Boot with module preflight -->
   <script type="module">
     const V = Date.now();
 
-    const fail = (e) => {
-      // surface the underlying error instead of a generic message
-      window.__lastBootError = e;
-      const msg = (e && (e.message || e.toString())) || 'Unknown module error';
-      const src = (e && e.sourceURL) || (e && e.url) || '';
-      const line = e && e.line || '';
-      const col  = e && e.column || '';
+    const fail = (e, label) => {
+      const msg = (label ? label + '\n' : '') + ((e && (e.message || e.toString())) || 'Unknown');
+      const src = e && (e.sourceURL || e.filename || e.url);
+      const line = e && (e.lineno || e.line);
+      const col  = e && (e.colno  || e.column);
       showError('Failed to load ThreeJS / app modules\n' + msg, src, line, col, e);
     };
 
-    try {
-      // Preflight the import map & CDN reachability:
-      await import('three');
-      await import('three/addons/utils/BufferGeometryUtils.js');
+    async function preflight() {
+      // Check local modules exist and are reachable (gives you the exact URL if one 404s)
+      const local = [
+        './src/main.js',
+        './src/scene/Scene.js',
+        './src/controls/GamepadFPV.js',
+        './src/ui/Hotbar.js',
+        './src/tools/Builder.js',
+        './src/assets/Catalog.js'
+      ];
+      for (const m of local) {
+        const url = new URL(m, location.href);
+        url.searchParams.set('v', V);
+        try {
+          const r = await fetch(url, { cache: 'no-store', redirect: 'follow' });
+          if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
+          const ct = (r.headers.get('content-type')||'').toLowerCase();
+          if (!ct.includes('javascript')) {
+            console.warn('Non-JS content-type for', url.href, ct);
+          }
+        } catch (e) {
+          throw new Error(`Missing or blocked module:\n${url.href}\n${e.message}`);
+        }
+      }
 
-      // Load the app
-      await import(`./src/main.js?v=${V}`);
-    } catch (e) {
-      fail(e);
+      // Quick sanity on CDN import map
+      try { await import('three'); } catch (e) {
+        throw new Error('Failed to import "three" from import map.\n' + (e.message||e));
+      }
     }
+
+    (async () => {
+      try {
+        await preflight();
+        await import(`./src/main.js?v=${V}`);
+      } catch (e) {
+        fail(e);
+      }
+    })();
   </script>
 </body>
 </html>
