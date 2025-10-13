@@ -1,3 +1,4 @@
+<!-- File: index.html -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -10,9 +11,9 @@
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="mobile-web-app-capable" content="yes" />
-  <link rel="manifest" href="/manifest.webmanifest" />
-  <link rel="icon" href="/icon-192.png" sizes="192x192" />
-  <link rel="icon" href="/icon-512.png" sizes="512x512" />
+  <link rel="manifest" href="./manifest.webmanifest" />
+  <link rel="icon" href="./icon-192.png" sizes="192x192" />
+  <link rel="icon" href="./icon-512.png" sizes="512x512" />
 
   <!-- Import maps -->
   <script type="importmap">
@@ -108,17 +109,21 @@
   <script>
     const errorOverlay = document.getElementById('errorOverlay');
     function showError(msg, src, line, col, err){
+      const extra = [
+        src ? `\nSource: ${src}:${line||''}:${col||''}` : '',
+        err?.message ? `\nReason: ${err.message}` : '',
+        err?.name ? `\nType: ${err.name}` : '',
+        err?.stack ? `\n\n${err.stack}` : ''
+      ].join('');
       errorOverlay.style.display = 'block';
-      errorOverlay.textContent = '⚠️ JS Error:\n' + msg +
-        (src?('\n\nSource: '+src+':'+line+':'+col):'') +
-        (err && err.stack?('\n\n'+err.stack):'');
-      console.error(msg, err);
+      errorOverlay.textContent = '⚠️ JS Error:\n' + msg + extra;
+      console.error('BOOT ERROR:', msg, err);
     }
     window.addEventListener('error', e => showError(e.message, e.filename, e.lineno, e.colno, e.error));
-    window.addEventListener('unhandledrejection', e => showError(e.reason?.message || e.reason, '', '', '', e.reason));
+    window.addEventListener('unhandledrejection', e => showError(e.reason?.message || String(e.reason), '', '', '', e.reason));
   </script>
 
-  <!-- Service worker (no caching) + old SW/cache cleanup -->
+  <!-- Service worker (relative path) + old SW/cache cleanup -->
   <script>
     (async function setupSW(){
       try {
@@ -133,7 +138,7 @@
       } catch(e) { console.warn('Cleanup failed:', e); }
 
       if ('serviceWorker' in navigator) {
-        try { await navigator.serviceWorker.register('/sw.js', { scope: '/' }); }
+        try { await navigator.serviceWorker.register('./sw.js', { scope: './' }); }
         catch (e) { console.warn('sw register failed', e); }
       }
     })();
@@ -154,16 +159,34 @@
     window.addEventListener('resize', updateRotateOverlay, { passive:true });
     window.addEventListener('orientationchange', updateRotateOverlay, { passive:true });
     document.addEventListener('visibilitychange', updateRotateOverlay, { passive:true });
-    if (window.visualViewport) visualViewport.addEventListener('resize', updateRotateOverlay, { passive:true });
+    if (window.visualViewport) window.visualViewport.addEventListener('resize', updateRotateOverlay, { passive:true });
     updateRotateOverlay(); lockLandscape();
   </script>
 
-  <!-- Boot -->
+  <!-- Boot with import-map preflight -->
   <script type="module">
     const V = Date.now();
-    import(`./src/main.js?v=${V}`).catch(err => {
-      showError('Failed to load ThreeJS / app modules', '', '', '', err);
-    });
+
+    const fail = (e) => {
+      // surface the underlying error instead of a generic message
+      window.__lastBootError = e;
+      const msg = (e && (e.message || e.toString())) || 'Unknown module error';
+      const src = (e && e.sourceURL) || (e && e.url) || '';
+      const line = e && e.line || '';
+      const col  = e && e.column || '';
+      showError('Failed to load ThreeJS / app modules\n' + msg, src, line, col, e);
+    };
+
+    try {
+      // Preflight the import map & CDN reachability:
+      await import('three');
+      await import('three/addons/utils/BufferGeometryUtils.js');
+
+      // Load the app
+      await import(`./src/main.js?v=${V}`);
+    } catch (e) {
+      fail(e);
+    }
   </script>
 </body>
 </html>
