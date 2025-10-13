@@ -1,5 +1,4 @@
 import * as THREE from 'three';
-// Import the new catalog and build function
 import { makeCatalog, buildPart } from '../assets/Catalog.js';
 
 export class Builder {
@@ -11,7 +10,6 @@ export class Builder {
     this.world   = scene.getObjectByName('world');
     this.terrain = scene.getObjectByName('terrainPlane');
 
-    // Get catalog from the new file
     this.catalog = makeCatalog();
     this.hotbar.setCatalog(this.catalog);
 
@@ -47,12 +45,12 @@ export class Builder {
     const sugg = this.suggest(def, hit.point, normal, anchorRoot, hit.object);
     if (!sugg){ this.preview.visible=false; this._hover=null; return; }
 
-    const key = `${def.id}|${sugg.pos.x.toFixed(2)},${sugg.pos.y.toFixed(2)},${sugg.pos.z.toFixed(2)}|${sugg.rot.y.toFixed(2)}`;
+    const key = `${def.id}|${sugg.pos.x.toFixed(2)},${sugg.pos.y.toFixed(2)},${sugg.pos.z.toFixed(2)}|${sugg.rot.y?.toFixed?.(2) ?? 0}`;
     if (key !== this.prevKey){
       this.preview.clear();
       const ghost = buildPart(def);
 
-      // Standard ghost material logic (no special handling needed now)
+      // transparent ghost
       ghost.traverse(o => {
         if (o.isMesh){
           const ghostMat = o.material.clone();
@@ -82,9 +80,9 @@ export class Builder {
     const rotQ = new THREE.Quaternion().setFromAxisAngle(Y, rotYaw);
     const snap3 = (v) => Math.round(v / 3) * 3;
 
-    // ===== FLATS (Metal, Concrete, etc.) =====
+    // ===== FLATS =====
     if (def.baseType === 'flat'){
-      // Case 1: Place on top of a wall (ceiling)
+      // on top of a wall (ceiling)
       if (anchorRoot?.userData?.part?.type === 'wall' && n.y > 0.9) {
         const wall = anchorRoot;
         const foundationCenter = wall.userData.foundationCenter;
@@ -93,7 +91,7 @@ export class Builder {
         return { pos, rot: rotQ, foundationCenter: foundationCenter.clone() };
       }
 
-      // Case 2: Place on terrain
+      // on terrain
       if (hitObject === this.terrain) {
         const cx = snap3(hitPoint.x);
         const cz = snap3(hitPoint.z);
@@ -101,7 +99,7 @@ export class Builder {
         return { pos, rot: rotQ, foundationCenter: new THREE.Vector3(cx, 0, cz) };
       }
 
-      // Case 3: Extend from an existing flat (on the side)
+      // extend from existing flat (side)
       if (anchorRoot?.userData?.part?.type === 'flat' && Math.abs(n.y) < 0.1) {
         const base = anchorRoot;
         const out = new THREE.Vector3(Math.round(n.x), 0, Math.round(n.z));
@@ -114,11 +112,11 @@ export class Builder {
       return null;
     }
 
-    // ===== WALLS (Metal, Concrete, etc.) =====
+    // ===== WALLS =====
     if (def.baseType === 'wall'){
       if (!anchorRoot) return null;
 
-      // Case 1: Stack on top of another wall
+      // stack on another wall
       if (anchorRoot.userData.part.type === 'wall' && n.y > 0.9) {
         const baseWall = anchorRoot;
         const pos = baseWall.position.clone();
@@ -128,7 +126,7 @@ export class Builder {
         return { pos, rot, foundationCenter };
       }
 
-      // Case 2: Place on the edge of a flat
+      // on the edge of a flat
       if (anchorRoot.userData.part.type === 'flat' && n.y > 0.9) {
         const flat = anchorRoot;
         const cellCenter = flat.userData.foundationCenter;
@@ -153,7 +151,6 @@ export class Builder {
     const h = this._hover; if (!h) return;
     const { def, sugg } = h;
 
-    // Use the imported buildPart function
     const mesh = buildPart(def);
     mesh.position.copy(sugg.pos);
     mesh.quaternion.copy(sugg.rot);
@@ -162,6 +159,9 @@ export class Builder {
     mesh.userData.foundationCenter = sugg.foundationCenter.clone();
 
     this.world.add(mesh);
+
+    // NEW: lock concrete (and any mapped material) to world so slabs blend
+    lockWorldConcreteUV(mesh, def);
   }
 
   removeOne(){
@@ -171,10 +171,49 @@ export class Builder {
   }
 }
 
-/* ---------- helpers (no changes below this line) ---------- */
+/* ---------- helpers ---------- */
 const Y = new THREE.Vector3(0,1,0);
 function findPlacedRoot(obj){ let p=obj; while(p){ if (p.parent && p.parent.name==='world') return p; p=p.parent; } return null; }
 function worldNormal(hit){ const n=(hit.face?.normal?hit.face.normal.clone():new THREE.Vector3(0,1,0)); return n.applyMatrix3(new THREE.Matrix3().getNormalMatrix(hit.object.matrixWorld)).normalize(); }
 function pickSide(point, cellCenter){ const d=point.clone().sub(cellCenter); return (Math.abs(d.x)>Math.abs(d.z))?(d.x>=0?'+x':'-x'):(d.z>=0?'+z':'-z'); }
 function outwardVector(side){ switch(side){ case '+x':return new THREE.Vector3(1,0,0); case '-x':return new THREE.Vector3(-1,0,0); case '+z':return new THREE.Vector3(0,0,1); case '-z':return new THREE.Vector3(0,0,-1);} return new THREE.Vector3(1,0,0); }
 function yawForSide(side){ switch(side){ case '+x':return Math.PI/2; case '-x':return -Math.PI/2; case '+z':return 0; case '-z':return Math.PI; } return 0; }
+
+/* --- World-locked UVs so neighbouring slabs/walls share one pattern --- */
+function lockWorldConcreteUV(root, def){
+  const UNITS_PER_REPEAT = 4.0; // higher = calmer pattern & fewer seams
+
+  root.traverse(o=>{
+    if (!o.isMesh) return;
+    const m = o.material;
+    if (!m || !m.map) return; // only act on textured materials (e.g., concrete)
+
+    // per-instance clone so each piece can have its own offset/repeat
+    const tex = m.map = m.map.clone();
+    tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+    tex.center.set(0,0);
+    tex.rotation = 0;
+    tex.repeat.set(1/UNITS_PER_REPEAT, 1/UNITS_PER_REPEAT);
+
+    const c = root.userData.foundationCenter || new THREE.Vector3();
+
+    if (def.baseType === "flat") {
+      // anchor to the world-space left/near edges of the 3×3 cell
+      const left = c.x - def.size.x/2;
+      const near = c.z - def.size.z/2;
+      tex.offset.set(left/UNITS_PER_REPEAT, near/UNITS_PER_REPEAT);
+    } else { // wall
+      // align along its facing axis
+      const yaw = new THREE.Euler().setFromQuaternion(root.quaternion, "YXZ").y;
+      const alongX = Math.abs(Math.cos(yaw)) > 0.7071; // ~0°/180° => X aligned
+      if (alongX) {
+        const left = c.x - def.size.x/2;
+        tex.offset.set(left/UNITS_PER_REPEAT, 0);
+      } else {
+        const near = c.z - def.size.x/2;
+        tex.offset.set(near/UNITS_PER_REPEAT, 0);
+      }
+    }
+    tex.needsUpdate = true;
+  });
+}
