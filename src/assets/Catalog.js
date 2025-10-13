@@ -1,47 +1,81 @@
 // src/assets/Catalog.js
 import * as THREE from "three";
 import { createMetalPanelMaterial } from "../materials/ProcPanel.js";
+import { buildSciFiPart } from './SciFiGenerator.js'; // Import the new generator
 
 /* ---------- Catalog ---------- */
 export function makeCatalog() {
   return [
-    // Metal — fully procedural panels (no textures)
-    { id:"metal_flat", name:"Metal Flat", baseType:"flat", kind:"flat",
-      material: () => matMetalFlat(),
-      size:{x:3, y:0.2, z:3}, thickness:0.2, preview:"#a7b6c2" },
+    // --- New SciFi Parts ---
+    { id:"scifi_wall_1", name:"SciFi Wall", baseType:"wall", kind:"wall",
+      generator: 'scifi', // Use the new generator
+      size:{x:3, y:3, z:0.3},
+      genParams: {
+        style: 'industrial_wall',
+        hasLights: true,
+        lightColor: 0x4dd2ff,
+        baseColor: 0x3d4452,
+      },
+      preview: "#606878"
+    },
+    { id:"scifi_floor_1", name:"Grate Floor", baseType:"flat", kind:"flat",
+      generator: 'scifi',
+      size:{x:3, y:0.15, z:3},
+      genParams: {
+        style: 'grate_floor',
+        baseColor: 0x6a788d,
+        roughness: 0.3,
+      },
+      preview: "#808a9c"
+    },
+    { id:"scifi_beam_1", name:"Support Beam", baseType:"beam", kind:"wall", // Use 'wall' kind for preview style
+      generator: 'scifi',
+      size:{x:0.4, y:3, z:0.4},
+      genParams: {
+        style: 'support_beam',
+        hasLights: true,
+        lightColor: 0xffaa4d,
+        baseColor: 0x505869,
+      },
+      preview: "#72798a"
+    },
 
+
+    // --- Original Parts (kept for variety) ---
     { id:"metal_wall", name:"Metal Wall", baseType:"wall", kind:"wall",
       material: () => matMetalWall(),
-      size:{x:3, y:3,   z:0.2}, thickness:0.2, preview:"#dbe6f3" },
+      size:{x:3, y:3, z:0.2}, preview:"#dbe6f3" },
 
-    // Your concrete (unchanged)
-    { id:"concrete_flat", name:"Concrete Flat", baseType:"flat", kind:"flat",
-      material: matConcrete,
-      size:{x:3, y:0.2, z:3}, thickness:0.2, preview:"#b9b9b9" },
+    { id:"metal_flat", name:"Metal Flat", baseType:"flat", kind:"flat",
+      material: () => matMetalFlat(),
+      size:{x:3, y:0.2, z:3}, preview:"#a7b6c2" },
 
     { id:"concrete_wall", name:"Concrete Wall", baseType:"wall", kind:"wall",
       material: matConcrete,
-      size:{x:3, y:3,   z:0.2}, thickness:0.2, preview:"#c7c7c7" },
+      size:{x:3, y:3, z:0.2}, preview:"#c7c7c7" },
+
+    { id:"concrete_flat", name:"Concrete Flat", baseType:"flat", kind:"flat",
+      material: matConcrete,
+      size:{x:3, y:0.2, z:3}, preview:"#b9b9b9" },
   ];
 }
 
 /* ---------- Mesh builder ---------- */
 export function buildPart(def) {
+  // --- Dispatcher ---
+  // If the definition has a 'generator', use it. Otherwise, use the old method.
+  if (def.generator === 'scifi') {
+      return buildSciFiPart(def);
+  }
+
+  // --- Original Simple Builder ---
   const g = new THREE.Group();
   const material = def.material();
 
-  let mesh;
-  if (def.baseType === "wall") {
-    mesh = new THREE.Mesh(
-      new THREE.BoxGeometry(def.size.x, def.size.y, def.thickness, 1, 1, 1),
-      material
-    );
-  } else {
-    mesh = new THREE.Mesh(
-      new THREE.BoxGeometry(def.size.x, def.thickness, def.size.z, 1, 1, 1),
-      material
-    );
-  }
+  const mesh = new THREE.Mesh(
+    new THREE.BoxGeometry(def.size.x, def.size.y, def.size.z, 1, 1, 1),
+    material
+  );
 
   mesh.geometry.computeVertexNormals();
   mesh.castShadow = true;
@@ -51,15 +85,15 @@ export function buildPart(def) {
   return g;
 }
 
-/* ---------- Materials ---------- */
 
-// Procedural metal panels tuned separately for floor & wall
+/* ---------- Materials (Originals) ---------- */
+// ... (the rest of the file remains unchanged) ...
 function matMetalFlat() {
   return createMetalPanelMaterial({
     baseColor: 0x8fa2b3,
     metalness: 0.9,
     roughness: 0.38,
-    panelSize: 0.9,     // multiple panels across a 3m tile
+    panelSize: 0.9,
     seamWidth: 0.03,
     seamDark:  0.55,
     bolts: true,
@@ -72,7 +106,7 @@ function matMetalWall() {
     baseColor: 0xaec2d3,
     metalness: 0.9,
     roughness: 0.4,
-    panelSize: 0.8,     // denser panels on walls
+    panelSize: 0.8,
     seamWidth: 0.028,
     seamDark:  0.6,
     bolts: true,
@@ -80,8 +114,6 @@ function matMetalWall() {
     mode: 'wall'
   });
 }
-
-/* ---------- Your existing concrete material ---------- */
 let _concreteTex = null;
 function createSmoothConcreteTexture(size = 256) {
   const period = size;
@@ -136,8 +168,6 @@ function matConcrete() {
     envMapIntensity: 0
   });
 }
-
-/* tiny deterministic PRNG */
 function pseudo(n) {
   n = (n ^ 61) ^ (n >>> 16);
   n = n + (n << 3);
