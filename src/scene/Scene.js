@@ -53,17 +53,14 @@ export class Scene extends THREE.Scene {
     this._shadowCamPos = new THREE.Vector3();
   }
   
-  // SHADOW UPGRADE: Dynamic shadow camera frustum
   updateShadows(camera) {
     const shadowCam = this.sun.shadow.camera;
-    const distance = 100; // How far out to cast shadows from the player
+    const distance = 100;
 
-    // Position the shadow camera to look at where the player is looking
     camera.getWorldDirection(this._cameraTarget);
     this._cameraTarget.multiplyScalar(distance / 4);
     this._cameraTarget.add(camera.position);
     
-    // Position the light's shadow camera to follow
     this._shadowCamPos.copy(this._cameraTarget).add(this.sun.position);
     this.sun.target.position.copy(this._cameraTarget);
     this.sun.target.updateMatrixWorld();
@@ -71,8 +68,7 @@ export class Scene extends THREE.Scene {
     shadowCam.position.copy(this._shadowCamPos);
     shadowCam.lookAt(this._cameraTarget);
     
-    // Tightly fit the shadow frustum to the visible area
-    const frustumSize = 80; // Size of the high-quality shadow box around the player
+    const frustumSize = 80;
     shadowCam.left = -frustumSize;
     shadowCam.right = frustumSize;
     shadowCam.top = frustumSize;
@@ -124,5 +120,67 @@ export class Scene extends THREE.Scene {
   }
 }
 
-function createSandMaterial(){const mat=new THREE.MeshStandardMaterial({color:0xead3a3,roughness:.9,metalness:0});mat.onBeforeCompile=shader=>{shader.vertexShader="varying vec3 vWorldPosition;\n"+shader.vertexShader;shader.vertexShader=shader.vertexShader.replace("#include <worldpos_vertex>","#include <worldpos_vertex>\nvWorldPosition = worldPosition.xyz;");shader.fragmentShader="varying vec3 vWorldPosition;\nfloat hash(vec2 p) { return fract(sin(dot(p, vec2(37.4, 66.8))) * 43758.5); }\nfloat noise(vec2 p) {\n  vec2 i=floor(p), f=fract(p); f=f*f*(3.0-2.0*f);\n  return mix(mix(hash(i), hash(i+vec2(1,0)), f.x), mix(hash(i+vec2(0,1)), hash(i+vec2(1,1)), f.x), f.y);\n}\n"+shader.fragmentShader;shader.fragmentShader=shader.fragmentShader.replace("#include <color_fragment>","#include <color_fragment>\nfloat n = noise(vWorldPosition.xz * 0.2);\nvec3 sand_dark = vec3(0.9, 0.8, 0.6);\nvec3 sand_light = vec3(1.0, 0.95, 0.8);\ndiffuseColor.rgb *= mix(sand_dark, sand_light, n);");};return mat}
-function fbm2(x,y,o){let a=0.5,f=1,s=0;for(let i=0;i<o;i++){s+=a*valueNoise2(x*f,y*f);f*=2;a*=0.5}return s}function valueNoise2(x,y){const xi=Math.floor(x),yi=Math.floor(y),xf=x-xi,yf=y-yi;const s=hash2(xi,yi),t=hash2(xi+1,yi),u=hash2(xi,yi+1),v=hash2(xi+1,yi+1),sx=fade(xf),sy=fade(yf);const a=lerp(s,t,sx),b=lerp(u,v,sx);return lerp(a,b,sy)*2-1}function hash2(x,y){let n=x*374761393+y*668265263;n=(n^(n>>13))*1274126177;return((n^(n>>16))>>>0)/4294967295}const lerp=(a,b,t)=>a+(b-a)*t;const fade=t=>t*t*(3-2*t);function smoothstep(a,b,x){const t=Math.min(1,Math.max(0,(x-a)/(b-a)));return t*t*(3-2*t)}
+function createSandMaterial() {
+  const mat = new THREE.MeshStandardMaterial({
+    color: 0xead3a3, roughness: 0.9, metalness: 0.0,
+  });
+  mat.onBeforeCompile = (shader) => {
+    shader.vertexShader = 'varying vec3 vWorldPosition;\n' + shader.vertexShader;
+    shader.vertexShader = shader.vertexShader.replace(
+      '#include <worldpos_vertex>',
+      '#include <worldpos_vertex>\nvWorldPosition = worldPosition.xyz;'
+    );
+    shader.fragmentShader = `
+      varying vec3 vWorldPosition;
+      float hash(vec2 p) { return fract(sin(dot(p, vec2(37.4, 66.8))) * 43758.5); }
+      float noise(vec2 p) {
+        vec2 i=floor(p), f=fract(p); f=f*f*(3.0-2.0*f);
+        return mix(mix(hash(i), hash(i+vec2(1,0)), f.x), mix(hash(i+vec2(0,1)), hash(i+vec2(1,1)), f.x), f.y);
+      }
+    ` + shader.fragmentShader;
+    shader.fragmentShader = shader.fragmentShader.replace(
+      '#include <color_fragment>',
+      `#include <color_fragment>
+      float n = noise(vWorldPosition.xz * 0.2);
+      vec3 sand_dark = vec3(0.9, 0.8, 0.6);
+      vec3 sand_light = vec3(1.0, 0.95, 0.8);
+      diffuseColor.rgb *= mix(sand_dark, sand_light, n);`
+    );
+  };
+  return mat;
+}
+
+// --- Properly Formatted Helper Functions ---
+const lerp = (a, b, t) => a + (b - a) * t;
+const fade = (t) => t * t * (3 - 2 * t);
+
+function hash2(x, y) {
+  let n = x * 374761393 + y * 668265263;
+  n = (n ^ (n >> 13)) * 1274126177;
+  return ((n ^ (n >> 16)) >>> 0) / 4294967295;
+}
+
+function valueNoise2(x, y) {
+  const xi = Math.floor(x), yi = Math.floor(y);
+  const xf = x - xi,        yf = y - yi;
+  const s = hash2(xi,   yi), t = hash2(xi+1, yi);
+  const u = hash2(xi,   yi+1), v = hash2(xi+1, yi+1);
+  const sx = fade(xf),       sy = fade(yf);
+  const a = lerp(s, t, sx),  b = lerp(u, v, sx);
+  return lerp(a, b, sy) * 2.0 - 1.0;
+}
+
+function fbm2(x, y, octaves) {
+  let amp = 0.5, freq = 1.0, sum = 0.0;
+  for (let o = 0; o < octaves; o++) {
+    sum += amp * valueNoise2(x * freq, y * freq);
+    freq *= 2.0;
+    amp  *= 0.5;
+  }
+  return sum;
+}
+
+function smoothstep(a, b, x) {
+  const t = Math.min(1, Math.max(0, (x - a) / (b - a)));
+  return t * t * (3 - 2 * t);
+}
