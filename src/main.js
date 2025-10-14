@@ -20,21 +20,18 @@ let renderer, scene, camera, fpv;
 try {
   renderer = new THREE.WebGLRenderer({ antialias: true });
   renderer.outputColorSpace = THREE.SRGBColorSpace;
-  
-  // REALISM UPGRADE: Use ACES Filmic for much better lighting and color
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 0.9; // Adjust exposure to prevent washout
-
+  renderer.toneMappingExposure = 0.9;
   renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
   renderer.setSize(window.innerWidth, window.innerHeight);
 
-  // SHADOWS
   renderer.shadowMap.enabled = true;
-  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  // SHADOW UPGRADE: Switch to VSM for smoother shadows
+  renderer.shadowMap.type = THREE.VSMShadowMap;
 
   mount.appendChild(renderer.domElement);
 
-  scene = new Scene(renderer); // pass renderer for shadow tuning
+  scene = new Scene(); // Pass renderer for shadow tuning
 
   camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 1500);
   fpv = new GamepadFPV(camera);
@@ -67,12 +64,13 @@ const clock = new THREE.Clock();
 function animate(){
   requestAnimationFrame(animate);
   const dt = Math.min(0.05, clock.getDelta());
-  const t  = clock.elapsedTime;
-
+  
   fpv.update(dt);
   builder.update(dt);
-  if (typeof scene.update === 'function') scene.update(dt, t);
 
+  // SHADOW UPGRADE: Update dynamic shadow camera
+  if (typeof scene.updateShadows === 'function') scene.updateShadows(camera);
+  
   renderer.render(scene, camera);
 }
 animate();
