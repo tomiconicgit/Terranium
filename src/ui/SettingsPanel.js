@@ -5,7 +5,6 @@ export class SettingsPanel {
     this.panel = panelEl;
     this._changeCallback = null;
     
-    // ✅ CHANGED: Now handles three rotation axes
     this.rotationY = 0; // Left/Right turn
     this.rotationX = 0; // Up/Down tilt
     this.rotationZ = 0; // Left/Right roll
@@ -20,8 +19,6 @@ export class SettingsPanel {
     this.rotateRightBtn = document.getElementById('rotate-right');
     this.tiltLeftBtn = document.getElementById('tilt-left');
     this.tiltRightBtn = document.getElementById('tilt-right');
-    
-    // ✅ ADDED: Get new roll buttons
     this.rollLeftBtn = document.getElementById('roll-left');
     this.rollRightBtn = document.getElementById('roll-right');
 
@@ -53,7 +50,6 @@ export class SettingsPanel {
       this.triggerChange();
     });
     
-    // ✅ ADDED: Event listeners for new roll buttons
     this.rollLeftBtn.addEventListener('click', () => {
       this.rotationZ -= Math.PI / 2;
       this.triggerChange();
@@ -91,7 +87,6 @@ export class SettingsPanel {
       roughness: parseFloat(this.roughnessSlider.value),
       metalness: parseFloat(this.metalnessSlider.value),
       reflectivity: parseFloat(this.reflectivitySlider.value),
-      // ✅ CHANGED: Return all three rotation values
       rotationY: this.rotationY,
       rotationX: this.rotationX,
       rotationZ: this.rotationZ,
