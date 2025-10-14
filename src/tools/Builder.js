@@ -57,7 +57,10 @@ export class Builder {
           partToRemove.parent.remove(partToRemove);
           partToRemove.traverse(obj => {
               if (obj.geometry) obj.geometry.dispose();
-              if (obj.material) obj.material.dispose();
+              if (obj.material) {
+                  if(Array.isArray(obj.material)) obj.material.forEach(m => m.dispose());
+                  else obj.material.dispose();
+              }
           });
           return;
         }
@@ -87,11 +90,7 @@ export class Builder {
       this.preview.clear();
       const previewPart = buildPart(def, settings, this.dynamicEnvMap);
       
-      previewPart.traverse(o=>{
-        if(o.isMesh){
-            this.customizeMaterial(o.material, settings);
-        }
-      });
+      this.customizeMaterial(previewPart, settings);
 
       this.preview.add(previewPart);
       this.prevKey = key;
@@ -109,11 +108,34 @@ export class Builder {
     this.prevKey = '';
   }
   
-  customizeMaterial(material, settings) {
-    material.color.set(settings.color);
-    material.roughness = settings.roughness;
-    material.metalness = settings.metalness;
-    material.envMapIntensity = settings.reflectivity;
+  customizeMaterial(part, settings) {
+    const id = part.userData.part?.id;
+    if (!id) return;
+    
+    const colors = {
+        'metal_floor': settings.floorColors,
+        'metal_wall': settings.wallColors,
+    }[id];
+
+    part.traverse(child => {
+        if (child.isMesh) {
+            const materials = Array.isArray(child.material) ? child.material : [child.material];
+            materials.forEach((mat, index) => {
+                mat.roughness = settings.roughness;
+                mat.metalness = settings.metalness;
+                mat.envMapIntensity = settings.reflectivity;
+                if (colors && colors[index]) {
+                    mat.color.set(colors[index]);
+                    if (id === 'metal_floor' && index === 3) { // Special case for floor lights
+                        mat.emissive.set(colors[index]);
+                        mat.emissiveIntensity = 2;
+                    }
+                } else {
+                    mat.color.set(settings.primaryColor);
+                }
+            });
+        }
+    });
   }
   
   suggestPlacement(def, hit, settings) {
@@ -140,13 +162,15 @@ export class Builder {
             const rot = new THREE.Euler(0, 0, 0, 'YXZ');
             rot.y = Math.atan2(n.x, n.z);
 
-            pos.copy(basePos);
-            // Align ramp top with floor top
+            // Position ramp's center on the floor's edge
+            pos.copy(basePos).addScaledVector(n, baseSize.x / 2);
+
+            // Align ramp's top surface with floor's top surface
             pos.y += (baseSize.y / 2) - (def.size.y / 2);
 
-            // Move ramp out from floor center to its edge
-            const offset = (baseSize.x / 2) + (def.size.z / 2); // floor radius + ramp length radius
-            pos.addScaledVector(n, offset);
+            // Move ramp out so its end is flush with the floor edge
+            const rampOffset = new THREE.Vector3(0, 0, def.size.z / 2).applyEuler(rot);
+            pos.add(rampOffset);
             
             return { pos, rot };
         }
@@ -236,11 +260,7 @@ export class Builder {
     const { pos, rot, def, settings } = this._hover;
     const part = buildPart(def, settings, this.dynamicEnvMap);
     
-    part.traverse(child => {
-      if (child.isMesh) {
-        this.customizeMaterial(child.material, settings);
-      }
-    });
+    this.customizeMaterial(part, settings);
 
     part.position.copy(pos);
     part.rotation.copy(rot);
