@@ -24,7 +24,8 @@ export function buildPart(def, options = {}, dynamicEnvMap) {
 
   let partObject;
   if (def.id === "metal_floor") {
-    const segments = Math.max(8, 8 * tessellation);
+    // ✅ FIX: Increased base segments for better pattern resolution
+    const segments = Math.max(16, 12 * tessellation);
     let geometry;
 
     if (pattern === 'grating') {
@@ -61,13 +62,14 @@ export function buildPart(def, options = {}, dynamicEnvMap) {
         if (pattern !== 'flat') {
             const pos = geometry.attributes.position;
             const halfThick = def.size.y / 2;
-            const patternHeight = def.size.y * 0.4; // How much the pattern extrudes
+            // ✅ FIX: Increased pattern height to be much more visible
+            const patternHeight = def.size.y * 0.75; 
 
             for (let i = 0; i < pos.count; i++) {
                 if (pos.getY(i) > halfThick * 0.99) { // Is vertex on top face?
                     const x = pos.getX(i);
                     const z = pos.getZ(i);
-                    let displacement = patternHeight;
+                    let displacement = 0;
 
                     if (pattern === 'tiles') {
                         const grout = 0.05;
@@ -88,7 +90,7 @@ export function buildPart(def, options = {}, dynamicEnvMap) {
                             displacement = -patternHeight;
                         }
                     } else if (pattern === 'hexagons') {
-                        const size = 0.5; // Hexagon radius
+                        const size = 0.5; 
                         const grout = 0.1;
                         const a = 2.0 * Math.PI / (3.0 * size);
                         const b = a / Math.sqrt(3.0);
