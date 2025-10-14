@@ -1,4 +1,4 @@
-// src/tools/Builder.js â Simplified to basic grid placement
+// src/tools/Builder.js — Simplified to basic grid placement
 import * as THREE from 'three';
 import { makeCatalog, buildPart } from '../assets/Catalog.js';
 
@@ -8,7 +8,6 @@ export class Builder {
     this.camera = camera;
     this.hotbar = hotbar;
 
-    // We will add placed objects directly to the scene for simplicity
     this.terrain = scene.getObjectByName('terrainPlane');
     this.placedObjects = new THREE.Group();
     this.scene.add(this.placedObjects);
@@ -33,26 +32,26 @@ export class Builder {
     const def = this.catalog[this.hotbar.index];
     if (!def) return;
 
-    // Only listen for place (RT) and remove (LT) buttons
     const placePressed = this.pressed(7);
     const removePressed = this.pressed(6);
 
     this.ray.setFromCamera(new THREE.Vector2(0,0), this.camera);
-    // Raycast against terrain and previously placed objects
     const hits = this.ray.intersectObjects([this.terrain, ...this.placedObjects.children], false);
     
     if (!hits.length){ this.preview.visible=false; this._hover=null; return; }
 
     const hit = hits[0];
-    const pos = hit.point.clone().add(hit.face.normal.clone().multiplyScalar(0.01));
+    const pos = new THREE.Vector3();
     
-    // Simple grid snapping
-    pos.x = Math.round(pos.x);
-    pos.y = Math.round(pos.y);
-    pos.z = Math.round(pos.z);
-    
-    // Adjust position based on block size
-    pos.y = Math.max(0.5, pos.y); // Ensure it's not below ground
+    // ✨ FIX: Implement robust grid snapping for perfect tile placement.
+    // This calculates the next grid cell based on the face the player is looking at.
+    const placementPoint = hit.point.clone().addScaledVector(hit.face.normal, 0.5);
+    pos.x = Math.floor(placementPoint.x) + 0.5;
+    pos.y = Math.floor(placementPoint.y) + 0.5;
+    pos.z = Math.floor(placementPoint.z) + 0.5;
+
+    // Ensure blocks can't be placed below the base ground level
+    pos.y = Math.max(0.5, pos.y);
     
     const key = `${pos.x},${pos.y},${pos.z}`;
     if (key !== this.prevKey){
