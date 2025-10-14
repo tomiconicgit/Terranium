@@ -136,19 +136,16 @@ export class Builder {
         const baseSize = basePart.size;
         const baseRot = hitRoot.rotation;
 
-        // 1. Placing a RAILING on the EDGE of a FLOOR
-        if (def.id === "guard_rail" && basePart.id === "metal_floor" && n.y > 0.9) {
+        // 1. Placing a WALL or RAILING on the EDGE of a FLOOR
+        if ((def.id === "guard_rail" || def.id === "metal_wall") && basePart.id === "metal_floor" && n.y > 0.9) {
             const localHit = hitRoot.worldToLocal(hit.point.clone());
             const halfX = baseSize.x / 2;
             const halfZ = baseSize.z / 2;
 
             const distances = [
-                { edge: 'px', dist: Math.abs(localHit.x - halfX) },
-                { edge: 'nx', dist: Math.abs(localHit.x + halfX) },
-                { edge: 'pz', dist: Math.abs(localHit.z - halfZ) },
-                { edge: 'nz', dist: Math.abs(localHit.z + halfZ) },
+                { edge: 'px', dist: Math.abs(localHit.x - halfX) }, { edge: 'nx', dist: Math.abs(localHit.x + halfX) },
+                { edge: 'pz', dist: Math.abs(localHit.z - halfZ) }, { edge: 'nz', dist: Math.abs(localHit.z + halfZ) },
             ];
-
             distances.sort((a, b) => a.dist - b.dist);
             const closestEdge = distances[0].edge;
 
@@ -157,25 +154,35 @@ export class Builder {
             const rot = new THREE.Euler(0, 0, 0, 'YXZ');
 
             switch (closestEdge) {
-                case 'px': pos.x += halfX; rot.y = 0; break;
-                case 'nx': pos.x -= halfX; rot.y = 0; break;
-                case 'pz': pos.z += halfZ; rot.y = Math.PI / 2; break;
-                case 'nz': pos.z -= halfZ; rot.y = Math.PI / 2; break;
+                case 'px': pos.x += halfX; rot.y = Math.PI / 2; break;
+                case 'nx': pos.x -= halfX; rot.y = Math.PI / 2; break;
+                case 'pz': pos.z += halfZ; rot.y = 0; break;
+                case 'nz': pos.z -= halfZ; rot.y = 0; break;
             }
             return { pos, rot };
         }
 
-        // 2. Placing a FLOOR on TOP of a RAILING
-        if (def.id === "metal_floor" && basePart.id === "guard_rail") {
-            const topOfRail = basePos.y + baseSize.y / 2;
-            if (Math.abs(hit.point.y - topOfRail) < 0.5) {
-                pos.copy(basePos);
-                pos.y = topOfRail + def.size.y / 2 + Z_FIGHT_OFFSET;
-                const rot = new THREE.Euler(0, baseRot.y, 0, 'YXZ');
-                return { pos, rot };
-            }
+        // 2. Placing a FLOOR on TOP of a WALL
+        if (def.id === "metal_floor" && basePart.id === "metal_wall" && n.y > 0.9) {
+            const topOfWall = basePos.y + baseSize.y / 2;
+            const rot = new THREE.Euler(0, baseRot.y, 0, 'YXZ');
+
+            // Find which edge of the wall top is closer
+            const localHit = hitRoot.worldToLocal(hit.point.clone());
+            const side = Math.sign(localHit.z); // Wall's thin axis is Z
+
+            pos.copy(basePos);
+            pos.y = topOfWall + def.size.y / 2 + Z_FIGHT_OFFSET;
+
+            // Shift the floor so its edge is flush with the wall's edge
+            const offsetDir = new THREE.Vector3(0, 0, 1).applyEuler(baseRot);
+            const offsetMag = (def.size.z / 2) - (baseSize.z / 2); // Half floor - half wall
+            pos.addScaledVector(offsetDir, offsetMag * side);
+            
+            return { pos, rot };
         }
 
+        // 3. Stacking floors
         if (def.id === "metal_floor" && basePart.id === "metal_floor") {
             if (n.y > 0.9) { pos.copy(basePos); pos.y += baseSize.y + Z_FIGHT_OFFSET; return { pos }; }
             else if (Math.abs(n.y) < 0.1) {
@@ -184,46 +191,40 @@ export class Builder {
                 return { pos };
             }
         }
+        // 4. ✅ FIX: Placing a vertical beam on a floor (corner snapping)
         else if (verticalBeamIds.includes(def.id) && basePart.id === "metal_floor" && n.y > 0.9) {
             const localHitPoint = hitRoot.worldToLocal(hit.point.clone());
             const uvX = (localHitPoint.x + baseSize.x / 2) / baseSize.x;
             const uvZ = (localHitPoint.z + baseSize.z / 2) / baseSize.z;
-            const subTileX = Math.floor(uvX * baseSize.x);
-            const subTileZ = Math.floor(uvZ * baseSize.z);
-            pos.x = basePos.x - baseSize.x / 2 + subTileX + 0.5;
-            pos.z = basePos.z - baseSize.z / 2 + subTileZ + 0.5;
+            
+            // Snap to the nearest 1x1 grid corner, not the center of a tile
+            const cornerX = Math.round(uvX * baseSize.x);
+            const cornerZ = Math.round(uvZ * baseSize.z);
+
+            pos.x = basePos.x - baseSize.x / 2 + cornerX;
+            pos.z = basePos.z - baseSize.z / 2 + cornerZ;
             pos.y = basePos.y + baseSize.y / 2 + def.size.y / 2 + Z_FIGHT_OFFSET;
             return { pos };
         }
+        // 5. Stacking vertical beams
         else if (verticalBeamIds.includes(def.id) && verticalBeamIds.includes(basePart.id) && n.y > 0.9) {
             pos.copy(basePos);
             pos.y += baseSize.y + Z_FIGHT_OFFSET;
             return { pos };
         }
+        // 6. ✅ FIX: Placing a horizontal beam on a vertical one (flush snapping)
         else if (def.id === "steel_beam_h" && verticalBeamIds.includes(basePart.id)) {
-            const topOfVerticalBeam = basePos.y + baseSize.y / 2;
-            const isNearTop = Math.abs(hit.point.y - topOfVerticalBeam) < 0.5;
-
-            if (isNearTop) {
-                const y = topOfVerticalBeam + def.size.y / 2 + Z_FIGHT_OFFSET;
+            const isNearTop = Math.abs(hit.point.y - (basePos.y + baseSize.y / 2)) < 0.5;
+            if (isNearTop && Math.abs(n.y) < 0.1) {
+                const rot = new THREE.Euler(settings.rotationX, settings.rotationY, settings.rotationZ, 'YXZ');
                 
-                const beamDirection = new THREE.Vector3(1, 0, 0);
-                const euler = new THREE.Euler(settings.rotationX, settings.rotationY, settings.rotationZ, 'YXZ');
-                beamDirection.applyEuler(euler);
+                // Position the horizontal beam so its end face is on the hit point
+                const beamEndOffset = new THREE.Vector3(1, 0, 0)
+                    .applyEuler(rot)
+                    .multiplyScalar(def.size.x / 2);
 
-                const edgeOffset = beamDirection.clone().multiplyScalar(def.size.x / 2);
-                
-                const snapPosition1 = basePos.clone().add(edgeOffset);
-                const snapPosition2 = basePos.clone().sub(edgeOffset);
-
-                if (hit.point.distanceTo(snapPosition1) < hit.point.distanceTo(snapPosition2)) {
-                    pos.copy(snapPosition1);
-                } else {
-                    pos.copy(snapPosition2);
-                }
-                
-                pos.y = y;
-                return { pos };
+                pos.copy(hit.point).add(beamEndOffset);
+                return { pos, rot };
             }
         }
     }
