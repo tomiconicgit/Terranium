@@ -11,7 +11,7 @@ export class SettingsPanel {
     this.roughnessSlider = document.getElementById('roughness');
     this.metalnessSlider = document.getElementById('metalness');
     this.reflectivitySlider = document.getElementById('reflectivity');
-    this.rustSlider = document.getElementById('rust');
+    this.bumpSlider = document.getElementById('bump');
     this.tessellationSlider = document.getElementById('tessellation');
     this.rotateLeftBtn = document.getElementById('rotate-left');
     this.rotateRightBtn = document.getElementById('rotate-right');
@@ -24,7 +24,7 @@ export class SettingsPanel {
     this.roughnessSlider.addEventListener('input', trigger);
     this.metalnessSlider.addEventListener('input', trigger);
     this.reflectivitySlider.addEventListener('input', trigger);
-    this.rustSlider.addEventListener('input', trigger);
+    this.bumpSlider.addEventListener('input', trigger);
     this.tessellationSlider.addEventListener('input', trigger);
     
     this.rotateLeftBtn.addEventListener('click', () => {
@@ -64,7 +64,7 @@ export class SettingsPanel {
       roughness: parseFloat(this.roughnessSlider.value),
       metalness: parseFloat(this.metalnessSlider.value),
       reflectivity: parseFloat(this.reflectivitySlider.value),
-      rust: parseFloat(this.rustSlider.value),
+      bumpLevel: parseFloat(this.bumpSlider.value),
       rotation: this.rotation,
       tessellation: parseInt(this.tessellationSlider.value),
     };
