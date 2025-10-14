@@ -92,8 +92,10 @@ export class Scene extends THREE.Scene {
     this._cameraTarget = new THREE.Vector3();
   }
 
-  // ✨ NEW: Method to update the reflection probe each frame
-  updateReflections(renderer) {
+  // ✅ UPDATED METHOD
+  updateReflections(renderer, camera) {
+    // Move the reflection probe to the player's camera position
+    this.cubeCamera.position.copy(camera.position);
     this.cubeCamera.update(renderer, this);
   }
   
