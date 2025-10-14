@@ -1,19 +1,13 @@
 // src/assets/Catalog.js
 import * as THREE from "three";
-// ✨ FIX: Re-import RoundedBoxGeometry for smoother edges
-import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 
-
-// A procedural material for a metallic floor panel
 const matMetalFloor = new THREE.MeshStandardMaterial({
-  // Adjusted material properties slightly for the new lighting
-  color: 0xe0e5e9, 
+  color: 0xe0e5e9,
   metalness: 0.9,
   roughness: 0.45,
 });
 
-// Reusing the same material for the metal beam for consistency
-const matMetalBeam = matMetalFloor; 
+const matMetalBeam = matMetalFloor;
 
 /* ---------- Procedural Building Catalog ---------- */
 export function makeCatalog() {
@@ -27,24 +21,49 @@ export function makeCatalog() {
 
 /* ---------- Mesh builder ---------- */
 export function buildPart(def) {
-  let geometry;
-  if (def.id === "metal_beam") {
-    // ✨ FIX: Use RoundedBoxGeometry for the beam with 0 segments for flat top/bottom
-    // The arguments are (width, height, depth, segments, radius)
-    // segments: 1 makes top/bottom flat, radius: 0.1 for side curves
-    geometry = new RoundedBoxGeometry(def.size.x, def.size.y, def.size.z, 1, 0.1); 
-  } else {
-    geometry = new THREE.BoxGeometry(def.size.x, def.size.y, def.size.z);
-  }
+  let partObject; // This will be the final object returned (Mesh or Group)
 
-  const mesh = new THREE.Mesh(
-    geometry,
-    def.material()
-  );
-  mesh.castShadow = true;
-  mesh.receiveShadow = true;
+  if (def.id === "metal_beam") {
+    // ✨ FIX: Use ExtrudeGeometry for beams with rounded vertical edges and flat tops/bottoms.
+    const shape = new THREE.Shape();
+    const w = def.size.x;
+    const r = 0.1; // corner radius
+    const hw = w / 2; // half-width
+    shape.moveTo(-hw + r, -hw);
+    shape.lineTo(hw - r, -hw);
+    shape.quadraticCurveTo(hw, -hw, hw, -hw + r);
+    shape.lineTo(hw, hw - r);
+    shape.quadraticCurveTo(hw, hw, hw - r, hw);
+    shape.lineTo(-hw + r, hw);
+    shape.quadraticCurveTo(-hw, hw, -hw, hw - r);
+    shape.lineTo(-hw, -hw + r);
+    shape.quadraticCurveTo(-hw, -hw, -hw + r, -hw);
+    
+    const extrudeSettings = { depth: def.size.y, bevelEnabled: false };
+    const geometry = new THREE.ExtrudeGeometry(shape, extrudeSettings);
+    geometry.center(); // Center the geometry on its local origin
+
+    const mesh = new THREE.Mesh(geometry, def.material());
+    mesh.rotation.x = Math.PI / 2; // Rotate to stand upright on Y-axis
+    
+    const group = new THREE.Group();
+    group.add(mesh);
+    partObject = group;
+
+  } else {
+    // Default to BoxGeometry for other parts like the floor
+    const geometry = new THREE.BoxGeometry(def.size.x, def.size.y, def.size.z);
+    partObject = new THREE.Mesh(geometry, def.material());
+  }
   
-  // Add userData for the builder to identify parts
-  mesh.userData.part = def;
-  return mesh;
+  partObject.traverse((child) => {
+    if (child.isMesh) {
+      child.castShadow = true;
+      child.receiveShadow = true;
+    }
+  });
+  
+  // Add userData to the root object for the builder to identify it
+  partObject.userData.part = def;
+  return partObject;
 }
