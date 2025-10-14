@@ -28,7 +28,6 @@
     body { touch-action:none; -webkit-user-select:none; font-family:system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
     #app { position:fixed; inset:0; }
     
-    /* --- Start Screen --- */
     #startScreen {
       position:fixed; inset:0; z-index:99999;
       background:rgba(0,0,0,0.2); backdrop-filter:blur(8px);
@@ -42,7 +41,6 @@
       cursor:pointer; font-weight:600;
     }
 
-    /* --- Upgraded Error Overlay --- */
     #errorOverlay {
       position: fixed; inset: 0;
       background: rgba(0,0,0,0.95);
@@ -52,16 +50,7 @@
     }
     #errorOverlay .error-header { font-size: 18px; color: #ff8080; margin-bottom: 12px; font-weight: bold; }
     #errorOverlay .error-content { flex: 1; overflow: auto; white-space: pre-wrap; }
-    #errorOverlay .error-actions { margin-top: 16px; flex-shrink: 0; }
-    #errorOverlay .copy-btn {
-        background: #444; color: #fff; border: 1px solid #666;
-        padding: 8px 14px; border-radius: 6px; cursor: pointer;
-        font-family: inherit; font-size: 14px;
-    }
-    #errorOverlay .copy-btn:hover { background: #555; }
-    #errorOverlay .copy-btn:active { background: #333; }
 
-    /* Center reticle */
     #reticle {
       position:fixed; left:50%; top:50%; transform:translate(-50%,-50%);
       width:6px; height:6px; border-radius:50%;
@@ -69,37 +58,8 @@
       box-shadow:0 0 0 2px rgba(0,0,0,.35);
     }
 
-    /* Hotbar */
-    #hotbar {
-      position:fixed; left:50%; bottom:12px; transform:translateX(-50%);
-      display:grid; grid-template-columns: repeat(10, 64px); gap:8px;
-      padding:10px 12px; border-radius:14px; z-index:20;
-      background:rgba(0,0,0,0.55); backdrop-filter: blur(6px);
-      border:1px solid rgba(255,255,255,0.08); user-select:none;
-    }
-    #hotbar .slot {
-      width:64px; height:64px; border-radius:9px;
-      background:rgba(255,255,255,0.04);
-      border:1px solid rgba(255,255,255,0.12);
-      display:flex; flex-direction:column; align-items:center; justify-content:center;
-      box-shadow: inset 0 0 0 1px rgba(0,0,0,0.3); overflow:hidden;
-    }
-    #hotbar .slot.selected {
-      outline:2px solid var(--accent);
-      box-shadow:0 0 0 3px rgba(77,210,255,0.25), inset 0 0 0 1px rgba(0,0,0,0.4);
-    }
-    #hotbar .thumb {
-      width:36px; height:36px; border-radius:6px; background:#888;
-      box-shadow:0 4px 10px rgba(0,0,0,0.35);
-    }
-    #hotbar .label {
-      font-size:10px; line-height:12px; margin-top:4px; color:rgba(255,255,255,0.9);
-      text-align:center; text-overflow:ellipsis; overflow:hidden; white-space:nowrap; width:100%;
-    }
-    
-    /* --- Settings Panel --- */
-    #settingsBtn {
-      position:fixed; top:16px; left:16px; z-index:30;
+    /* --- UI Buttons --- */
+    .ui-button {
       width:48px; height:48px; border-radius:12px;
       background:rgba(0,0,0,0.55); backdrop-filter:blur(6px);
       border:1px solid rgba(255,255,255,0.08);
@@ -107,135 +67,127 @@
       display:flex; align-items:center; justify-content:center;
       user-select:none; transition: background .2s;
     }
-    #settingsBtn:hover { background:rgba(0,0,0,0.7); }
+    .ui-button:hover { background:rgba(0,0,0,0.7); }
 
-    #settingsPanel {
-      position:fixed; top:72px; left:16px; z-index:30;
-      width:300px; padding:8px; border-radius:8px;
+    #settingsBtn { position:fixed; top:16px; left:16px; z-index:30; }
+    #libraryBtn { position:fixed; top:16px; right:16px; z-index:30; }
+
+    /* --- Panels --- */
+    .panel {
+      position:fixed;
       background:rgba(20,22,25,0.8); backdrop-filter:blur(10px);
       border:1px solid rgba(255,255,255,0.1);
-      display:flex; flex-direction:column; gap:4px;
-      font-size: 14px;
       transition: transform .3s ease-out, opacity .3s ease-out;
-      max-height: calc(100vh - 90px);
-      overflow-y: auto;
+      z-index: 25;
     }
-    #settingsPanel.hidden { transform: translateX(-20px); opacity: 0; pointer-events: none; }
-    #settingsPanel h3 {
-        font-size: 12px; text-transform: uppercase; letter-spacing: 1px;
-        color: var(--accent); margin: 12px 12px 4px; padding: 0;
-        font-weight: 600; opacity: 0.9;
+    .panel.hidden { transform: translateX(-20px); opacity: 0; pointer-events: none; }
+
+    #settingsPanel {
+      top:72px; left:16px;
+      width:260px; padding:8px; border-radius:8px;
+      display:flex; flex-direction:column; gap:4px; font-size: 14px;
     }
     #settingsPanel .setting-row {
-      display:grid; grid-template-columns: 120px 1fr; align-items:center;
+      display:grid; grid-template-columns: 100px 1fr; align-items:center;
       padding: 8px 12px; border-radius: 4px;
     }
-    #settingsPanel .setting-row:hover { background:rgba(255,255,255,0.05); }
     #settingsPanel label { color:rgba(255,255,255,0.9); }
     #settingsPanel .control-group { display:flex; gap:6px; }
-    #settingsPanel input[type="color"] {
-        padding: 0; border: none; width: 100%; height: 24px; background: none; cursor: pointer;
-    }
-    #settingsPanel select, #settingsPanel input, #settingsPanel button {
+    #settingsPanel input, #settingsPanel button {
       background: #333; color: #fff; border: 1px solid #555; border-radius: 4px;
-      font-size: 13px; padding: 4px 6px;
+      font-size: 13px; padding: 4px 6px; width: 100%;
     }
-    #settingsPanel select { width: 100%; }
-    #settingsPanel input[type="range"] { padding: 0; width:100%; }
-    #settingsPanel button { cursor:pointer; width:100%; }
-    #settingsPanel button:hover { background:#444; }
-    #settingsPanel button:active { background:#222; }
+    #settingsPanel button { cursor:pointer; }
+    
+    /* --- Asset Library --- */
+    #assetLibrary {
+      inset: 16px; border-radius: 16px;
+      display: flex; flex-direction: column;
+      transform: scale(0.95); opacity: 0;
+      transition: transform .3s ease-out, opacity .3s ease-out;
+      pointer-events: none;
+    }
+    #assetLibrary.visible {
+      transform: scale(1); opacity: 1; pointer-events: auto;
+    }
+    #assetLibrary .header {
+      padding: 12px 24px;
+      display:flex; justify-content: space-between; align-items: center;
+      border-bottom: 1px solid rgba(255,255,255,0.1);
+      flex-shrink: 0;
+    }
+    #assetLibrary .header h2 { margin: 0; font-size: 20px; }
+    #assetLibrary .close-btn { font-size: 24px; cursor: pointer; color: #aaa; }
+
+    #assetLibrary .content {
+      display: flex; flex: 1; overflow: hidden;
+    }
+    #assetLibrary .categories {
+      width: 200px; padding: 16px;
+      border-right: 1px solid rgba(255,255,255,0.1);
+      overflow-y: auto;
+    }
+    #assetLibrary .category-btn {
+      display: block; width: 100%; text-align: left;
+      background: none; border: none; color: #ccc;
+      padding: 12px 16px; font-size: 16px; border-radius: 8px;
+      cursor: pointer; margin-bottom: 8px;
+    }
+    #assetLibrary .category-btn:hover { background: rgba(255,255,255,0.05); }
+    #assetLibrary .category-btn.active { background: var(--accent); color: #000; font-weight: 600; }
+
+    #assetLibrary .assets-grid {
+      flex: 1; padding: 24px; overflow-y: auto;
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+      gap: 20px; align-content: flex-start;
+    }
+    .asset-card {
+      background: rgba(255,255,255,0.03);
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 12px; padding: 12px;
+      text-align: center; cursor: pointer;
+      transition: background .2s, transform .2s;
+    }
+    .asset-card:hover { background: rgba(255,255,255,0.08); transform: translateY(-4px); }
+    .asset-card .preview {
+      width: 100%; height: 120px;
+      border-radius: 8px; margin-bottom: 12px;
+      background-color: #333;
+      background-size: cover;
+      background-position: center;
+    }
+    .asset-card .name { font-size: 14px; }
   </style>
 </head>
 <body>
-  <div id="startScreen">
-    <button id="startBtn">Start</button>
-  </div>
+  <div id="startScreen"><button id="startBtn">Start</button></div>
 
-  <div id="settingsBtn">⚙️</div>
-  <div id="settingsPanel" class="hidden">
-    <h3>General</h3>
+  <div id="settingsBtn" class="ui-button">⚙️</div>
+  <button id="libraryBtn" class="ui-button">📦</button>
+
+  <div id="settingsPanel" class="panel hidden">
     <div class="setting-row">
       <label for="primaryColor">Primary Color</label>
       <input type="color" id="primaryColor" value="#c0c5c9">
     </div>
     <div class="setting-row">
       <label for="roughness">Roughness</label>
-      <input type="range" id="roughness" min="0" max="1" step="0.01" value="0.2">
+      <input type="range" id="roughness" min="0" max="1" step="0.01" value="0.5">
     </div>
     <div class="setting-row">
       <label for="metalness">Metalness</label>
-      <input type="range" id="metalness" min="0" max="1" step="0.01" value="1">
+      <input type="range" id="metalness" min="0" max="1" step="0.01" value="0.8">
     </div>
     <div class="setting-row">
       <label for="reflectivity">Reflectivity</label>
-      <input type="range" id="reflectivity" min="0" max="2" step="0.01" value="1">
+      <input type="range" id="reflectivity" min="0" max="2" step="0.01" value="0.5">
     </div>
-
-    <h3>Floor Colors</h3>
-    <div class="setting-row">
-      <label for="floorColor1">Base</label>
-      <input type="color" id="floorColor1" value="#707C8D">
-    </div>
-    <div class="setting-row">
-      <label for="floorColor2">Panels</label>
-      <input type="color" id="floorColor2" value="#434B57">
-    </div>
-    <div class="setting-row">
-      <label for="floorColor3">Grooves</label>
-      <input type="color" id="floorColor3" value="#2A2F36">
-    </div>
-    <div class="setting-row">
-      <label for="floorColor4">Lights</label>
-      <input type="color" id="floorColor4" value="#4DD2FF">
-    </div>
-    <div class="setting-row">
-      <label for="floorColor5">Detail</label>
-      <input type="color" id="floorColor5" value="#9DA8B8">
-    </div>
-
-    <h3>Wall Colors</h3>
-    <div class="setting-row">
-      <label for="wallColor1">Frame</label>
-      <input type="color" id="wallColor1" value="#434B57">
-    </div>
-    <div class="setting-row">
-      <label for="wallColor2">Panels</label>
-      <input type="color" id="wallColor2" value="#707C8D">
-    </div>
-    <div class="setting-row">
-      <label for="wallColor3">Inner</label>
-      <input type="color" id="wallColor3" value="#2A2F36">
-    </div>
-    <div class="setting-row">
-      <label for="wallColor4">Accent</label>
-      <input type="color" id="wallColor4" value="#4DD2FF">
-    </div>
-    <div class="setting-row">
-      <label for="wallColor5">Detail</label>
-      <input type="color" id="wallColor5" value="#9DA8B8">
-    </div>
-    
-    <h3>Transform</h3>
     <div class="setting-row">
       <label>Rotation</label>
       <div class="control-group">
-        <button id="rotate-left">⟲ Left</button>
-        <button id="rotate-right">Right ⟳</button>
-      </div>
-    </div>
-    <div class="setting-row">
-      <label>Tilt</label>
-      <div class="control-group">
-        <button id="tilt-left">⤵ Down</button>
-        <button id="tilt-right">Up ⤴</button>
-      </div>
-    </div>
-    <div class="setting-row">
-      <label>Roll</label>
-      <div class="control-group">
-        <button id="roll-left">↩ Left</button>
-        <button id="roll-right">Right ↪</button>
+        <button id="rotate-left">⟲</button>
+        <button id="rotate-right">⟳</button>
       </div>
     </div>
     <div class="setting-row">
@@ -244,108 +196,25 @@
     </div>
   </div>
 
+  <div id="assetLibrary" class="panel hidden">
+    <div class="header">
+      <h2>Asset Library</h2>
+      <div id="closeLibraryBtn" class="close-btn">✖</div>
+    </div>
+    <div class="content">
+      <div id="categoriesContainer" class="categories"></div>
+      <div id="assetsGridContainer" class="assets-grid"></div>
+    </div>
+  </div>
+
   <div id="app"></div>
   <div id="reticle"></div>
-  <div id="hotbar" aria-label="hotbar"></div>
 
   <div id="errorOverlay">
     <div class="error-header">⚠️ Application Error</div>
     <div class="error-content" id="errorContent"></div>
-    <div class="error-actions">
-        <button id="errorCopyBtn" class="copy-btn">Copy Report</button>
-    </div>
   </div>
 
-  <script>
-    const errorOverlay = document.getElementById('errorOverlay');
-    const errorContent = document.getElementById('errorContent');
-    const errorCopyBtn = document.getElementById('errorCopyBtn');
-    let fullErrorText = '';
-
-    function showError(msg, src, line, col, err) {
-      const reportParts = ['--- ⚠️ Terranium Error Report ---', `Message: ${msg}`];
-      if (src) { reportParts.push(`Source: ${src}${line?':'+line:''}${col?':'+col:''}`); }
-      if (err?.name) { reportParts.push(`Type: ${err.name}`); }
-      if (err?.message && err.message !== msg) { reportParts.push(`Reason: ${err.message}`); }
-      if (err?.stack) { reportParts.push(`\n--- Stack Trace ---\n${err.stack}`); }
-      fullErrorText = reportParts.join('\n');
-      errorContent.textContent = fullErrorText;
-      errorOverlay.style.display = 'flex';
-      console.error('BOOT ERROR:', msg, err);
-    }
-
-    errorCopyBtn.addEventListener('click', () => {
-        navigator.clipboard.writeText(fullErrorText).then(() => {
-            errorCopyBtn.textContent = 'Copied!';
-            setTimeout(() => { errorCopyBtn.textContent = 'Copy Report'; }, 2000);
-        }).catch(copyErr => {
-            errorCopyBtn.textContent = 'Failed to copy';
-            console.error('Failed to copy error report:', copyErr);
-        });
-    });
-
-    window.addEventListener('error', e => showError(e.message, e.filename, e.lineno, e.colno, e.error));
-    window.addEventListener('unhandledrejection', e => showError(e.reason?.message || String(e.reason), '', '', '', e.reason));
-  </script>
-
-  <script>
-    (async function setupSW(){
-      try {
-        if ('serviceWorker' in navigator) {
-          const regs = await navigator.serviceWorker.getRegistrations();
-          await Promise.all(regs.map(r => r.unregister()));
-        }
-        if ('caches' in window) {
-          const names = await caches.keys();
-          await Promise.all(names.map(n => caches.delete(n)));
-        }
-      } catch(e) { console.warn('Cleanup failed:', e); }
-
-      if ('serviceWorker' in navigator) {
-        try { await navigator.serviceWorker.register('./sw.js', { scope: './' }); }
-        catch (e) { console.warn('sw register failed', e); }
-      }
-    })();
-  </script>
-  
-  <script type="module" crossorigin="anonymous">
-    const V = Date.now();
-    const fail = (e, label) => {
-      const msg = (label ? label + '\n' : '') + ((e && (e.message || e.toString())) || 'Unknown');
-      const src = e && (e.sourceURL || e.filename || e.url);
-      const line = e && (e.lineno || e.line);
-      const col  = e && (e.colno  || e.column);
-      showError('Failed to load ThreeJS / app modules\n' + msg, src, line, col, e);
-    };
-
-    async function preflight() {
-      const local = [
-        './src/main.js', './src/scene/Scene.js', './src/controls/GamepadFPV.js',
-        './src/ui/Hotbar.js', './src/ui/SettingsPanel.js', './src/tools/Builder.js', './src/assets/Catalog.js'
-      ];
-      for (const m of local) {
-        const url = new URL(m, location.href);
-        url.searchParams.set('v', V);
-        try {
-          const r = await fetch(url, { cache: 'no-store', redirect: 'follow' });
-          if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
-        } catch (e) {
-          throw new Error(`Missing or blocked module:\n${url.href}\n${e.message}`);
-        }
-      }
-      try { await import('three'); } catch (e) {
-        throw new Error('Failed to import "three" from import map.\n' + (e.message||e));
-      }
-    }
-
-    (async () => {
-      try {
-        await preflight();
-        await import(`./src/main.js?v=${V}`);
-      } catch (e) {
-        fail(e);
-      }
-    })();
-  </script>
+  <script type="module" src="./src/main.js"></script>
 </body>
 </html>
