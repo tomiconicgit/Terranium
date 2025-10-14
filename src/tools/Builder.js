@@ -1,6 +1,6 @@
 // src/tools/Builder.js — Advanced snapping and global editing
 import * as THREE from 'three';
-import { makeCatalog, buildPart, MATERIALS } from '../assets/Catalog.js'; // Import MATERIALS library
+import { makeCatalog, buildPart, MATERIALS } from '../assets/Catalog.js';
 
 function findPartRoot(object, placedObjectsGroup) {
     let current = object;
@@ -83,7 +83,6 @@ export class Builder {
     if (removePressed) this.removeOne();
   }
 
-  // ✨ FIX: This function is now safer and more efficient.
   applyGlobalSettings() {
     const currentDef = this.catalog[this.hotbar.index];
     if (!currentDef) return;
@@ -94,43 +93,51 @@ export class Builder {
     );
   
     objectsToUpdate.forEach(child => {
-      // Rebuild geometry only if tessellation changes
-      if (child.userData.settings.tessellation !== settings.tessellation) {
-          const newPart = buildPart(child.userData.part, settings);
-          newPart.position.copy(child.position);
-          newPart.rotation.copy(child.rotation);
-          
-          // Apply customizations to the new part's material
-          newPart.traverse(obj => {
-              if (obj.isMesh) {
-                  obj.material = obj.material.clone();
-                  if ('color' in obj.material) obj.material.color.set(settings.color);
-                  if ('roughness' in obj.material) obj.material.roughness = settings.roughness;
-                  if ('metalness' in obj.material) obj.material.metalness = settings.metalness;
-              }
-          });
-          
-          this.placedObjects.remove(child);
-          this.placedObjects.add(newPart);
-          newPart.userData.settings = { ...settings };
+        const needsRebuild = child.userData.settings.tessellation !== settings.tessellation ||
+                             child.userData.settings.shading !== settings.shading;
 
-      } else { // Otherwise, just update the material
-          child.traverse(obj => {
-              if (obj.isMesh && obj.material) {
-                  if (child.userData.settings.shading !== settings.shading) {
-                    obj.material = MATERIALS[settings.shading].clone();
-                  }
-                  if ('color' in obj.material) obj.material.color.set(settings.color);
-                  if ('roughness' in obj.material) obj.material.roughness = settings.roughness;
-                  if ('metalness' in obj.material) obj.material.metalness = settings.metalness;
-              }
-          });
-      }
-      // Update the stored settings on the object
-      Object.assign(child.userData.settings, settings);
+        if (needsRebuild) {
+            const position = child.position.clone();
+            const rotation = child.rotation.clone();
+            const oldSettings = { ...child.userData.settings };
+            
+            this.placedObjects.remove(child);
+            child.traverse(obj => {
+                if (obj.geometry) obj.geometry.dispose();
+                if (obj.material) obj.material.dispose();
+            });
+
+            const newPart = buildPart(child.userData.part, settings);
+            newPart.position.copy(position);
+            newPart.rotation.copy(rotation);
+            newPart.userData.settings = { ...oldSettings, ...settings };
+            this.placedObjects.add(newPart);
+
+            newPart.traverse(obj => {
+                if (obj.isMesh) {
+                    obj.material = obj.material.clone();
+                    this.customizeMaterial(obj.material, newPart.userData.settings);
+                }
+            });
+
+        } else {
+            child.traverse(obj => {
+                if (obj.isMesh && obj.material) {
+                    this.customizeMaterial(obj.material, settings);
+                }
+            });
+            Object.assign(child.userData.settings, settings);
+        }
     });
   
-    this.prevKey = ''; // Force preview to update
+    this.prevKey = '';
+  }
+  
+  customizeMaterial(material, settings) {
+    if ('color' in material) material.color.set(settings.color);
+    if ('roughness' in material) material.roughness = settings.roughness;
+    if ('metalness' in material) material.metalness = settings.metalness;
+    if ('envMapIntensity' in material) material.envMapIntensity = settings.reflectivity;
   }
   
   suggestPlacement(def, hit) {
@@ -185,7 +192,6 @@ export class Builder {
     return null;
   }
 
-  // ✨ FIX: This function now correctly clones and customizes materials.
   placeOne(){
     if (!this._hover) return;
     const { pos, def, settings } = this._hover;
@@ -193,19 +199,14 @@ export class Builder {
     
     part.traverse(child => {
       if (child.isMesh) {
-        // Clone the base material to make it unique for this object
         child.material = child.material.clone();
-        
-        // Apply customizations from sliders
-        if ('color' in child.material) child.material.color.set(settings.color);
-        if ('roughness' in child.material) child.material.roughness = settings.roughness;
-        if ('metalness' in child.material) child.material.metalness = settings.metalness;
+        this.customizeMaterial(child.material, settings);
       }
     });
 
     part.position.copy(pos);
     part.rotation.y = settings.rotation;
-    part.userData.settings = { ...settings }; // Store settings for later edits
+    part.userData.settings = { ...settings };
     this.placedObjects.add(part);
   }
 
