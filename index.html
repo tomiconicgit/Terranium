@@ -16,8 +16,8 @@
   <script type="importmap">
     {
       "imports": {
-        "three": "https://unpkg.com/three@0.169.0/build/three.module.js",
-        "three/addons/": "https://unpkg.com/three@0.169.0/examples/jsm/"
+        "three": "https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/"
       }
     }
   </script>
@@ -84,11 +84,18 @@
 
     #settingsPanel {
       top:72px; left:16px;
-      width:260px; padding:8px; border-radius:8px;
+      width:300px; padding:8px; border-radius:8px;
       display:flex; flex-direction:column; gap:4px; font-size: 14px;
+      max-height: calc(100vh - 90px);
+      overflow-y: auto;
+    }
+    #settingsPanel h3 {
+        font-size: 12px; text-transform: uppercase; letter-spacing: 1px;
+        color: var(--accent); margin: 12px 12px 4px; padding: 0;
+        font-weight: 600; opacity: 0.9;
     }
     #settingsPanel .setting-row {
-      display:grid; grid-template-columns: 100px 1fr; align-items:center;
+      display:grid; grid-template-columns: 120px 1fr; align-items:center;
       padding: 8px 12px; border-radius: 4px;
     }
     #settingsPanel label { color:rgba(255,255,255,0.9); }
@@ -96,6 +103,9 @@
     #settingsPanel input, #settingsPanel button {
       background: #333; color: #fff; border: 1px solid #555; border-radius: 4px;
       font-size: 13px; padding: 4px 6px; width: 100%;
+    }
+     #settingsPanel input[type="color"] {
+        padding: 0; border: none; height: 24px; background: none; cursor: pointer;
     }
     #settingsPanel button { cursor:pointer; }
     
@@ -167,9 +177,10 @@
   <button id="libraryBtn" class="ui-button">📦</button>
 
   <div id="settingsPanel" class="panel hidden">
+    <h3>General</h3>
     <div class="setting-row">
       <label for="primaryColor">Primary Color</label>
-      <input type="color" id="primaryColor" value="#c0c5c9">
+      <input type="color" id="primaryColor" value="#9EADBF">
     </div>
     <div class="setting-row">
       <label for="roughness">Roughness</label>
@@ -183,12 +194,25 @@
       <label for="reflectivity">Reflectivity</label>
       <input type="range" id="reflectivity" min="0" max="2" step="0.01" value="0.5">
     </div>
+
+    <h3>Floor Colors</h3>
+    <div class="setting-row"><label for="floorColor1">Base</label><input type="color" id="floorColor1" value="#707C8D"></div>
+    <div class="setting-row"><label for="floorColor2">Panels</label><input type="color" id="floorColor2" value="#434B57"></div>
+    <div class="setting-row"><label for="floorColor3">Grooves</label><input type="color" id="floorColor3" value="#2A2F36"></div>
+    <div class="setting-row"><label for="floorColor4">Lights</label><input type="color" id="floorColor4" value="#4DD2FF"></div>
+    <div class="setting-row"><label for="floorColor5">Detail</label><input type="color" id="floorColor5" value="#9DA8B8"></div>
+
+    <h3>Wall Colors</h3>
+    <div class="setting-row"><label for="wallColor1">Frame</label><input type="color" id="wallColor1" value="#434B57"></div>
+    <div class="setting-row"><label for="wallColor2">Panels</label><input type="color" id="wallColor2" value="#707C8D"></div>
+    <div class="setting-row"><label for="wallColor3">Inner</label><input type="color" id="wallColor3" value="#2A2F36"></div>
+    <div class="setting-row"><label for="wallColor4">Accent</label><input type="color" id="wallColor4" value="#4DD2FF"></div>
+    <div class="setting-row"><label for="wallColor5">Detail</label><input type="color" id="wallColor5" value="#9DA8B8"></div>
+    
+    <h3>Transform</h3>
     <div class="setting-row">
       <label>Rotation</label>
-      <div class="control-group">
-        <button id="rotate-left">⟲</button>
-        <button id="rotate-right">⟳</button>
-      </div>
+      <div class="control-group"><button id="rotate-left">⟲</button><button id="rotate-right">⟳</button></div>
     </div>
     <div class="setting-row">
       <label for="tessellation">Tessellation</label>
@@ -215,6 +239,17 @@
     <div class="error-content" id="errorContent"></div>
   </div>
 
+  <script>
+    window.addEventListener('error', e => {
+        document.getElementById('errorOverlay').style.display = 'flex';
+        document.getElementById('errorContent').textContent = `Error: ${e.message}\nFile: ${e.filename}\nLine: ${e.lineno}`;
+    });
+    window.addEventListener('unhandledrejection', e => {
+        document.getElementById('errorOverlay').style.display = 'flex';
+        document.getElementById('errorContent').textContent = `Unhandled Promise Rejection:\n${e.reason}`;
+    });
+  </script>
   <script type="module" src="./src/main.js"></script>
 </body>
 </html>
+
