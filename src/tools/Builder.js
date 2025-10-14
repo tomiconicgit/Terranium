@@ -135,11 +135,11 @@ export class Builder {
         
         if (dx > dz) { // Snapping to X-axis edge
             rot.y = Math.PI / 2;
-            pos.x += Math.sign(localHit.x) * (floorSize.x / 2 - def.size.z / 2);
+            pos.x += Math.sign(localHit.x) * (floorSize.x / 2 + def.size.z / 2); // Changed to + for outside snap
             pos.z = snapTile(pos.z);
         } else { // Snapping to Z-axis edge
             rot.y = 0;
-            pos.z += Math.sign(localHit.z) * (floorSize.z / 2 - def.size.z / 2);
+            pos.z += Math.sign(localHit.z) * (floorSize.z / 2 + def.size.z / 2); // Changed to + for outside snap
             pos.x = snapTile(pos.x);
         }
         rot.y += settings.rotationY; // Allow user rotation to flip 180 deg
@@ -152,12 +152,26 @@ export class Builder {
         return {pos, rot};
     }
 
-    // --- Pipe Snapping Logic: Place vertically on walls ---
-    if (def.baseType === 'pipe' && Math.abs(hit.face.normal.y) < 0.1) {
-        pos.copy(hit.point).addScaledVector(hit.face.normal, def.size.x / 2); // use x as diameter
-        rot.setFromQuaternion(new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, 1), hit.face.normal));
-        rot.z += settings.rotationY; // Allow user to spin it
-        return { pos, rot };
+    // --- Pipe Snapping Logic: Place vertically on walls or connect to other pipes ---
+    if (def.baseType === 'pipe') {
+      if (hitRoot && hitRoot.userData.part.baseType === 'pipe' && hitRoot.userData.part.subType === 'full') {
+        // Snap to end of existing straight pipe
+        const pipeDir = new THREE.Vector3(0, 0, 1).applyQuaternion(hitRoot.quaternion);
+        const dot = hit.face.normal.dot(pipeDir);
+        if (Math.abs(dot) > 0.9) {
+          const sign = dot > 0 ? 1 : -1;
+          pos.copy(hitRoot.position).addScaledVector(pipeDir, sign * (hitRoot.userData.part.size.z / 2 + def.size.z / 2));
+          rot.copy(hitRoot.rotation);
+          return { pos, rot };
+        }
+      }
+
+      if (Math.abs(hit.face.normal.y) < 0.1) {
+          pos.copy(hit.point).addScaledVector(hit.face.normal, def.size.x / 2); // use x as diameter
+          rot.setFromQuaternion(new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, 1), hit.face.normal));
+          rot.z += settings.rotationY; // Allow user to spin it
+          return { pos, rot };
+      }
     }
 
     // --- Default snapping on ground ---
