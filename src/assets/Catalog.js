@@ -5,6 +5,7 @@ import * as THREE from "three";
 export function makeCatalog() {
   return [
     { id: "metal_floor", name: "Metal Floor", baseType: "flat", size: {x:4, y:0.2, z:4}, preview:"#e0e5e9" },
+    { id: "metal_wall", name: "Metal Wall", baseType: "wall", size: {x:4, y:4, z:0.2}, preview:"#d0d5d9" },
     { id: "metal_beam", name: "Metal Beam", baseType: "vertical", size: {x:1, y:4, z:1}, preview:"#e0e5e9" },
     { id: "steel_beam", name: "Steel Beam", baseType: "vertical", size: {x:0.8, y:4, z:1}, preview:"#c0c5c9" },
     { id: "steel_beam_h", name: "Steel Beam (H)", baseType: "horizontal", size: {x:4, y:1, z:0.8}, preview:"#b5bac0" },
@@ -15,7 +16,6 @@ export function makeCatalog() {
 export function buildPart(def, options = {}, dynamicEnvMap) {
   const { tessellation = 1 } = options;
   
-  // ✅ REMOVED: The onBeforeCompile shader logic for bump mapping is gone.
   const material = new THREE.MeshStandardMaterial({
     envMap: dynamicEnvMap,
     side: THREE.DoubleSide
@@ -58,7 +58,7 @@ export function buildPart(def, options = {}, dynamicEnvMap) {
     else mesh.rotation.y = Math.PI / 2;
     partObject = new THREE.Group().add(mesh);
 
-  } else { // Default for metal_floor
+  } else { // Default for metal_floor and metal_wall
     const geometry = new THREE.BoxGeometry(def.size.x, def.size.y, def.size.z, tessellation, 1, tessellation);
     partObject = new THREE.Mesh(geometry, material);
   }
