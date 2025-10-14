@@ -45,7 +45,7 @@ export class Builder {
     if (!sugg) { this.preview.visible = false; this._hover = null; return; }
 
     const pos = sugg.pos;
-    const key = `${pos.x.toFixed(1)},${pos.y.toFixed(1)},${pos.z.toFixed(1)}`;
+    const key = `${def.id}|${pos.x.toFixed(1)},${pos.y.toFixed(1)},${pos.z.toFixed(1)}`;
 
     if (key !== this.prevKey){
       this.preview.clear();
@@ -66,40 +66,69 @@ export class Builder {
   suggestPlacement(def, hit) {
     const hitObj = hit.object;
     const n = hit.face.normal;
-    const gridSize = def.size.x; // Assumes square parts
+    const pos = new THREE.Vector3();
 
-    // Case 1: Hitting the terrain
-    if (hitObj === this.terrain) {
-        const pos = new THREE.Vector3();
-        // Snap to a grid, adjusting for the center of the 4x4 tile
+    // Case 1: Hitting the terrain (for Metal Floor)
+    if (hitObj === this.terrain && def.id === "metal_floor") {
+        const gridSize = def.size.x; // 4 for metal floor
         pos.x = Math.round(hit.point.x / gridSize) * gridSize;
         pos.z = Math.round(hit.point.z / gridSize) * gridSize;
-        pos.y = def.size.y / 2; // Place on top of the ground
+        pos.y = def.size.y / 2;
         return { pos };
     }
 
     // Case 2: Hitting another placed part
     if (hitObj.userData.part) {
+        const basePart = hitObj.userData.part;
         const basePos = hitObj.position.clone();
-        const partSize = hitObj.userData.part.size;
-        let pos;
+        const baseSize = basePart.size;
 
-        // On top of the part
-        if (n.y > 0.9) {
-            pos = basePos.clone();
-            pos.y += partSize.y;
+        // Placing Metal Floor on top of another Metal Floor
+        if (def.id === "metal_floor" && basePart.id === "metal_floor" && n.y > 0.9) {
+            pos.copy(basePos);
+            pos.y += baseSize.y;
+            return { pos };
         }
-        // On the side of the part
-        else if (Math.abs(n.y) < 0.1) {
+        // Placing Metal Floor next to another Metal Floor
+        else if (def.id === "metal_floor" && basePart.id === "metal_floor" && Math.abs(n.y) < 0.1) {
             const dir = new THREE.Vector3(Math.round(n.x), 0, Math.round(n.z));
-            pos = basePos.clone().addScaledVector(dir, gridSize);
-        } else {
-            return null; // Don't place on bottom faces
+            pos.copy(basePos).addScaledVector(dir, baseSize.x);
+            return { pos };
         }
-        return { pos };
+        // ✨ NEW LOGIC: Placing Metal Beam on top of Metal Floor
+        else if (def.id === "metal_beam" && basePart.id === "metal_floor" && n.y > 0.9) {
+            // Calculate world position based on hit point
+            const worldHitPoint = hit.point;
+            
+            // Convert world hit point to local coordinates of the floor object
+            const localHitPoint = hitObj.worldToLocal(worldHitPoint.clone());
+            
+            // Normalize local hit point from -baseSize/2 to +baseSize/2 range
+            // to a 0-1 range across the face of the block
+            const uvX = (localHitPoint.x + baseSize.x / 2) / baseSize.x;
+            const uvZ = (localHitPoint.z + baseSize.z / 2) / baseSize.z;
+
+            // Determine which 1x1 sub-tile was hit on the 4x4 floor
+            const subTileX = Math.floor(uvX * baseSize.x); // 0, 1, 2, 3
+            const subTileZ = Math.floor(uvZ * baseSize.z); // 0, 1, 2, 3
+
+            // Calculate the world position for the center of this 1x1 sub-tile
+            // and add the beam's height
+            pos.x = basePos.x - baseSize.x / 2 + subTileX + 0.5;
+            pos.z = basePos.z - baseSize.z / 2 + subTileZ + 0.5;
+            pos.y = basePos.y + baseSize.y / 2 + def.size.y / 2; // Beam sits on top
+
+            return { pos };
+        }
+        // Placing Metal Beam on top of another Metal Beam
+        else if (def.id === "metal_beam" && basePart.id === "metal_beam" && n.y > 0.9) {
+            pos.copy(basePos);
+            pos.y += baseSize.y;
+            return { pos };
+        }
     }
 
-    return null;
+    return null; // No valid placement suggested
   }
 
   placeOne(){
