@@ -2,18 +2,13 @@
 import * as THREE from "three";
 
 // --- Material Library ---
-// Create a single instance of each material type to be shared.
-const textureCube = new THREE.CubeTextureLoader()
-  .setPath('https://unpkg.com/three@0.169.0/examples/textures/cube/pisa/')
-  .load(['px.png', 'nx.png', 'py.png', 'ny.png', 'pz.png', 'nz.png']);
-
+// ✨ FIX: Removed the skybox texture and redefined 'reflective' material.
 const MATERIALS = {
   'wireframe': new THREE.MeshBasicMaterial({ wireframe: true, color: 0x4dd2ff }),
   'flat': new THREE.MeshPhongMaterial({ color: 0xc0c5c9, specular: 0x000000, flatShading: true, side: THREE.DoubleSide }),
   'smooth': new THREE.MeshLambertMaterial({ color: 0xc0c5c9, side: THREE.DoubleSide }),
   'glossy': new THREE.MeshStandardMaterial({ color: 0xc0c5c9, metalness: 0.9, roughness: 0.45, side: THREE.DoubleSide }),
-  // ✨ FIX: Increased reflectivity for a stronger mirror-like effect.
-  'reflective': new THREE.MeshPhongMaterial({ color: 0xb0b5b9, envMap: textureCube, side: THREE.DoubleSide, reflectivity: 0.95 }),
+  'reflective': new THREE.MeshStandardMaterial({ color: 0xb0b5b9, metalness: 0.95, roughness: 0.0, side: THREE.DoubleSide }),
 };
 
 /* ---------- Procedural Building Catalog ---------- */
