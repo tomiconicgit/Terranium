@@ -2,6 +2,8 @@
 import * as THREE from 'three';
 import { makeCatalog, buildPart } from '../assets/Catalog.js';
 
+const Z_FIGHT_OFFSET = 0.001; // Small offset to prevent Z-fighting
+
 function findPartRoot(object, placedObjectsGroup) {
     let current = object;
     while (current && current.parent !== placedObjectsGroup) {
@@ -112,11 +114,6 @@ export class Builder {
     material.roughness = settings.roughness;
     material.metalness = settings.metalness;
     material.envMapIntensity = settings.reflectivity;
-    
-    // Update noise uniform if the material has a custom shader
-    if (material.userData.shader) {
-      material.userData.shader.uniforms.u_noise.value = settings.noise;
-    }
   }
   
   suggestPlacement(def, hit, settings) {
@@ -124,7 +121,6 @@ export class Builder {
     const pos = new THREE.Vector3();
     const hitRoot = findPartRoot(hit.object, this.placedObjects);
     const verticalBeamIds = ["metal_beam", "steel_beam"];
-    const Z_FIGHT_OFFSET = 0.001;
 
     if (hit.object === this.terrain && def.id === "metal_floor") {
         const gridSize = def.size.x;
@@ -139,6 +135,21 @@ export class Builder {
         const basePos = hitRoot.position.clone();
         const baseSize = basePart.size;
         const baseRot = hitRoot.rotation;
+
+        if (def.id === "sci_fi_ramp" && basePart.id === "metal_floor" && Math.abs(n.y) < 0.1) {
+            const rot = new THREE.Euler(0, 0, 0, 'YXZ');
+            rot.y = Math.atan2(n.x, n.z);
+
+            pos.copy(basePos);
+            // Align ramp top with floor top
+            pos.y += (baseSize.y / 2) - (def.size.y / 2);
+
+            // Move ramp out from floor center to its edge
+            const offset = (baseSize.x / 2) + (def.size.z / 2); // floor radius + ramp length radius
+            pos.addScaledVector(n, offset);
+            
+            return { pos, rot };
+        }
 
         if ((def.id === "guard_rail" || def.id === "metal_wall") && basePart.id === "metal_floor" && n.y > 0.9) {
             const localHit = hitRoot.worldToLocal(hit.point.clone());
