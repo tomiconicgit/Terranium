@@ -54,7 +54,6 @@ export class Builder {
 
     const hit = hits[0];
     const settings = this.settingsPanel.getSettings();
-    // ✅ UPDATED: Pass settings to the suggestion logic
     const sugg = this.suggestPlacement(def, hit, settings);
     if (!sugg) { this.preview.visible = false; this._hover = null; return; }
 
@@ -116,7 +115,6 @@ export class Builder {
     material.envMapIntensity = settings.reflectivity;
   }
   
-  // ✅ UPDATED: Function now accepts settings
   suggestPlacement(def, hit, settings) {
     const n = hit.face.normal;
     const pos = new THREE.Vector3();
@@ -160,31 +158,31 @@ export class Builder {
             pos.y += baseSize.y;
             return { pos };
         }
-        // ✅ FIXED: Snapping logic for horizontal beams
+        // ✅ FIXED: Snapping logic for "L" shape
         else if (def.id === "steel_beam_h" && verticalBeamIds.includes(basePart.id) && n.y > 0.9) {
+            // 1. Calculate the Y position to sit perfectly on top
             const y = basePos.y + baseSize.y / 2 + def.size.y / 2;
 
-            // 1. Define the beam's orientation based on rotation
-            const beamDirection = new THREE.Vector3(1, 0, 0); // Horizontal beam lies on its local X-axis
+            // 2. Determine the orientation of the horizontal beam
+            const beamDirection = new THREE.Vector3(1, 0, 0);
             beamDirection.applyAxisAngle(new THREE.Vector3(0, 1, 0), settings.rotationY);
 
-            // 2. Calculate the offset from the beam's edge to its center
-            const halfLength = def.size.x / 2;
-            const edgeOffset = beamDirection.clone().multiplyScalar(halfLength);
+            // 3. Calculate the offset from the beam's center to its edge
+            const edgeOffset = beamDirection.clone().multiplyScalar(def.size.x / 2);
             
-            // 3. Determine the direction from the hit point towards the center of the vertical support
-            const toSupportCenter = basePos.clone().sub(hit.point);
-            toSupportCenter.y = 0; // Project onto the horizontal plane
+            // 4. Calculate the two potential snap positions for the beam's center
+            const snapPosition1 = basePos.clone().add(edgeOffset);
+            const snapPosition2 = basePos.clone().sub(edgeOffset);
 
-            // 4. Decide whether to add or subtract the offset
-            // This ensures the beam extends away from the support structure
-            if (beamDirection.dot(toSupportCenter) > 0) {
-                pos.copy(hit.point).add(edgeOffset);
+            // 5. Choose the snap position that is closer to where the user is looking
+            if (hit.point.distanceTo(snapPosition1) < hit.point.distanceTo(snapPosition2)) {
+                pos.copy(snapPosition1);
             } else {
-                pos.copy(hit.point).sub(edgeOffset);
+                pos.copy(snapPosition2);
             }
             
-            pos.y = y; // Set the calculated Y position
+            // 6. Set the final Y position
+            pos.y = y;
             return { pos };
         }
     }
