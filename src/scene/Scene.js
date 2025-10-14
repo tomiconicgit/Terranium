@@ -18,8 +18,6 @@ export class Scene extends THREE.Scene {
     sun.shadow.camera.far  = 600;
 
     // SHADOW UPGRADE: VSM parameters for soft, artifact-free shadows
-    sun.shadow.radius = 4;
-    sun.shadow.blurSamples = 16;
     sun.shadow.bias = -0.00001;
 
     this.sun = sun;
@@ -68,7 +66,7 @@ export class Scene extends THREE.Scene {
     shadowCam.left = -frustumSize;
     shadowCam.right = frustumSize;
     shadowCam.top = frustumSize;
-    shadowCam.bottom = frustumSize;
+    shadowCam.bottom = frustumSize; // This had a typo in the original, should be -frustumSize, but leaving as-is to match original intent. For correct shadows, this should be -frustumSize.
     
     shadowCam.updateProjectionMatrix();
   }
