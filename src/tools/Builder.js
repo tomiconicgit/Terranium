@@ -45,7 +45,6 @@ export class Builder {
     const placePressed = this.pressed(7);
     const removePressed = this.pressed(6);
 
-    // ✅ FIXED: Robust removal logic runs first and is independent of placement.
     if (removePressed) {
       this.ray.setFromCamera(new THREE.Vector2(0,0), this.camera);
       const hits = this.ray.intersectObjects(this.placedObjects.children, true);
@@ -58,13 +57,11 @@ export class Builder {
               if (obj.geometry) obj.geometry.dispose();
               if (obj.material) obj.material.dispose();
           });
-          // Exit early to prevent any other action in the same frame
           return;
         }
       }
     }
     
-    // --- Placement Logic ---
     if (!def) return;
     
     this.ray.setFromCamera(new THREE.Vector2(0,0), this.camera);
@@ -157,21 +154,30 @@ export class Builder {
             pos.y += baseSize.y;
             return { pos };
         }
-        else if (def.id === "steel_beam_h" && verticalBeamIds.includes(basePart.id) && n.y > 0.9) {
-            const y = basePos.y + baseSize.y / 2 + def.size.y / 2;
-            const beamDirection = new THREE.Vector3(1, 0, 0);
-            beamDirection.applyAxisAngle(new THREE.Vector3(0, 1, 0), settings.rotationY);
-            const edgeOffset = beamDirection.clone().multiplyScalar(def.size.x / 2);
-            const snapPosition1 = basePos.clone().add(edgeOffset);
-            const snapPosition2 = basePos.clone().sub(edgeOffset);
+        // ✅ FIXED: Junction snapping logic
+        else if (def.id === "steel_beam_h" && verticalBeamIds.includes(basePart.id)) {
+            const topOfVerticalBeam = basePos.y + baseSize.y / 2;
+            const isNearTop = Math.abs(hit.point.y - topOfVerticalBeam) < 0.5; // Tolerance
 
-            if (hit.point.distanceTo(snapPosition1) < hit.point.distanceTo(snapPosition2)) {
-                pos.copy(snapPosition1);
-            } else {
-                pos.copy(snapPosition2);
+            // If the cursor is aimed near the top of the vertical beam, snap to it
+            if (isNearTop) {
+                const y = topOfVerticalBeam + def.size.y / 2;
+                const beamDirection = new THREE.Vector3(1, 0, 0);
+                beamDirection.applyAxisAngle(new THREE.Vector3(0, 1, 0), settings.rotationY);
+                const edgeOffset = beamDirection.clone().multiplyScalar(def.size.x / 2);
+                
+                const snapPosition1 = basePos.clone().add(edgeOffset);
+                const snapPosition2 = basePos.clone().sub(edgeOffset);
+
+                if (hit.point.distanceTo(snapPosition1) < hit.point.distanceTo(snapPosition2)) {
+                    pos.copy(snapPosition1);
+                } else {
+                    pos.copy(snapPosition2);
+                }
+                
+                pos.y = y;
+                return { pos };
             }
-            pos.y = y;
-            return { pos };
         }
     }
     return null;
@@ -194,6 +200,4 @@ export class Builder {
     part.userData.settings = { ...settings };
     this.placedObjects.add(part);
   }
-
-  // ✅ REMOVED: The old removeOne() method is no longer needed.
 }
