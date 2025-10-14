@@ -1,10 +1,11 @@
-// src/main.js — Reverted to direct rendering (no post-processing)
+// src/main.js — Main application loop with reflection probe updates
 import * as THREE from 'three';
 import { Scene } from './scene/Scene.js';
 import { GamepadFPV } from './controls/GamepadFPV.js';
 import { Hotbar } from './ui/Hotbar.js';
 import { Builder } from './tools/Builder.js';
 import { SettingsPanel } from './ui/SettingsPanel.js';
+import { MATERIALS } from './assets/Catalog.js';
 
 const mount    = document.getElementById('app');
 const hotbarEl = document.getElementById('hotbar');
@@ -29,7 +30,7 @@ try {
   renderer.setSize(window.innerWidth, window.innerHeight);
 
   renderer.shadowMap.enabled = true;
-  renderer.shadowMap.type = THREE.VSMShadowMap;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap; // Softer shadows, less prone to artifacts
 
   mount.appendChild(renderer.domElement);
 
@@ -39,6 +40,10 @@ try {
   fpv = new GamepadFPV(camera);
   fpv.position.set(0, 3, 10);
   scene.add(fpv);
+
+  // ✨ NEW: Connect the scene's dynamic reflection map to the material library
+  MATERIALS.reflective.envMap = scene.dynamicEnvMap;
+
 
 } catch (e) {
   die('Renderer/scene init', e);
@@ -74,7 +79,9 @@ function animate(){
 
   if (typeof scene.updateShadows === 'function') scene.updateShadows(camera);
   
-  // Render the scene directly
+  // ✨ NEW: Update the real-time reflection before rendering the main scene
+  if (typeof scene.updateReflections === 'function') scene.updateReflections(renderer);
+
   renderer.render(scene, camera);
 }
 animate();
