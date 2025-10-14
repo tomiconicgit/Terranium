@@ -1,4 +1,4 @@
-// Scene.js — flat 70×70 concrete pad + clean sky & shadows (no noise)
+// Scene.js — flat 70×70 concrete pad (no joint lines) + clean sky & shadows
 import * as THREE from 'three';
 
 export class Scene extends THREE.Scene {
@@ -7,14 +7,14 @@ export class Scene extends THREE.Scene {
 
     // --- Sky / ambient ---
     const skyColor = 0xcfe4ff;
-    const groundColor = 0x9fb6d4;
+    const groundColor = 0xa0b6d4;
     this.background = new THREE.Color(skyColor);
     this.fog = new THREE.Fog(skyColor, 220, 900);
 
     const hemi = new THREE.HemisphereLight(skyColor, groundColor, 0.9);
     this.add(hemi);
 
-    const sun = new THREE.DirectionalLight(0xffffff, 1.6);
+    const sun = new THREE.DirectionalLight(0xffffff, 1.55);
     sun.position.set(80, 120, -70);
     sun.castShadow = true;
     sun.shadow.mapSize.set(2048, 2048);
@@ -30,7 +30,6 @@ export class Scene extends THREE.Scene {
     this.add(sun);
     this.add(sun.target);
 
-    // --- Simple gradient skydome shader ---
     this.add(createSky(hemi));
 
     // --- Dynamic env map for subtle reflections on metals ---
@@ -38,52 +37,15 @@ export class Scene extends THREE.Scene {
     this.cubeCamera = new THREE.CubeCamera(1, 1000, cubeRT);
     this.dynamicEnvMap = cubeRT.texture;
 
-    // --- 70×70 flat concrete slab at y=0 ---
-    // Uses MeshStandardMaterial decorated via onBeforeCompile to draw
-    // thin “expansion joint” lines every 4 units without textures.
-    const PAD_SIZE = 70; // world units
-    const PAD_SEGMENTS = 140; // gives smooth shadows & clean joint lines
+    // --- 70×70 flat concrete pad at y=0 (no dark seam lines) ---
+    const PAD_SIZE = 70;
+    const PAD_SEGMENTS = 4; // coarse; we don’t need dense tessellation now
     const geo = new THREE.PlaneGeometry(PAD_SIZE, PAD_SIZE, PAD_SEGMENTS, PAD_SEGMENTS);
     const mat = new THREE.MeshStandardMaterial({
-      color: 0x9aa2ab,          // cool concrete base
-      roughness: 0.85,          // concrete roughness
+      color: 0x9aa2ab,    // concrete
+      roughness: 0.88,
       metalness: 0.0
     });
-
-    // Add subtle AO-ish darkening towards joint lines + faint speckle
-    mat.onBeforeCompile = (shader) => {
-      shader.uniforms.uJointEvery = { value: 4.0 };
-      shader.uniforms.uJointWidth = { value: 0.03 };
-      shader.uniforms.uJointDarken = { value: 0.25 };
-      shader.uniforms.uSpeckle = { value: 0.035 };
-      shader.uniforms.uSeed = { value: 1337.0 };
-
-      shader.fragmentShader = `
-        uniform float uJointEvery;
-        uniform float uJointWidth;
-        uniform float uJointDarken;
-        uniform float uSpeckle;
-        uniform float uSeed;
-      ` + shader.fragmentShader.replace(
-        '#include <map_fragment>',
-        `
-        #include <map_fragment>
-        // World position from vViewPosition needs reconstruction; cheaper hack:
-        // use vUv remapped to world pad coords since the pad is axis-aligned.
-        // The PlaneGeometry uv goes [0,1] across — remap to [-PAD/2, PAD/2].
-        vec2 uvw = vUv * ${PAD_SIZE.toFixed(1)} - vec2(${(PAD_SIZE/2).toFixed(1)});
-        float gx = abs(fract((uvw.x + 0.5*uJointEvery) / uJointEvery) - 0.5);
-        float gz = abs(fract((uvw.y + 0.5*uJointEvery) / uJointEvery) - 0.5);
-        float jointMask = smoothstep(uJointWidth, 0.0, min(gx, gz));
-
-        // Tiny procedural speckle to break flatness (no textures)
-        float s = fract(sin(dot(uvw, vec2(12.9898,78.233)) + uSeed) * 43758.5453);
-        float speck = (s - 0.5) * 2.0 * uSpeckle;
-
-        diffuseColor.rgb = diffuseColor.rgb * (1.0 - jointMask * uJointDarken) + speck;
-        `
-      );
-    };
 
     const pad = new THREE.Mesh(geo, mat);
     pad.rotation.x = -Math.PI / 2;
@@ -96,22 +58,22 @@ export class Scene extends THREE.Scene {
     this._cameraTarget = new THREE.Vector3();
   }
 
-  // Keep terrain editor API so tools won’t break (no-op on flat pad unless used)
-  digPit(position, size) {
+  // Keep terrain editor API (used by “hole” floors)
+  digPit(position, size, depth = 2.0, radiusScale = 0.5) {
     const pos = this.terrain.geometry.attributes.position;
-    const pitDepth = size.y;
-    const pitRadius = size.x * 0.5;
-    const softness = 2.5;
+    if (!pos) return; // flat plane with low segments -> we’ll simply lower the mesh locally
+    const pitRadius = Math.max(size.x, size.z) * radiusScale;
+
+    // Coarse lowering by translating the pad mesh under the placed tile center:
+    // since the pad has low segments, we mimic a pit by dropping nearby vertices.
     for (let i = 0; i < pos.count; i++) {
-      const px = pos.getX(i), py = pos.getY(i), pz = pos.getZ(i);
-      // pad is a plane rotated to face up; authoring coords are in X,Z via rotation
-      // Geometry is already in place-space (x across, y up, z down before rotation),
-      // but since we rotated mesh by -PI/2, the position buffer is “pre-rotated”.
-      // A simple concentric depression still reads visually fine for the pad.
-      const dist = Math.hypot(px, pz);
+      const px = pos.getX(i), pz = pos.getZ(i);
+      const dx = px - position.x, dz = pz - position.z;
+      const dist = Math.hypot(dx, dz);
       if (dist < pitRadius) {
-        const d = (1.0 - smoothstep(pitRadius - softness, pitRadius, dist)) * pitDepth;
-        pos.setY(i, py - d);
+        const y = pos.getY(i);
+        const t = 1.0 - Math.min(1.0, dist / pitRadius);
+        pos.setY(i, y - depth * t);
       }
     }
     pos.needsUpdate = true;
