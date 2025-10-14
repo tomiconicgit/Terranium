@@ -81,7 +81,8 @@ function animate(){
   builder.update(dt);
 
   if (typeof scene.updateShadows === 'function') scene.updateShadows(camera);
-  if (typeof scene.updateReflections === 'function') scene.updateReflections(renderer);
+  // ✅ UPDATED LINE
+  if (typeof scene.updateReflections === 'function') scene.updateReflections(renderer, camera);
 
   renderer.render(scene, camera);
 }
