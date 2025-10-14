@@ -76,6 +76,7 @@ export class Builder {
     const n = hit.face.normal;
     const pos = new THREE.Vector3();
     const hitRoot = findPartRoot(hit.object, this.placedObjects);
+    const beamIds = ["metal_beam", "steel_beam"]; // Array of all beam types
 
     // Case 1: Hitting the terrain (for Metal Floor)
     if (hit.object === this.terrain && def.id === "metal_floor") {
@@ -100,7 +101,8 @@ export class Builder {
                 return { pos };
             }
         }
-        else if (def.id === "metal_beam" && basePart.id === "metal_floor" && n.y > 0.9) {
+        // Place a beam on a floor
+        else if (beamIds.includes(def.id) && basePart.id === "metal_floor" && n.y > 0.9) {
             // ✨ FIX: Correctly convert world hit point to the floor's local space
             const localHitPoint = hitRoot.worldToLocal(hit.point.clone());
             
@@ -118,7 +120,8 @@ export class Builder {
             pos.y = basePos.y + baseSize.y / 2 + def.size.y / 2;
             return { pos };
         }
-        else if (def.id === "metal_beam" && basePart.id === "metal_beam" && n.y > 0.9) {
+        // Stack beams on top of each other
+        else if (beamIds.includes(def.id) && beamIds.includes(basePart.id) && n.y > 0.9) {
             pos.copy(basePos);
             pos.y += baseSize.y;
             return { pos };
