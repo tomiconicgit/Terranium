@@ -9,6 +9,7 @@ export class Scene extends THREE.Scene {
 
     /* ---------- Lights ---------- */
     this.add(new THREE.AmbientLight(0xffffff, 0.15));
+
     const sun = new THREE.DirectionalLight(0xffffff, 1.5);
     sun.position.set(120, 180, -90);
     sun.castShadow = true;
@@ -19,6 +20,12 @@ export class Scene extends THREE.Scene {
     const s = 180;
     sun.shadow.camera.left = -s; sun.shadow.camera.right = s;
     sun.shadow.camera.top = s; sun.shadow.camera.bottom = -s;
+
+    // *** FIX FOR SHADOW LINES ***
+    // Adjust bias to prevent self-shadowing artifacts (shadow acne)
+    sun.shadow.bias = -0.0001;
+    sun.shadow.normalBias = 0.02;
+
     this.add(sun);
     this.add(new THREE.DirectionalLight(0xffffff, 0.25).position.set(-80, 120, 80));
     this.add(new THREE.HemisphereLight(0xdfeaff, 0x9a7c55, 0.5).position.set(0, 120, 0));
