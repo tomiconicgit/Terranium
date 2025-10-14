@@ -25,10 +25,10 @@ export function buildPart(def) {
   return g;
 }
 
-/* ---------- High-Quality, Seamless Concrete Material ---------- */
+/* ---------- High-Quality, Seamless Concrete Material (Cleaned Up) ---------- */
 let _concreteMaps = null;
 
-function createConcreteMaps(size = 1024) { // Increased resolution
+function createConcreteMaps(size = 1024) { // Increased resolution for better detail
   const mapData = new Uint8Array(size * size * 4);
   const normalData = new Uint8Array(size * size * 4);
 
@@ -39,21 +39,22 @@ function createConcreteMaps(size = 1024) { // Increased resolution
       const i = (y * size + x) * 4;
       const nx = x / size, ny = y / size;
 
-      // Color Map: Layered noise for detail
-      let c = 0.5 + fbm(nx * 1.5, ny * 1.5, 5) * 0.2; // Base blotches
-      c += fbm(nx * 6, ny * 6, 4) * 0.05;          // Medium detail
-      c += fbm(nx * 18, ny * 18, 3) * 0.02;        // Fine grain
-      c = THREE.MathUtils.clamp(c, 0.2, 0.8);
+      // --- Color Map: Subtle, layered noise for a cleaner look ---
+      // Reduced frequencies and amplitudes to make the pattern less "busy"
+      let c = 0.6 + fbm(nx * 1.0, ny * 1.0, 4) * 0.1;   // Base, very subtle large variations
+      c += fbm(nx * 4.0, ny * 4.0, 3) * 0.03;          // Smaller, softer variations
+      c = THREE.MathUtils.clamp(c, 0.4, 0.8);          // Kept within a tighter, brighter range
       const g = Math.round(c * 255);
       mapData[i] = mapData[i+1] = mapData[i+2] = g;
       mapData[i+3] = 255;
 
-      // Normal Map: Gradient of noise for bumps and pits
-      const strength = 0.6;
+      // --- Normal Map: Subtle gradient of noise for surface variation ---
+      // Lower strength for a smoother feel
+      const strength = 0.3; // Reduced strength for less pronounced bumps
       const e = 1 / size;
-      const h_center = fbm(nx * 5, ny * 5, 4);
-      const h_x = fbm((nx + e) * 5, ny * 5, 4);
-      const h_y = fbm(nx * 5, (ny + e) * 5, 4);
+      const h_center = fbm(nx * 3, ny * 3, 3); // Frequencies adjusted for smoother normals
+      const h_x = fbm((nx + e) * 3, ny * 3, 3);
+      const h_y = fbm(nx * 3, (ny + e) * 3, 3);
       
       const n = new THREE.Vector3((h_center - h_x), (h_center - h_y), e / strength).normalize();
       normalData[i]   = (n.x * 0.5 + 0.5) * 255;
@@ -85,12 +86,11 @@ function matConcrete() {
   const mat = new THREE.MeshStandardMaterial({
     map: map,
     normalMap: normalMap,
-    normalScale: new THREE.Vector2(1.0, 1.0),
-    roughness: 0.8,
+    normalScale: new THREE.Vector2(0.5, 0.5), // Further reduced for a smoother look
+    roughness: 0.7, // Slightly smoother reflection
     metalness: 0.0,
   });
 
-  // This is the key to seamless tiling
   mat.onBeforeCompile = (shader) => {
     shader.vertexShader = `
       varying vec3 vWorldPosition;
@@ -108,23 +108,21 @@ function matConcrete() {
       varying vec3 vWorldPosition;
       varying vec3 vWorldNormal;
       
-      // Select UVs based on world-space face direction (simple triplanar)
       vec2 getSeamlessUVs() {
         vec3 absNormal = abs(vWorldNormal);
         if (absNormal.y > absNormal.x && absNormal.y > absNormal.z) {
-          return vWorldPosition.xz; // Top/Bottom face
+          return vWorldPosition.xz;
         } else if (absNormal.x > absNormal.y && absNormal.x > absNormal.z) {
-          return vWorldPosition.yz; // Left/Right face
+          return vWorldPosition.yz;
         }
-        return vWorldPosition.xy; // Front/Back face
+        return vWorldPosition.xy;
       }
     ` + shader.fragmentShader;
 
-    // Replace default UV with our world-space UVs
     shader.fragmentShader = shader.fragmentShader.replace(
       '#include <map_particle_fragment>',
       `#if defined( USE_MAP ) || defined( USE_ALPHAMAP )
-        vec2 seamlessUV = getSeamlessUVs() * 0.33; // Scale texture
+        vec2 seamlessUV = getSeamlessUVs() * 0.2; // Adjusted scale for larger, smoother pattern
       #endif
       ` + shader.fragmentShader.substring(shader.fragmentShader.indexOf('#include <map_particle_fragment>'))
     );
