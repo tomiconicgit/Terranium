@@ -1,22 +1,22 @@
 // src/assets/Catalog.js
 import * as THREE from "three";
 
-// A simple, reusable green material
-const matGrass = new THREE.MeshStandardMaterial({
-  color: 0x6ab85d,
-  roughness: 0.8,
-  metalness: 0.1,
+// A procedural material for a metallic floor panel
+const matMetalFloor = new THREE.MeshStandardMaterial({
+  color: 0x8a9299,
+  metalness: 0.9,
+  roughness: 0.4,
 });
 
-/* ---------- Simplified Catalog ---------- */
+/* ---------- Procedural Building Catalog ---------- */
 export function makeCatalog() {
   return [
-    { id: "grass_block", name: "Grass Block", baseType: "block",
-      material: () => matGrass, size: {x:1, y:1, z:1}, preview:"#6ab85d" },
+    { id: "metal_floor", name: "Metal Floor", baseType: "flat",
+      material: () => matMetalFloor, size: {x:4, y:0.2, z:4}, preview:"#8a9299" },
   ];
 }
 
-/* ---------- Simplified Mesh builder ---------- */
+/* ---------- Mesh builder ---------- */
 export function buildPart(def) {
   const mesh = new THREE.Mesh(
     new THREE.BoxGeometry(def.size.x, def.size.y, def.size.z),
@@ -25,6 +25,7 @@ export function buildPart(def) {
   mesh.castShadow = true;
   mesh.receiveShadow = true;
   
-  // The mesh itself is the root object now
+  // Add userData for the builder to identify parts
+  mesh.userData.part = def;
   return mesh;
 }
