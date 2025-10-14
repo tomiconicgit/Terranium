@@ -2,7 +2,7 @@
 import * as THREE from 'three';
 import { makeCatalog, buildPart } from '../assets/Catalog.js';
 
-// ✨ NEW: Helper function to find the root part object from a raycast hit
+// Helper function to find the root part object from a raycast hit
 function findPartRoot(object, placedObjectsGroup) {
     let current = object;
     while (current && current.parent !== placedObjectsGroup) {
@@ -93,9 +93,7 @@ export class Builder {
         const baseSize = basePart.size;
 
         if (def.id === "metal_floor" && basePart.id === "metal_floor") {
-            // On top
             if (n.y > 0.9) { pos.copy(basePos); pos.y += baseSize.y; return { pos }; }
-            // On side
             else if (Math.abs(n.y) < 0.1) {
                 const dir = new THREE.Vector3(Math.round(n.x), 0, Math.round(n.z));
                 pos.copy(basePos).addScaledVector(dir, baseSize.x);
@@ -103,15 +101,18 @@ export class Builder {
             }
         }
         else if (def.id === "metal_beam" && basePart.id === "metal_floor" && n.y > 0.9) {
-            const localHitPoint = new THREE.Vector3();
-            hitRoot.worldToLocal(hit.point.clone(), localHitPoint);
+            // ✨ FIX: Correctly convert world hit point to the floor's local space
+            const localHitPoint = hitRoot.worldToLocal(hit.point.clone());
             
+            // Normalize the local hit point to a 0-1 range across the floor's surface
             const uvX = (localHitPoint.x + baseSize.x / 2) / baseSize.x;
             const uvZ = (localHitPoint.z + baseSize.z / 2) / baseSize.z;
 
+            // Determine which 1x1 sub-tile was hit on the 4x4 floor
             const subTileX = Math.floor(uvX * baseSize.x);
             const subTileZ = Math.floor(uvZ * baseSize.z);
 
+            // Calculate the beam's position based on the center of the hit sub-tile
             pos.x = basePos.x - baseSize.x / 2 + subTileX + 0.5;
             pos.z = basePos.z - baseSize.z / 2 + subTileZ + 0.5;
             pos.y = basePos.y + baseSize.y / 2 + def.size.y / 2;
@@ -138,7 +139,6 @@ export class Builder {
     if (!this._hover?.hit) return;
     const hitObj = this._hover.hit.object;
     if (hitObj !== this.terrain) {
-      // Use the helper to find and remove the entire part group/mesh
       const partToRemove = findPartRoot(hitObj, this.placedObjects);
       if (partToRemove) {
         partToRemove.parent.remove(partToRemove);
