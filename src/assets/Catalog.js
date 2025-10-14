@@ -3,18 +3,22 @@ import * as THREE from "three";
 
 // A procedural material for a metallic floor panel
 const matMetalFloor = new THREE.MeshStandardMaterial({
-  // ✨ FIX: Changed color to a lighter, more iron-like grey
   color: 0xc0c5c9,
   metalness: 0.9,
-  // ✨ FIX: Increased roughness for a less perfect, more diffuse reflection
   roughness: 0.7,
 });
+
+// Reusing the same material for the metal beam for consistency
+const matMetalBeam = matMetalFloor; 
 
 /* ---------- Procedural Building Catalog ---------- */
 export function makeCatalog() {
   return [
     { id: "metal_floor", name: "Metal Floor", baseType: "flat",
       material: () => matMetalFloor, size: {x:4, y:0.2, z:4}, preview:"#c0c5c9" },
+    // ✨ NEW: Metal Beam item
+    { id: "metal_beam", name: "Metal Beam", baseType: "vertical",
+      material: () => matMetalBeam, size: {x:1, y:4, z:1}, preview:"#c0c5c9" },
   ];
 }
 
