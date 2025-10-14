@@ -76,7 +76,7 @@ export class Builder {
     const n = hit.face.normal;
     const pos = new THREE.Vector3();
     const hitRoot = findPartRoot(hit.object, this.placedObjects);
-    const beamIds = ["metal_beam", "steel_beam"]; // Array of all beam types
+    const verticalBeamIds = ["metal_beam", "steel_beam"];
 
     // Case 1: Hitting the terrain (for Metal Floor)
     if (hit.object === this.terrain && def.id === "metal_floor") {
@@ -101,29 +101,28 @@ export class Builder {
                 return { pos };
             }
         }
-        // Place a beam on a floor
-        else if (beamIds.includes(def.id) && basePart.id === "metal_floor" && n.y > 0.9) {
-            // ✨ FIX: Correctly convert world hit point to the floor's local space
+        // Place a vertical beam on a floor
+        else if (verticalBeamIds.includes(def.id) && basePart.id === "metal_floor" && n.y > 0.9) {
             const localHitPoint = hitRoot.worldToLocal(hit.point.clone());
-            
-            // Normalize the local hit point to a 0-1 range across the floor's surface
             const uvX = (localHitPoint.x + baseSize.x / 2) / baseSize.x;
             const uvZ = (localHitPoint.z + baseSize.z / 2) / baseSize.z;
-
-            // Determine which 1x1 sub-tile was hit on the 4x4 floor
             const subTileX = Math.floor(uvX * baseSize.x);
             const subTileZ = Math.floor(uvZ * baseSize.z);
-
-            // Calculate the beam's position based on the center of the hit sub-tile
             pos.x = basePos.x - baseSize.x / 2 + subTileX + 0.5;
             pos.z = basePos.z - baseSize.z / 2 + subTileZ + 0.5;
             pos.y = basePos.y + baseSize.y / 2 + def.size.y / 2;
             return { pos };
         }
-        // Stack beams on top of each other
-        else if (beamIds.includes(def.id) && beamIds.includes(basePart.id) && n.y > 0.9) {
+        // Stack vertical beams on top of each other
+        else if (verticalBeamIds.includes(def.id) && verticalBeamIds.includes(basePart.id) && n.y > 0.9) {
             pos.copy(basePos);
             pos.y += baseSize.y;
+            return { pos };
+        }
+        // Place a horizontal beam on top of a vertical one
+        else if (def.id === "steel_beam_h" && verticalBeamIds.includes(basePart.id) && n.y > 0.9) {
+            pos.copy(basePos);
+            pos.y += basePart.size.y / 2 + def.size.y / 2;
             return { pos };
         }
     }
