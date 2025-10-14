@@ -15,35 +15,31 @@ export function makeCatalog() {
 export function buildPart(def, options = {}, dynamicEnvMap) {
   const { tessellation = 1 } = options;
   
-  // Create a single, powerful material that can be customized.
   const material = new THREE.MeshStandardMaterial({
     envMap: dynamicEnvMap,
     side: THREE.DoubleSide
   });
 
-  // Use onBeforeCompile to inject custom rust shader logic
+  // ✨ FIX: Rewrote the custom shader to correctly modify material properties
+  // without interfering with the reflection system.
   material.onBeforeCompile = (shader) => {
-    // Pass custom data (uniforms) to the shader
     shader.uniforms.u_rust = { value: 0.0 };
     shader.uniforms.u_rustColor = { value: new THREE.Color(0x5c2a11) };
-    shader.uniforms.u_rustRoughness = { value: 0.85 };
+    shader.uniforms.u_rustRoughness = { value: 0.9 };
 
-    // Add a varying to pass world position to the fragment shader
     shader.vertexShader = 'varying vec3 v_worldPosition;\n' + shader.vertexShader;
     shader.vertexShader = shader.vertexShader.replace(
       '#include <worldpos_vertex>',
       `#include <worldpos_vertex>
-       v_worldPosition = (modelMatrix * vec4(transformed, 1.0)).xyz;`
+       v_worldPosition = (modelMatrix * vec4(position, 1.0)).xyz;`
     );
 
-    // Inject the rust logic into the fragment shader
     shader.fragmentShader = `
       uniform float u_rust;
       uniform vec3 u_rustColor;
       uniform float u_rustRoughness;
       varying vec3 v_worldPosition;
 
-      // Simple procedural noise function
       float hash(vec3 p) { return fract(sin(dot(p, vec3(127.1, 311.7, 74.7))) * 43758.5453); }
       float noise(vec3 p) {
         vec3 i = floor(p); vec3 f = fract(p); f = f*f*(3.0-2.0*f);
@@ -59,25 +55,36 @@ export function buildPart(def, options = {}, dynamicEnvMap) {
       }
     ` + shader.fragmentShader;
 
-    // At the end of the shader, mix in the rust
+    // 1. Modify color before lighting
     shader.fragmentShader = shader.fragmentShader.replace(
-      '#include <dithering_fragment>',
-      `#include <dithering_fragment>
-      float rustFactor = fbm(v_worldPosition * 0.3);
-      if (rustFactor < u_rust) {
-        // Mix final color, roughness, and metalness
-        gl_FragColor.rgb = mix(gl_FragColor.rgb, u_rustColor, 0.8);
-        #ifdef USE_ROUGHNESSMAP
-          // This line is complex, it finds where roughness is set and modifies it
-          float finalRoughness = mix(roughness, u_rustRoughness, 1.0);
-          gl_FragColor.rgb = mix(gl_FragColor.rgb, u_rustColor, 0.8);
-        #endif
-        // Make rusty parts non-metallic
-        gl_FragColor = vec4(gl_FragColor.rgb * (1.0 - metalnessFactor * 0.9), gl_FragColor.a);
-      }`
+      '#include <color_fragment>',
+      `#include <color_fragment>
+      float rustMask = smoothstep(u_rust - 0.1, u_rust + 0.1, fbm(v_worldPosition * 0.4));
+      diffuseColor.rgb = mix(diffuseColor.rgb, u_rustColor, rustMask);`
+    );
+
+    // 2. Modify roughness before lighting
+    shader.fragmentShader = shader.fragmentShader.replace(
+      '#include <roughnessmap_fragment>',
+      `float roughnessFactor = roughness;
+      #ifdef USE_ROUGHNESSMAP
+        vec4 texelRoughness = texture2D( roughnessMap, vUv );
+        roughnessFactor *= texelRoughness.g;
+      #endif
+      roughnessFactor = mix(roughnessFactor, u_rustRoughness, rustMask);`
     );
     
-    // Store the uniforms on the material so we can access them later
+    // 3. Modify metalness before lighting
+    shader.fragmentShader = shader.fragmentShader.replace(
+      '#include <metalnessmap_fragment>',
+      `float metalnessFactor = metalness;
+      #ifdef USE_METALNESSMAP
+        vec4 texelMetalness = texture2D( metalnessMap, vUv );
+        metalnessFactor *= texelMetalness.b;
+      #endif
+      metalnessFactor = mix(metalnessFactor, 0.0, rustMask);`
+    );
+    
     material.userData.shader = shader;
   };
 
