@@ -15,51 +15,11 @@ export function makeCatalog() {
 export function buildPart(def, options = {}, dynamicEnvMap) {
   const { tessellation = 1 } = options;
   
+  // ✅ REMOVED: The onBeforeCompile shader logic for bump mapping is gone.
   const material = new THREE.MeshStandardMaterial({
     envMap: dynamicEnvMap,
     side: THREE.DoubleSide
   });
-
-  // ✨ FIX: Replaced the rust shader with a procedural bump/normal mapping shader.
-  material.onBeforeCompile = (shader) => {
-    shader.uniforms.u_bumpLevel = { value: 0.0 };
-    
-    shader.vertexShader = 'varying vec3 v_worldPosition;\n' + shader.vertexShader;
-    shader.vertexShader = shader.vertexShader.replace(
-      '#include <worldpos_vertex>',
-      `#include <worldpos_vertex>
-       v_worldPosition = (modelMatrix * vec4(position, 1.0)).xyz;`
-    );
-
-    shader.fragmentShader = `
-      uniform float u_bumpLevel;
-      varying vec3 v_worldPosition;
-
-      // Simple procedural noise function
-      float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
-      float noise(vec2 p) {
-        vec2 i = floor(p); vec2 f = fract(p); f = f*f*(3.0-2.0*f);
-        return mix(mix(hash(i), hash(i+vec2(1,0)), f.x),
-                   mix(hash(i+vec2(0,1)), hash(i+vec2(1,1)), f.x), f.y);
-      }
-    ` + shader.fragmentShader;
-
-    // Inject the normal modification logic
-    shader.fragmentShader = shader.fragmentShader.replace(
-      '#include <normal_fragment_maps>',
-      `#include <normal_fragment_maps>
-      
-      // Calculate derivatives for noise-based normals
-      float noise_x = noise(v_worldPosition.yz * 20.0);
-      float noise_y = noise(v_worldPosition.xz * 20.0);
-      float noise_z = noise(v_worldPosition.xy * 20.0);
-      
-      vec3 newNormal = normal + u_bumpLevel * vec3(noise_x, noise_y, noise_z);
-      normal = normalize(newNormal);`
-    );
-    
-    material.userData.shader = shader;
-  };
 
   let partObject;
   if (def.id === "metal_beam") {
