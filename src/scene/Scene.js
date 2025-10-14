@@ -24,8 +24,7 @@ export class Scene extends THREE.Scene {
 
     this.sun = sun;
     this.add(sun);
-    // *** CRITICAL FIX: The light's target must be added to the scene to be movable ***
-    this.add(sun.target);
+    this.add(sun.target); // The light's target must be in the scene to be movable
 
     this.add(new THREE.DirectionalLight(0xffffff, 0.25).position.set(-80, 120, 80));
     this.add(new THREE.HemisphereLight(0xdfeaff, 0x9a7c55, 0.5).position.set(0, 120, 0));
@@ -59,20 +58,17 @@ export class Scene extends THREE.Scene {
     const shadowCam = this.sun.shadow.camera;
     const distance = 100;
 
-    // Calculate a point in front of the camera to aim the light at
     camera.getWorldDirection(this._cameraTarget);
     this._cameraTarget.multiplyScalar(distance / 4);
     this._cameraTarget.add(camera.position);
     
-    // Move the light's target to this point
     this.sun.target.position.copy(this._cameraTarget);
     
-    // Tightly fit the shadow frustum to the visible area
     const frustumSize = 80;
     shadowCam.left = -frustumSize;
     shadowCam.right = frustumSize;
     shadowCam.top = frustumSize;
-    shadowCam.bottom = -frustumSize;
+    shadowCam.bottom = frustumSize;
     
     shadowCam.updateProjectionMatrix();
   }
