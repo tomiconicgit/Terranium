@@ -5,8 +5,9 @@ import * as THREE from "three";
 export function makeCatalog() {
   return [
     { id: "metal_floor", name: "Metal Floor", baseType: "flat", size: {x:4, y:0.2, z:4}, preview:"#e0e5e9" },
-    { id: "metal_wall", name: "Metal Wall", baseType: "wall", size: {x:4, y:4, z:0.2}, preview:"#c0c5c9" },
+    { id: "metal_wall", name: "Sci-Fi Wall", baseType: "wall", size: {x:4, y:4, z:0.2}, preview:"#c0c5c9" },
     { id: "guard_rail", name: "Guard Rail", baseType: "railing", size: {x:4, y:2, z:0.2}, preview:"#d0d5d9" },
+    { id: "sci_fi_ramp", name: "Ramp", baseType: "ramp", size: {x:4, y:2, z:6}, preview: "#b0b5b9"},
     { id: "metal_beam", name: "Metal Beam", baseType: "vertical", size: {x:1, y:4, z:1}, preview:"#e0e5e9" },
     { id: "steel_beam", name: "Steel Beam", baseType: "vertical", size: {x:0.8, y:4, z:1}, preview:"#c0c5c9" },
     { id: "steel_beam_h", name: "Steel Beam (H)", baseType: "horizontal", size: {x:4, y:1, z:0.8}, preview:"#b5bac0" },
@@ -15,87 +16,121 @@ export function makeCatalog() {
 
 /* ---------- Mesh builder ---------- */
 export function buildPart(def, options = {}, dynamicEnvMap) {
-  const { tessellation = 1, noise = 0 } = options;
+  const { tessellation = 1 } = options;
   
   const material = new THREE.MeshStandardMaterial({
     envMap: dynamicEnvMap,
     side: THREE.DoubleSide
   });
 
-  // ✅ NEW: Add procedural noise via shader injection
-  if (noise > 0) {
-    material.onBeforeCompile = shader => {
-      shader.uniforms.u_noise = { value: noise };
-      shader.vertexShader = 'varying vec3 vPosition;\n' + shader.vertexShader;
-      shader.vertexShader = shader.vertexShader.replace(
-        '#include <begin_vertex>',
-        '#include <begin_vertex>\nvPosition = position;'
-      );
-      shader.fragmentShader = 'uniform float u_noise;\nvarying vec3 vPosition;\n' + shader.fragmentShader;
-      shader.fragmentShader = shader.fragmentShader.replace(
-        'vec4 diffuseColor = vec4( diffuse, opacity );',
-        `
-        vec4 diffuseColor = vec4( diffuse, opacity );
-        
-        // Simple hash-based random function
-        float rand(vec2 co){
-          return fract(sin(dot(co.xy ,vec2(12.9898,78.233))) * 43758.5453);
-        }
-
-        // Use world position to generate noise
-        float noise = rand(vPosition.xz * 20.0) + rand(vPosition.xy * 20.0);
-
-        // Apply noise by darkening the diffuse color
-        diffuseColor.rgb *= (1.0 - u_noise * noise * 0.5);
-        `
-      );
-      // Make uniforms available for later updates if needed
-      material.userData.shader = shader;
-    };
-  }
-
   let partObject;
-  if (def.id === "guard_rail") {
+  if (def.id === "metal_wall") {
     const w = def.size.x, h = def.size.y;
     const hw = w/2, hh = h/2;
-    const postWidth = 0.1, railHeight = 0.1;
-    const numSlats = 7;
+    const inset = 0.1, panelHeight = h * 0.4;
 
     const shape = new THREE.Shape();
-    shape.moveTo(-hw, -hh); shape.lineTo(hw, -hh); shape.lineTo(hw, hh);
-    shape.lineTo(-hw, hh); shape.lineTo(-hw, -hh);
-
-    const railAndPostArea = new THREE.Path();
-    railAndPostArea.moveTo(-hw, -hh); railAndPostArea.lineTo(hw, -hh);
-    railAndPostArea.lineTo(hw, -hh + railHeight); railAndPostArea.lineTo(-hw, -hh + railHeight);
-    railAndPostArea.lineTo(-hw, -hh);
-    shape.holes.push(railAndPostArea);
-
-    const topRailArea = new THREE.Path();
-    topRailArea.moveTo(-hw, hh); topRailArea.lineTo(hw, hh);
-    topRailArea.lineTo(hw, hh - railHeight); topRailArea.lineTo(-hw, hh - railHeight);
-    topRailArea.lineTo(-hw, hh);
-    shape.holes.push(topRailArea);
+    shape.moveTo(-hw, -hh); shape.lineTo(hw, -hh);
+    shape.lineTo(hw, hh); shape.lineTo(-hw, hh);
+    shape.lineTo(-hw, -hh);
     
-    const innerWidth = w - postWidth * 2;
-    const slatTotalWidth = innerWidth * 0.5;
-    const spaceTotalWidth = innerWidth - slatTotalWidth;
-    const slatWidth = slatTotalWidth / numSlats;
-    const spaceWidth = spaceTotalWidth / (numSlats -1);
+    // Create two inset panels as holes
+    const topPanel = new THREE.Path();
+    topPanel.moveTo(-hw + inset, hh - inset);
+    topPanel.lineTo(hw - inset, hh - inset);
+    topPanel.lineTo(hw - inset, hh - inset - panelHeight);
+    topPanel.lineTo(-hw + inset, hh - inset - panelHeight);
+    shape.holes.push(topPanel);
 
-    for(let i=0; i < numSlats - 1; i++){
-        const hole = new THREE.Path();
-        const x = -hw + postWidth + (i * (slatWidth + spaceWidth)) + slatWidth;
-        hole.moveTo(x, -hh + railHeight); hole.lineTo(x + spaceWidth, -hh + railHeight);
-        hole.lineTo(x + spaceWidth, hh - railHeight); hole.lineTo(x, hh - railHeight);
-        hole.lineTo(x, -hh + railHeight);
-        shape.holes.push(hole);
+    const bottomPanel = new THREE.Path();
+    bottomPanel.moveTo(-hw + inset, -hh + inset);
+    bottomPanel.lineTo(hw - inset, -hh + inset);
+    bottomPanel.lineTo(hw - inset, -hh + inset + panelHeight);
+    bottomPanel.lineTo(-hw + inset, -hh + inset + panelHeight);
+    shape.holes.push(bottomPanel);
+    
+    const extrudeSettings = { depth: def.size.z * 0.5, steps: 1, bevelEnabled: false };
+    const mainGeo = new THREE.ExtrudeGeometry(shape, extrudeSettings);
+    
+    const backGeo = new THREE.PlaneGeometry(w, h);
+    backGeo.translate(0, 0, -def.size.z * 0.25);
+    
+    const mainMesh = new THREE.Mesh(mainGeo, material);
+    const backMesh = new THREE.Mesh(backGeo, material);
+    
+    partObject = new THREE.Group().add(mainMesh, backMesh);
+    partObject.rotation.y = Math.PI; // Orient correctly
+    partObject.position.z += def.size.z / 2;
+    
+  } else if (def.id === "guard_rail") {
+    const w = def.size.x, h = def.size.y;
+    const hw = w/2, hh = h/2;
+    const postRadius = 0.1, topRailRadius = 0.08;
+
+    const shape = new THREE.Shape();
+    // Left post
+    shape.absarc(-hw + postRadius, -hh + postRadius, postRadius, Math.PI, Math.PI * 1.5);
+    shape.absarc(-hw + postRadius, hh - postRadius, postRadius, Math.PI * 1.5, Math.PI * 2);
+    // Top rail
+    shape.absarc(hw - topRailRadius, hh - topRailRadius, topRailRadius, Math.PI * 2, Math.PI * 2.5);
+    // Right post
+    shape.absarc(hw - postRadius, hh - postRadius, postRadius, 0, Math.PI * 0.5);
+    shape.absarc(hw - postRadius, -hh + postRadius, postRadius, Math.PI * 0.5, Math.PI);
+    // Bottom line
+    shape.lineTo(-hw + postRadius, -hh);
+
+    // Inner chain-link style holes
+    const diamondW = 0.2, diamondH = 0.3;
+    const numX = Math.floor((w - postRadius*2) / diamondW);
+    const numY = Math.floor((h - topRailRadius - postRadius) / diamondH);
+    for (let i = 0; i < numX; i++) {
+        for (let j = 0; j < numY; j++) {
+            const cx = -hw + postRadius + (i + 0.5) * diamondW;
+            const cy = -hh + postRadius + (j + 0.5) * diamondH;
+            const hole = new THREE.Path();
+            hole.moveTo(cx, cy - diamondH/2);
+            hole.lineTo(cx + diamondW/2, cy);
+            hole.lineTo(cx, cy + diamondH/2);
+            hole.lineTo(cx - diamondW/2, cy);
+            shape.holes.push(hole);
+        }
     }
     
-    const extrudeSettings = { depth: def.size.z, steps: 1, bevelEnabled: false };
+    const extrudeSettings = { depth: def.size.z, steps: 1, bevelEnabled: true, bevelThickness: 0.02, bevelSize: 0.02, bevelSegments: 2 };
     const geometry = new THREE.ExtrudeGeometry(shape, extrudeSettings);
     geometry.center();
     partObject = new THREE.Group().add(new THREE.Mesh(geometry, material));
+
+  } else if (def.id === "sci_fi_ramp") {
+    const w = def.size.x, h = def.size.y, d = def.size.z;
+    const hw = w/2, hh = h/2, hd = d/2;
+
+    const shape = new THREE.Shape();
+    // Sloped top surface
+    shape.moveTo(-hw, hh);
+    shape.lineTo(hw, hh);
+    shape.lineTo(hw, -hh);
+    shape.lineTo(-hw, -hh);
+
+    const extrudeSettings = {
+        steps: 2,
+        depth: d,
+        bevelEnabled: false,
+    };
+    const geometry = new THREE.ExtrudeGeometry(shape, extrudeSettings);
+    geometry.translate(0, 0, -hd);
+    
+    // Make it a ramp by moving vertices
+    const pos = geometry.attributes.position;
+    for (let i = 0; i < pos.count; i++) {
+        const z = pos.getZ(i);
+        if (z < -0.1) { // If vertex is at the far end of the ramp
+            pos.setY(i, pos.getY(i) - h);
+        }
+    }
+    geometry.computeVertexNormals();
+
+    partObject = new THREE.Mesh(geometry, material);
 
   } else if (def.id === "metal_beam") {
     const width = def.size.x, height = def.size.z, depth = def.size.y;
@@ -147,7 +182,7 @@ export function buildPart(def, options = {}, dynamicEnvMap) {
     else mesh.rotation.y = Math.PI / 2;
     partObject = new THREE.Group().add(mesh);
 
-  } else { // Default for metal_floor and metal_wall
+  } else { // Default for metal_floor
     const geometry = new THREE.BoxGeometry(def.size.x, def.size.y, def.size.z, tessellation, 1, tessellation);
     partObject = new THREE.Mesh(geometry, material);
   }
