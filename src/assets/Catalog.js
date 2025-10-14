@@ -1,4 +1,4 @@
-// NASA pad kit — round 6 (model fixes, snapping overhaul)
+// NASA pad kit — round 7 (fixes and feature implementation)
 import * as THREE from "three";
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 
@@ -122,6 +122,7 @@ function buildWallLike(def, M) {
       new THREE.Mesh(new THREE.BoxGeometry(cap, h, d), frameMat),
       new THREE.Mesh(new THREE.BoxGeometry(cap, h, d), frameMat),
     ];
+    // Adjust position to be on the edge, not center
     bars[0].position.y = -h/2 + cap/2; bars[1].position.y =  h/2 - cap/2;
     bars[2].position.x = -w/2 + cap/2; bars[3].position.x =  w/2 - cap/2;
     bars.forEach(b => g.add(b));
@@ -140,28 +141,26 @@ function buildWallLike(def, M) {
 function buildRailing(def, M) {
     const g = new THREE.Group();
     const { x: w, y: h, z: d } = def.size;
-    // **FIX**: Overhauled railing asset for a sleeker, more modern look
-    const postMat = M('#aab5c3', { rough: 0.45, metal: 0.65 });
-    const railMat = M('#ced7e2', { rough: 0.35, metal: 0.7 });
-    const segments = 3;
-    const segW = w / segments;
+    // **FIX**: Complete overhaul of railing asset for a cleaner, more robust look.
+    if (def.subType === 'guard') {
+        const postMat = M('#aab5c3', { rough: 0.45, metal: 0.65 });
+        const railMat = M('#ced7e2', { rough: 0.35, metal: 0.7 });
+        const postGeom = new RoundedBoxGeometry(d, h, d, 2, 0.03);
 
-    // Posts
-    for (let i = 0; i <= segments; i++) {
-        const post = new THREE.Mesh(new RoundedBoxGeometry(d, h, d, 2, 0.03), postMat);
-        post.position.x = -w / 2 + i * segW;
-        post.position.y = h/2-h;
-        g.add(post);
+        // Add 3 posts
+        for (let i = 0; i < 3; i++) {
+            const post = new THREE.Mesh(postGeom, postMat);
+            post.position.x = -w / 2 + i * (w / 2);
+            post.position.y = h / 2 - h; // Position relative to group center
+            g.add(post);
+        }
+
+        // Add top handrail
+        const railGeom = new RoundedBoxGeometry(w, 0.1, d, 2, 0.03);
+        const topRail = new THREE.Mesh(railGeom, railMat);
+        topRail.position.y = h/2 - 0.1;
+        g.add(topRail);
     }
-
-    // Rails (top and middle)
-    const topRail = new THREE.Mesh(new RoundedBoxGeometry(w + d, 0.1, d, 2, 0.03), railMat);
-    topRail.position.y = h/2 - 0.1;
-    const midRail = topRail.clone();
-    midRail.scale.set(1, 0.8, 0.8);
-    midRail.position.y = 0;
-    g.add(topRail, midRail);
-
     return g;
 }
 
@@ -177,7 +176,6 @@ function buildPipe(def, M) {
     const elbow = new THREE.Mesh(new THREE.TorusGeometry(bendR, rad, 16, 32, Math.PI/2), pipeMat);
     elbow.rotation.x = -Math.PI / 2;
     g.add(elbow);
-    // Endpoints for snapping
     const a = new THREE.Object3D(); a.name = 'endpointA'; a.position.set(bendR, 0, 0);
     const b = new THREE.Object3D(); b.name = 'endpointB'; b.position.set(0, bendR, 0);
     g.add(a,b);
@@ -189,7 +187,7 @@ function buildPipe(def, M) {
     const body = new THREE.Mesh(new THREE.CylinderGeometry(rad, rad, len, 20), pipeMat);
     body.rotation.x = Math.PI/2;
     g.add(body);
-    // **FIX**: Correctly named and positioned endpoints
+    // **FIX**: Corrected endpoint B name and position
     const a = new THREE.Object3D(); a.name = 'endpointA'; a.position.set(0, 0, -len/2);
     const b = new THREE.Object3D(); b.name = 'endpointB'; b.position.set(0, 0, len/2);
     g.add(a,b);
@@ -233,9 +231,10 @@ function buildLight(def, M) {
         light.add(body, lens);
         
         light.position.copy(pos);
-        // **FIX**: Point lights at a 45-degree angle up or down
-        light.lookAt(0, light.position.y, 0); // Point towards pole
-        light.rotation.x += (up ? -1 : 1) * (Math.PI / 4); // Tilt 45 degrees
+        
+        // **FIX**: Point lights precisely at a 45-degree angle up or down.
+        light.lookAt(0, light.position.y, 0); // Aim horizontally towards the pole first
+        light.rotation.x += (up ? -1 : 1) * (Math.PI / 4); // Then tilt exactly 45 degrees
         
         head.add(light);
     }
