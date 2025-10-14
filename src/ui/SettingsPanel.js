@@ -11,6 +11,7 @@ export class SettingsPanel {
     this.colorPicker = document.getElementById('color');
     this.roughnessSlider = document.getElementById('roughness');
     this.metalnessSlider = document.getElementById('metalness');
+    this.reflectivitySlider = document.getElementById('reflectivity');
     this.tessellationSlider = document.getElementById('tessellation');
     this.rotateLeftBtn = document.getElementById('rotate-left');
     this.rotateRightBtn = document.getElementById('rotate-right');
@@ -24,14 +25,15 @@ export class SettingsPanel {
     this.colorPicker.addEventListener('input', trigger);
     this.roughnessSlider.addEventListener('input', trigger);
     this.metalnessSlider.addEventListener('input', trigger);
+    this.reflectivitySlider.addEventListener('input', trigger);
     this.tessellationSlider.addEventListener('input', trigger);
     
     this.rotateLeftBtn.addEventListener('click', () => {
-      this.rotation -= Math.PI / 2; // -90 degrees
+      this.rotation -= Math.PI / 2;
       this.triggerChange();
     });
     this.rotateRightBtn.addEventListener('click', () => {
-      this.rotation += Math.PI / 2; // +90 degrees
+      this.rotation += Math.PI / 2;
       this.triggerChange();
     });
     
@@ -63,6 +65,7 @@ export class SettingsPanel {
       color: this.colorPicker.value,
       roughness: parseFloat(this.roughnessSlider.value),
       metalness: parseFloat(this.metalnessSlider.value),
+      reflectivity: parseFloat(this.reflectivitySlider.value),
       rotation: this.rotation,
       tessellation: parseInt(this.tessellationSlider.value),
     };
