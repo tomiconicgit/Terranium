@@ -27,7 +27,7 @@ export class Builder {
 
     this.ray = new THREE.Raycaster();
     this.preview = new THREE.Group();
-    this.preview.name = 'ghost';
+    this.preview.name = 'previewObject'; // Renamed from 'ghost'
     this.scene.add(this.preview);
 
     this.prevKey = '';
@@ -62,16 +62,16 @@ export class Builder {
 
     if (key !== this.prevKey){
       this.preview.clear();
-      const ghost = buildPart(def, settings, this.dynamicEnvMap);
-      ghost.traverse(o=>{
+      const previewPart = buildPart(def, settings, this.dynamicEnvMap);
+      
+      // ✅ FIXED: Preview is now solid. Transparency lines are removed.
+      previewPart.traverse(o=>{
         if(o.isMesh){
             this.customizeMaterial(o.material, settings);
-            o.material.transparent = true; 
-            o.material.opacity = 0.6; 
-            o.material.depthWrite = false;
         }
       });
-      this.preview.add(ghost);
+
+      this.preview.add(previewPart);
       this.prevKey = key;
     }
     
@@ -85,26 +85,9 @@ export class Builder {
     if (removePressed) this.removeOne();
   }
 
+  // ✅ FIXED: This function no longer updates placed objects.
+  // It just clears the preview key to force a rebuild with new settings.
   applyGlobalSettings() {
-    const currentDef = this.catalog[this.hotbar.index];
-    if (!currentDef) return;
-  
-    const settings = this.settingsPanel.getSettings();
-    const objectsToUpdate = this.placedObjects.children.filter(
-      child => child.userData.part?.id === currentDef.id
-    );
-  
-    objectsToUpdate.forEach(child => {
-      child.traverse(obj => {
-        if (obj.isMesh && obj.material) {
-          this.customizeMaterial(obj.material, settings);
-        }
-      });
-      child.rotation.y = settings.rotationY;
-      child.rotation.x = settings.rotationX;
-      Object.assign(child.userData.settings, settings);
-    });
-  
     this.prevKey = '';
   }
   
@@ -158,30 +141,19 @@ export class Builder {
             pos.y += baseSize.y;
             return { pos };
         }
-        // ✅ FIXED: Snapping logic for "L" shape
         else if (def.id === "steel_beam_h" && verticalBeamIds.includes(basePart.id) && n.y > 0.9) {
-            // 1. Calculate the Y position to sit perfectly on top
             const y = basePos.y + baseSize.y / 2 + def.size.y / 2;
-
-            // 2. Determine the orientation of the horizontal beam
             const beamDirection = new THREE.Vector3(1, 0, 0);
             beamDirection.applyAxisAngle(new THREE.Vector3(0, 1, 0), settings.rotationY);
-
-            // 3. Calculate the offset from the beam's center to its edge
             const edgeOffset = beamDirection.clone().multiplyScalar(def.size.x / 2);
-            
-            // 4. Calculate the two potential snap positions for the beam's center
             const snapPosition1 = basePos.clone().add(edgeOffset);
             const snapPosition2 = basePos.clone().sub(edgeOffset);
 
-            // 5. Choose the snap position that is closer to where the user is looking
             if (hit.point.distanceTo(snapPosition1) < hit.point.distanceTo(snapPosition2)) {
                 pos.copy(snapPosition1);
             } else {
                 pos.copy(snapPosition2);
             }
-            
-            // 6. Set the final Y position
             pos.y = y;
             return { pos };
         }
