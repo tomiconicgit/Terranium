@@ -44,7 +44,7 @@ try {
 /* ---------- UI ---------- */
 let hotbar, builder;
 try {
-  hotbar = new Hotbar(hot_hotbar);
+  hotbar = new Hotbar(hotbarEl); // Corrected variable name here
   builder = new Builder(scene, camera, hotbar);
 } catch (e) {
   die('UI init (Hotbar/Builder)', e);
