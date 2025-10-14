@@ -1,4 +1,4 @@
-// NASA pad kit — round 10 (new assets, major fixes)
+// src/assets/Catalog.js
 import * as THREE from "three";
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 
@@ -20,19 +20,19 @@ export function makeCatalog() {
     { id:"steps_short", name:"Short Steps", category:"Ramps & Railings", baseType:"ramp", subType:"steps_short", size:{x:tile, y:1, z:tile/2}, preview:"#8d99ae" },
 
     // Walls
-    { id:"wall_flat_smooth",  name:"Wall • Smooth (4h)", category:"Walls", baseType:"wall", subType:"flat_smooth", size:{x:tile,y:4,z:0.35}, preview:"#6c7681" },
-    { id:"wall_glass_half",   name:"Wall • Glass (2h)",  category:"Walls", baseType:"wall", subType:"glass_half",  size:{x:tile,y:2,z:0.35}, preview:"#8fb4d6" },
+    { id:"wall_flat_smooth",  name:"Wall â¢ Smooth (4h)", category:"Walls", baseType:"wall", subType:"flat_smooth", size:{x:tile,y:4,z:0.35}, preview:"#6c7681" },
+    { id:"wall_glass_half",   name:"Wall â¢ Glass (2h)",  category:"Walls", baseType:"wall", subType:"glass_half",  size:{x:tile,y:2,z:0.35}, preview:"#8fb4d6" },
 
     // Columns / Truss / Railings
-    { id:"column_round_01", name:"Steel Column (1×4)", category:"Beams & Columns", baseType:"wall", subType:"column_round_flatcaps", size:{x:1,y:4,z:1}, preview:"#a7b3c0" },
+    { id:"column_round_01", name:"Steel Column (1Ã4)", category:"Beams & Columns", baseType:"wall", subType:"column_round_flatcaps", size:{x:1,y:4,z:1}, preview:"#a7b3c0" },
     { id:"truss_frame_01",  name:"Truss Frame",  category:"Beams & Columns", baseType:"wall", subType:"truss", size:{x:tile,y:4,z:0.5}, preview:"#a7b3c0" },
     { id:"railing_guard_01", name:"Guard Railing", category:"Ramps & Railings", baseType:"railing", subType:"guard", size:{x:tile,y:1.1,z:0.15}, preview:"#b1bdca" },
 
     // Pipes
-    { id:"pipe_elbow_01", name:"Pipe • Elbow", category:"Pipes", baseType:"pipe", subType:"elbow", size:{x:0.6,y:0.6,z:2}, preview:"#8f9aa5" },
-    { id:"pipe_full_01",  name:"Pipe • Full",  category:"Pipes", baseType:"pipe", subType:"full",  size:{x:0.6,y:0.6,z:4}, preview:"#8f9aa5" },
-    { id:"pipe_end_valve", name:"Pipe • End Valve", category:"Pipes", baseType:"pipe", subType:"end_valve", size:{x:1.2,y:1.2,z:0.8}, preview:"#e0fbfc" },
-    { id:"pipe_flame_vent", name:"Pipe • Flame Vent", category:"Pipes", baseType:"pipe", subType:"flame_vent", size:{x:0.6,y:0.6,z:1}, preview:"#ff7b00" },
+    { id:"pipe_full_01",  name:"Pipe â¢ Straight",  category:"Pipes", baseType:"pipe", subType:"full",  size:{x:0.6, y:0.6, z:4}, preview:"#8f9aa5" },
+    { id:"pipe_elbow_01", name:"Pipe â¢ Elbow", category:"Pipes", baseType:"pipe", subType:"elbow", size:{x:1, y:1, z:1}, preview:"#8f9aa5" },
+    { id:"pipe_end_valve", name:"Pipe â¢ Flange", category:"Pipes", baseType:"pipe", subType:"end_valve", size:{x:0.8, y:0.8, z:0.1}, preview:"#e0fbfc" },
+    { id:"pipe_flame_vent", name:"Pipe â¢ Smoke Vent", category:"Pipes", baseType:"pipe", subType:"flame_vent", size:{x:0.6,y:0.6,z:1}, preview:"#cdd2d8" },
 
     // Lights
     { id:"light_stadium_down", name:"Stadium Flood (Down)", category:"Lights", baseType:"light", subType:"stadium_down", size:{x:2.2, y:6.5, z:2.2}, preview:"#e8f0ff" },
@@ -42,6 +42,7 @@ export function makeCatalog() {
 
 /* ---------- Builder entry ---------- */
 export function buildPart(def, options = {}, dynamicEnvMap) {
+  // ... mat function is unchanged
   const mat = (hex, { rough=0.7, metal=0.0, emissive=0x000000, e=0, ...rest } = {}) =>
     new THREE.MeshStandardMaterial({
       color: new THREE.Color(hex || options.primaryColor || '#9EAAB9'),
@@ -69,6 +70,90 @@ export function buildPart(def, options = {}, dynamicEnvMap) {
   return obj;
 }
 
+/* ---------- Pipes ---------- */
+function buildPipe(def, M) {
+  const g = new THREE.Group();
+  const PIPE_DIAM = 0.6; // Standard pipe diameter for all parts
+  const rad = PIPE_DIAM / 2;
+  const pipeMat = M('#8f9aa5', { rough: 0.35, metal: 0.8 });
+
+  if (def.subType === 'full') {
+    const body = new THREE.Mesh(new THREE.CylinderGeometry(rad, rad, def.size.z, 20), pipeMat);
+    body.rotation.x = Math.PI / 2; // Align along Z-axis
+    g.add(body);
+    return g;
+  }
+  
+  if (def.subType === 'elbow') {
+    // An elbow is a bent tube. We can simulate this with a Torus segment.
+    const tubeGeom = new THREE.TorusGeometry(rad, rad, 16, 20, Math.PI / 2);
+    const tube = new THREE.Mesh(tubeGeom, pipeMat);
+    tube.rotation.y = -Math.PI/2;
+    g.add(tube);
+    return g;
+  }
+
+  if (def.subType === 'end_valve') {
+    const flangeDiam = def.size.x;
+    const flangeMat = M('#aab5c3', {rough: 0.4, metal: 0.9});
+    const boltMat = M('#5c6773', {rough: 0.3, metal: 1.0});
+
+    const flange = new THREE.Mesh(new THREE.CylinderGeometry(flangeDiam/2, flangeDiam/2, def.size.z, 24), flangeMat);
+    flange.rotation.x = Math.PI/2;
+    g.add(flange);
+    
+    // Add bolts around the flange
+    const numBolts = 6;
+    const boltRadius = flangeDiam / 2 * 0.75;
+    for(let i=0; i<numBolts; i++) {
+        const angle = (i / numBolts) * Math.PI * 2;
+        const bolt = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, def.size.z + 0.02, 8), boltMat);
+        bolt.position.set(Math.cos(angle) * boltRadius, Math.sin(angle) * boltRadius, 0);
+        bolt.rotation.x = Math.PI/2;
+        g.add(bolt);
+    }
+    return g;
+  }
+
+  if (def.subType === 'flame_vent') {
+      const body = new THREE.Mesh(new THREE.CylinderGeometry(rad, rad, def.size.z, 20), pipeMat);
+      body.rotation.x = Math.PI/2;
+      g.add(body);
+      
+      const particles = [];
+      const smokeMat = M('#dfe3e8', { emissive: '#90959c', e: 0.2, transparent: true, opacity: 0.5, blending: THREE.NormalBlending, depthWrite: false });
+      for (let i=0; i<50; i++) {
+        const p = new THREE.Mesh(new THREE.SphereGeometry(0.15, 8, 8), smokeMat.clone());
+        p.position.set(0,0,def.size.z/2);
+        p.userData = { 
+            life: Math.random() * 2, 
+            maxLife: 2,
+            velocity: new THREE.Vector3((Math.random()-0.5)*0.05, (Math.random()-0.5)*0.05, Math.random()*1.5+0.5) 
+        };
+        particles.push(p);
+        g.add(p);
+      }
+      g.userData.update = (dt) => {
+        particles.forEach(p => {
+          p.position.addScaledVector(p.userData.velocity, dt);
+          p.userData.life -= dt;
+          
+          // Fade in and out for a softer, smokier look
+          const lifeRatio = Math.max(0, p.userData.life / p.userData.maxLife);
+          p.material.opacity = Math.sin(lifeRatio * Math.PI) * 0.4;
+          
+          if (p.userData.life <= 0) {
+            p.position.set(0,0,def.size.z/2);
+            p.userData.life = p.userData.maxLife;
+          }
+        });
+      };
+      return g;
+  }
+  return g;
+}
+
+// ... All other build functions (buildFloor, buildWallLike, etc.) are unchanged ...
 /* ---------- Floors ---------- */
 function buildFloor(def, M) {
     const g = new THREE.Group();
@@ -103,7 +188,7 @@ function buildFloor(def, M) {
     }
     if (def.subType === 'hex_panel') {
         g.add(new THREE.Mesh(new THREE.BoxGeometry(w, h, d), M('#5c677d', { rough: 0.5, metal: 0.7 })));
-        return g; // Simple for now, can be detailed later
+        return g;
     }
     return new THREE.Mesh(new THREE.BoxGeometry(w, h, d), M());
 }
@@ -163,7 +248,6 @@ function buildRailing(def, M) {
         const railMat = M('#ced7e2', { rough: 0.35, metal: 0.7 });
         const postGeom = new RoundedBoxGeometry(d, h, d, 2, 0.03);
         const railGeom = new RoundedBoxGeometry(w, 0.1, d, 2, 0.03);
-        // **FIX**: Corrected positioning logic so railing appears.
         for (let i = 0; i < 3; i++) {
             const post = new THREE.Mesh(postGeom, postMat);
             post.position.x = -w / 2 + i * (w / 2);
@@ -174,70 +258,6 @@ function buildRailing(def, M) {
         g.add(topRail);
     }
     return g;
-}
-
-/* ---------- Pipes ---------- */
-function buildPipe(def, M) {
-  const g = new THREE.Group();
-  const diam = 0.6; // Standard pipe diameter
-  const rad = diam / 2;
-  const pipeMat = M('#8f9aa5', { rough: 0.35, metal: 0.8 });
-  
-  if (def.subType === 'end_valve') {
-    const bodyMat = M('#e0fbfc', {rough: 0.2, metal: 0.9});
-    const bodyGeom = new THREE.SphereGeometry(def.size.x/2, 20, 20);
-    const body = new THREE.Mesh(bodyGeom, bodyMat);
-    g.add(body);
-    
-    const flangeGeom = new THREE.TorusGeometry(def.size.x/2, 0.1, 8, 16);
-    const flange = new THREE.Mesh(flangeGeom, bodyMat);
-    flange.rotation.x = Math.PI/2;
-    flange.position.z = rad;
-    g.add(flange);
-
-    const actuatorMat = M('#293241', {rough: 0.4, metal: 1.0});
-    const actuator = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, 0.8, 16), actuatorMat);
-    actuator.position.y = def.size.y/2;
-    g.add(actuator);
-
-    const a = new THREE.Object3D(); a.name = 'endpointA'; a.position.set(0, 0, rad + 0.1);
-    g.add(a);
-    return g;
-  }
-
-  if (def.subType === 'flame_vent') {
-      const body = new THREE.Mesh(new THREE.CylinderGeometry(rad, rad, def.size.z, 20), pipeMat);
-      body.rotation.x = Math.PI/2;
-      g.add(body);
-      const a = new THREE.Object3D(); a.name = 'endpointA'; a.position.set(0, 0, -def.size.z/2);
-      g.add(a);
-      
-      const particles = [];
-      const fireMat = M('#ff7b00', { emissive: '#ff7b00', e: 10, transparent: true, opacity: 0.8, blending: THREE.AdditiveBlending, depthWrite: false });
-      for (let i=0; i<20; i++) {
-        const p = new THREE.Mesh(new THREE.SphereGeometry(0.1, 8, 8), fireMat);
-        p.position.set(0,0,def.size.z/2);
-        p.userData = { life: Math.random() * 1.5, velocity: new THREE.Vector3((Math.random()-0.5)*0.2, (Math.random()-0.5)*0.2, Math.random()*2+1) };
-        particles.push(p);
-        g.add(p);
-      }
-      g.userData.update = (dt) => {
-        particles.forEach(p => {
-          p.position.addScaledVector(p.userData.velocity, dt);
-          p.userData.life -= dt;
-          p.scale.setScalar(Math.max(0, p.userData.life));
-          if (p.userData.life <= 0) {
-            p.position.set(0,0,def.size.z/2);
-            p.userData.life = Math.random() * 1.5;
-          }
-        });
-      };
-      return g;
-  }
-  // Other pipe types...
-  if (def.subType === 'elbow') { /* ... */ }
-  if (def.subType === 'full') { /* ... */ }
-  return g;
 }
 
 /* ---------- Lights ---------- */
@@ -252,7 +272,6 @@ function buildLight(def, M) {
         const light = new THREE.Mesh(new THREE.BoxGeometry(w*0.95, h*0.5, d*0.5), lightMat);
         g.add(light);
     }
-    // other light types...
     if (def.subType === 'stadium_down' || def.subType === 'stadium_up') { /* ... */ }
     return g;
 }
