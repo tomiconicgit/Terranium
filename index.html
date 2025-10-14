@@ -111,16 +111,23 @@
 
     #settingsPanel {
       position:fixed; top:72px; left:16px; z-index:30;
-      width:260px; padding:8px; border-radius:8px;
+      width:300px; padding:8px; border-radius:8px;
       background:rgba(20,22,25,0.8); backdrop-filter:blur(10px);
       border:1px solid rgba(255,255,255,0.1);
       display:flex; flex-direction:column; gap:4px;
       font-size: 14px;
       transition: transform .3s ease-out, opacity .3s ease-out;
+      max-height: calc(100vh - 90px);
+      overflow-y: auto;
     }
     #settingsPanel.hidden { transform: translateX(-20px); opacity: 0; pointer-events: none; }
+    #settingsPanel h3 {
+        font-size: 12px; text-transform: uppercase; letter-spacing: 1px;
+        color: var(--accent); margin: 12px 12px 4px; padding: 0;
+        font-weight: 600; opacity: 0.9;
+    }
     #settingsPanel .setting-row {
-      display:grid; grid-template-columns: 100px 1fr; align-items:center;
+      display:grid; grid-template-columns: 120px 1fr; align-items:center;
       padding: 8px 12px; border-radius: 4px;
     }
     #settingsPanel .setting-row:hover { background:rgba(255,255,255,0.05); }
@@ -147,9 +154,10 @@
 
   <div id="settingsBtn">⚙️</div>
   <div id="settingsPanel" class="hidden">
+    <h3>General</h3>
     <div class="setting-row">
-      <label for="color">Color</label>
-      <input type="color" id="color" value="#c0c5c9">
+      <label for="primaryColor">Primary Color</label>
+      <input type="color" id="primaryColor" value="#c0c5c9">
     </div>
     <div class="setting-row">
       <label for="roughness">Roughness</label>
@@ -163,6 +171,52 @@
       <label for="reflectivity">Reflectivity</label>
       <input type="range" id="reflectivity" min="0" max="2" step="0.01" value="1">
     </div>
+
+    <h3>Floor Colors</h3>
+    <div class="setting-row">
+      <label for="floorColor1">Base</label>
+      <input type="color" id="floorColor1" value="#707C8D">
+    </div>
+    <div class="setting-row">
+      <label for="floorColor2">Panels</label>
+      <input type="color" id="floorColor2" value="#434B57">
+    </div>
+    <div class="setting-row">
+      <label for="floorColor3">Grooves</label>
+      <input type="color" id="floorColor3" value="#2A2F36">
+    </div>
+    <div class="setting-row">
+      <label for="floorColor4">Lights</label>
+      <input type="color" id="floorColor4" value="#4DD2FF">
+    </div>
+    <div class="setting-row">
+      <label for="floorColor5">Detail</label>
+      <input type="color" id="floorColor5" value="#9DA8B8">
+    </div>
+
+    <h3>Wall Colors</h3>
+    <div class="setting-row">
+      <label for="wallColor1">Frame</label>
+      <input type="color" id="wallColor1" value="#434B57">
+    </div>
+    <div class="setting-row">
+      <label for="wallColor2">Panels</label>
+      <input type="color" id="wallColor2" value="#707C8D">
+    </div>
+    <div class="setting-row">
+      <label for="wallColor3">Inner</label>
+      <input type="color" id="wallColor3" value="#2A2F36">
+    </div>
+    <div class="setting-row">
+      <label for="wallColor4">Accent</label>
+      <input type="color" id="wallColor4" value="#4DD2FF">
+    </div>
+    <div class="setting-row">
+      <label for="wallColor5">Detail</label>
+      <input type="color" id="wallColor5" value="#9DA8B8">
+    </div>
+    
+    <h3>Transform</h3>
     <div class="setting-row">
       <label>Rotation</label>
       <div class="control-group">
