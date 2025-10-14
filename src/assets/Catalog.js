@@ -24,42 +24,59 @@ export function buildPart(def, options = {}, dynamicEnvMap) {
 
   let partObject;
   if (def.id === "guard_rail") {
-    const w = def.size.x, h = def.size.y, d = def.size.z;
+    const w = def.size.x, h = def.size.y;
     const hw = w/2, hh = h/2;
     const postWidth = 0.1, railHeight = 0.1;
-
-    const group = new THREE.Group();
-    const postMat = material.clone();
-    
-    // Posts
-    const postGeometry = new THREE.BoxGeometry(postWidth, h, postWidth);
-    let postLeft = new THREE.Mesh(postGeometry, postMat);
-    postLeft.position.set(-hw + postWidth/2, 0, 0);
-    group.add(postLeft);
-    let postRight = new THREE.Mesh(postGeometry, postMat);
-    postRight.position.set(hw - postWidth/2, 0, 0);
-    group.add(postRight);
-
-    // Rails
-    const railGeometry = new THREE.BoxGeometry(w - postWidth, railHeight, d);
-    let topRail = new THREE.Mesh(railGeometry, postMat);
-    topRail.position.set(0, hh - railHeight/2, 0);
-    group.add(topRail);
-    let bottomRail = new THREE.Mesh(railGeometry, postMat);
-    bottomRail.position.set(0, -hh + railHeight/2, 0);
-    group.add(bottomRail);
-
-    // Slats
-    const slatWidth = 0.05;
     const numSlats = 7;
-    const slatSpacing = (w - postWidth * 2) / (numSlats + 1);
-    const slatGeometry = new THREE.BoxGeometry(slatWidth, h - railHeight * 2, d);
-    for (let i = 0; i < numSlats; i++) {
-        let slat = new THREE.Mesh(slatGeometry, postMat);
-        slat.position.x = (-hw + postWidth + slatSpacing) + (i * (slatWidth + slatSpacing));
-        group.add(slat);
+
+    const shape = new THREE.Shape();
+    // Outer boundary
+    shape.moveTo(-hw, -hh);
+    shape.lineTo(hw, -hh);
+    shape.lineTo(hw, hh);
+    shape.lineTo(-hw, hh);
+    shape.lineTo(-hw, -hh);
+
+    // Create holes for the empty spaces
+    const railAndPostArea = new THREE.Path();
+    railAndPostArea.moveTo(-hw, -hh);
+    railAndPostArea.lineTo(hw, -hh);
+    railAndPostArea.lineTo(hw, -hh + railHeight);
+    railAndPostArea.lineTo(-hw, -hh + railHeight);
+    railAndPostArea.lineTo(-hw, -hh);
+    shape.holes.push(railAndPostArea);
+
+    const topRailArea = new THREE.Path();
+    topRailArea.moveTo(-hw, hh);
+    topRailArea.lineTo(hw, hh);
+    topRailArea.lineTo(hw, hh - railHeight);
+    topRailArea.lineTo(-hw, hh - railHeight);
+    topRailArea.lineTo(-hw, hh);
+    shape.holes.push(topRailArea);
+    
+    // Calculate slat spacing
+    const innerWidth = w - postWidth * 2;
+    const slatTotalWidth = innerWidth * 0.5; // Let slats take up 50% of inner space
+    const spaceTotalWidth = innerWidth - slatTotalWidth;
+    const slatWidth = slatTotalWidth / numSlats;
+    const spaceWidth = spaceTotalWidth / (numSlats -1);
+
+    for(let i=0; i < numSlats - 1; i++){
+        const hole = new THREE.Path();
+        const x = -hw + postWidth + (i * (slatWidth + spaceWidth)) + slatWidth;
+        hole.moveTo(x, -hh + railHeight);
+        hole.lineTo(x + spaceWidth, -hh + railHeight);
+        hole.lineTo(x + spaceWidth, hh - railHeight);
+        hole.lineTo(x, hh - railHeight);
+        hole.lineTo(x, -hh + railHeight);
+        shape.holes.push(hole);
     }
-    partObject = group;
+    
+    const extrudeSettings = { depth: def.size.z, steps: 1, bevelEnabled: false };
+    const geometry = new THREE.ExtrudeGeometry(shape, extrudeSettings);
+    geometry.center();
+    const mesh = new THREE.Mesh(geometry, material);
+    partObject = new THREE.Group().add(mesh);
 
   } else if (def.id === "metal_beam") {
     const width = def.size.x, height = def.size.z, depth = def.size.y;
@@ -96,11 +113,8 @@ export function buildPart(def, options = {}, dynamicEnvMap) {
     const shape = new THREE.Shape();
     shape.moveTo(hw - radius, hh);
     shape.quadraticCurveTo(hw, hh, hw, hh - radius);
-    
-    // ✅ FIX: Corrected variable name from hh_flflange_inner to hh_flange_inner
     shape.lineTo(hw, hh_flange_inner + radius);
     shape.quadraticCurveTo(hw, hh_flange_inner, hw - radius, hh_flange_inner);
-    
     shape.lineTo(hw_web + radius, hh_flange_inner);
     shape.quadraticCurveTo(hw_web, hh_flange_inner, hw_web, hh_flange_inner - radius);
     shape.lineTo(hw_web, -hh_flange_inner + radius);
@@ -111,7 +125,7 @@ export function buildPart(def, options = {}, dynamicEnvMap) {
     shape.quadraticCurveTo(hw, -hh, hw - radius, -hh);
     shape.lineTo(-hw + radius, -hh);
     shape.quadraticCurveTo(-hw, -hh, -hw, -hh + radius);
-    shape.lineTo(-hw, -hh_flange_inner - radius); // This line had a typo in some versions, but seems correct here.
+    shape.lineTo(-hw, -hh_flange_inner - radius);
     shape.quadraticCurveTo(-hw, -hh_flange_inner, -hw + radius, -hh_flange_inner);
     shape.lineTo(-hw_web - radius, -hh_flange_inner);
     shape.quadraticCurveTo(-hw_web, -hh_flange_inner, -hw_web, -hh_flange_inner + radius);
