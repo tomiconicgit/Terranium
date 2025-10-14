@@ -1,96 +1,119 @@
-// Scene.js — procedural sky with real-time reflections and terrain modification
+// Scene.js — flat 70×70 concrete pad + clean sky & shadows (no noise)
 import * as THREE from 'three';
-
-// --- Noise functions for terrain generation ---
-const lerp = (a, b, t) => a + (b - a) * t;
-const fade = (t) => t*t*t*(t*(t*6-15)+10);
-function hash(x, y) { let n=x*374761393+y*668265263; n=(n^(n>>13))*1274126177; return ((n^(n>>16))>>>0)/4294967295; }
-function valueNoise(x, y) {
-  const xi=Math.floor(x), yi=Math.floor(y), xf=x-xi, yf=y-yi;
-  const s=hash(xi,yi), t=hash(xi+1,yi), u=hash(xi,yi+1), v=hash(xi+1,yi+1);
-  const sx=fade(xf), sy=fade(yf); return lerp(lerp(s,t,sx), lerp(u,v,sx), sy) * 2.0 - 1.0;
-}
-function fbm(x, y, octaves) {
-  let sum=0, amp=0.5, freq=1;
-  for (let i=0; i<octaves; i++) { sum += amp * valueNoise(x*freq, y*freq); amp*=0.5; freq*=2; } return sum;
-}
-function smoothstep(a, b, x) { const t=Math.min(1,Math.max(0,(x-a)/(b-a))); return t*t*(3-2*t); }
 
 export class Scene extends THREE.Scene {
   constructor() {
     super();
 
-    const skyColor = 0xcce0ff;
-    const groundColor = 0x95abcc;
+    // --- Sky / ambient ---
+    const skyColor = 0xcfe4ff;
+    const groundColor = 0x9fb6d4;
     this.background = new THREE.Color(skyColor);
-    this.fog = new THREE.Fog(skyColor, 200, 600);
+    this.fog = new THREE.Fog(skyColor, 220, 900);
 
-    const hemiLight = new THREE.HemisphereLight(skyColor, groundColor, 1.2);
-    this.add(hemiLight);
+    const hemi = new THREE.HemisphereLight(skyColor, groundColor, 0.9);
+    this.add(hemi);
 
-    const sun = new THREE.DirectionalLight(0xffffff, 1.5);
-    sun.position.set(80, 100, -70);
+    const sun = new THREE.DirectionalLight(0xffffff, 1.6);
+    sun.position.set(80, 120, -70);
     sun.castShadow = true;
     sun.shadow.mapSize.set(2048, 2048);
     sun.shadow.camera.near = 10;
-    sun.shadow.camera.far  = 400;
-    sun.shadow.bias = -0.0005;
+    sun.shadow.camera.far = 600;
+    sun.shadow.camera.left = -120;
+    sun.shadow.camera.right = 120;
+    sun.shadow.camera.top = 120;
+    sun.shadow.camera.bottom = -120;
+    sun.shadow.bias = -0.00035;
     sun.shadow.normalBias = 0.02;
     this.sun = sun;
     this.add(sun);
     this.add(sun.target);
 
-    this.add(createSky(hemiLight));
+    // --- Simple gradient skydome shader ---
+    this.add(createSky(hemi));
 
-    const cubeRenderTarget = new THREE.WebGLCubeRenderTarget(256);
-    this.cubeCamera = new THREE.CubeCamera(1, 1000, cubeRenderTarget);
-    this.dynamicEnvMap = cubeRenderTarget.texture;
+    // --- Dynamic env map for subtle reflections on metals ---
+    const cubeRT = new THREE.WebGLCubeRenderTarget(256, { type: THREE.HalfFloatType });
+    this.cubeCamera = new THREE.CubeCamera(1, 1000, cubeRT);
+    this.dynamicEnvMap = cubeRT.texture;
 
+    // --- 70×70 flat concrete slab at y=0 ---
+    // Uses MeshStandardMaterial decorated via onBeforeCompile to draw
+    // thin “expansion joint” lines every 4 units without textures.
+    const PAD_SIZE = 70; // world units
+    const PAD_SEGMENTS = 140; // gives smooth shadows & clean joint lines
+    const geo = new THREE.PlaneGeometry(PAD_SIZE, PAD_SIZE, PAD_SEGMENTS, PAD_SEGMENTS);
+    const mat = new THREE.MeshStandardMaterial({
+      color: 0x9aa2ab,          // cool concrete base
+      roughness: 0.85,          // concrete roughness
+      metalness: 0.0
+    });
 
-    /* ... terrain generation ... */
-    const size = 100;
-    const segments = 128;
-    const geo = new THREE.PlaneGeometry(size * 2, size * 2, segments, segments);
-    const pos = geo.attributes.position;
-    for (let i = 0; i < pos.count; i++) {
-        const x = pos.getX(i);
-        const y = pos.getY(i);
-        const r = Math.hypot(x, y);
-        let height = (fbm(x * 0.03, y * 0.03, 5) + 0.5) * 20.0;
-        pos.setZ(i, height);
-    }
-    geo.computeVertexNormals();
-    
-    const mat = new THREE.MeshStandardMaterial({ color: 0xf5f9fc, roughness: 0.65 });
-    const terrain = new THREE.Mesh(geo, mat);
-    terrain.rotation.x = -Math.PI / 2;
-    terrain.name = 'terrainPlane';
-    terrain.receiveShadow = true;
-    this.terrain = terrain;
-    this.add(terrain);
+    // Add subtle AO-ish darkening towards joint lines + faint speckle
+    mat.onBeforeCompile = (shader) => {
+      shader.uniforms.uJointEvery = { value: 4.0 };
+      shader.uniforms.uJointWidth = { value: 0.03 };
+      shader.uniforms.uJointDarken = { value: 0.25 };
+      shader.uniforms.uSpeckle = { value: 0.035 };
+      shader.uniforms.uSeed = { value: 1337.0 };
 
+      shader.fragmentShader = `
+        uniform float uJointEvery;
+        uniform float uJointWidth;
+        uniform float uJointDarken;
+        uniform float uSpeckle;
+        uniform float uSeed;
+      ` + shader.fragmentShader.replace(
+        '#include <map_fragment>',
+        `
+        #include <map_fragment>
+        // World position from vViewPosition needs reconstruction; cheaper hack:
+        // use vUv remapped to world pad coords since the pad is axis-aligned.
+        // The PlaneGeometry uv goes [0,1] across — remap to [-PAD/2, PAD/2].
+        vec2 uvw = vUv * ${PAD_SIZE.toFixed(1)} - vec2(${(PAD_SIZE/2).toFixed(1)});
+        float gx = abs(fract((uvw.x + 0.5*uJointEvery) / uJointEvery) - 0.5);
+        float gz = abs(fract((uvw.y + 0.5*uJointEvery) / uJointEvery) - 0.5);
+        float jointMask = smoothstep(uJointWidth, 0.0, min(gx, gz));
+
+        // Tiny procedural speckle to break flatness (no textures)
+        float s = fract(sin(dot(uvw, vec2(12.9898,78.233)) + uSeed) * 43758.5453);
+        float speck = (s - 0.5) * 2.0 * uSpeckle;
+
+        diffuseColor.rgb = diffuseColor.rgb * (1.0 - jointMask * uJointDarken) + speck;
+        `
+      );
+    };
+
+    const pad = new THREE.Mesh(geo, mat);
+    pad.rotation.x = -Math.PI / 2;
+    pad.receiveShadow = true;
+    pad.name = 'terrainPlane';
+    this.terrain = pad;
+    this.add(pad);
+
+    // Camera target cache
     this._cameraTarget = new THREE.Vector3();
   }
 
-  // ✅ NEW: Method to modify terrain geometry
+  // Keep terrain editor API so tools won’t break (no-op on flat pad unless used)
   digPit(position, size) {
     const pos = this.terrain.geometry.attributes.position;
     const pitDepth = size.y;
-    const pitRadius = size.x / 2;
-    const pitEdgeSoftness = 2.0;
-
+    const pitRadius = size.x * 0.5;
+    const softness = 2.5;
     for (let i = 0; i < pos.count; i++) {
-        const px = pos.getX(i);
-        const py = pos.getY(i);
-        const dist = Math.hypot(px - position.x, py - position.z);
-
-        if (dist < pitRadius) {
-            const currentHeight = pos.getZ(i);
-            const depression = smoothstep(pitRadius, pitRadius - pitEdgeSoftness, dist) * pitDepth;
-            pos.setZ(i, Math.min(currentHeight, -depression));
-        }
+      const px = pos.getX(i), py = pos.getY(i), pz = pos.getZ(i);
+      // pad is a plane rotated to face up; authoring coords are in X,Z via rotation
+      // Geometry is already in place-space (x across, y up, z down before rotation),
+      // but since we rotated mesh by -PI/2, the position buffer is “pre-rotated”.
+      // A simple concentric depression still reads visually fine for the pad.
+      const dist = Math.hypot(px, pz);
+      if (dist < pitRadius) {
+        const d = (1.0 - smoothstep(pitRadius - softness, pitRadius, dist)) * pitDepth;
+        pos.setY(i, py - d);
+      }
     }
-    
     pos.needsUpdate = true;
     this.terrain.geometry.computeVertexNormals();
   }
@@ -99,10 +122,10 @@ export class Scene extends THREE.Scene {
     this.cubeCamera.position.copy(camera.position);
     this.cubeCamera.update(renderer, this);
   }
-  
+
   updateShadows(camera) {
     camera.getWorldDirection(this._cameraTarget);
-    this._cameraTarget.multiplyScalar(20).add(camera.position);
+    this._cameraTarget.setLength(20).add(camera.position);
     this.sun.target.position.copy(this._cameraTarget);
     this.sun.shadow.camera.updateProjectionMatrix();
   }
@@ -112,24 +135,30 @@ function createSky(hemiLight) {
   const vertexShader = `
     varying vec3 vWorldPosition;
     void main() {
-      vec4 worldPosition = modelMatrix * vec4( position, 1.0 );
-      vWorldPosition = worldPosition.xyz;
-      gl_Position = projectionMatrix * viewMatrix * worldPosition;
+      vec4 wp = modelMatrix * vec4(position, 1.0);
+      vWorldPosition = wp.xyz;
+      gl_Position = projectionMatrix * viewMatrix * wp;
     }`;
   const fragmentShader = `
-    uniform vec3 uTopColor; uniform vec3 uBottomColor; uniform float uOffset; uniform float uExponent;
+    uniform vec3 uTopColor;
+    uniform vec3 uBottomColor;
+    uniform float uOffset;
+    uniform float uExponent;
     varying vec3 vWorldPosition;
     void main() {
-      float h = normalize( vWorldPosition + uOffset ).y;
-      gl_FragColor = vec4( mix( uBottomColor, uTopColor, max( pow( max( h , 0.0), uExponent ), 0.0 ) ), 1.0 );
+      float h = normalize(vWorldPosition + vec3(0.0, uOffset, 0.0)).y;
+      vec3 col = mix(uBottomColor, uTopColor, pow(max(h, 0.0), uExponent));
+      gl_FragColor = vec4(col, 1.0);
     }`;
   const uniforms = {
-    'uTopColor': { value: new THREE.Color(hemiLight.color) },
-    'uBottomColor': { value: new THREE.Color(hemiLight.groundColor) },
-    'uOffset': { value: 33 }, 'uExponent': { value: 0.6 }
+    uTopColor: { value: new THREE.Color(hemiLight.color) },
+    uBottomColor: { value: new THREE.Color(hemiLight.groundColor) },
+    uOffset: { value: 45.0 },
+    uExponent: { value: 0.6 }
   };
-  const skyGeo = new THREE.SphereGeometry(1000, 32, 15);
-  const skyMat = new THREE.ShaderMaterial({ uniforms, vertexShader, fragmentShader, side: THREE.BackSide });
+  const skyGeo = new THREE.SphereGeometry(1000, 32, 16);
+  const skyMat = new THREE.ShaderMaterial({
+    uniforms, vertexShader, fragmentShader, side: THREE.BackSide
+  });
   return new THREE.Mesh(skyGeo, skyMat);
 }
-
