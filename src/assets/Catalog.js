@@ -18,6 +18,8 @@ export function makeCatalog() {
       material: () => matMetalBeam, size: {x:1, y:4, z:1}, preview:"#e0e5e9" },
     { id: "steel_beam", name: "Steel Beam", baseType: "vertical",
       material: () => matMetalBeam, size: {x:0.8, y:4, z:1}, preview:"#c0c5c9" },
+    { id: "steel_beam_h", name: "Steel Beam (H)", baseType: "horizontal",
+      material: () => matMetalBeam, size: {x:4, y:1, z:0.8}, preview:"#b5bac0" },
   ];
 }
 
@@ -53,40 +55,57 @@ export function buildPart(def) {
     partObject = group;
 
   } else if (def.id === "steel_beam") {
-    // New I-beam geometry generation
+    // Vertical I-beam geometry generation
     const shape = new THREE.Shape();
     const width = def.size.x;    // Flange width
-    const height = def.size.z;   // Profile height (top to bottom)
+    const height = def.size.z;   // Profile height
     const flangeThickness = height * 0.15;
     const webThickness = width * 0.15;
 
-    const hw = width / 2;
-    const hh = height / 2;
-    const hw_web = webThickness / 2;
-    const hh_flange_inner = hh - flangeThickness;
+    const hw = width / 2, hh = height / 2;
+    const hw_web = webThickness / 2, hh_flange_inner = hh - flangeThickness;
 
-    // Define the I-beam cross-section path (clockwise)
-    shape.moveTo(-hw, hh);
-    shape.lineTo(hw, hh);
-    shape.lineTo(hw, hh_flange_inner);
-    shape.lineTo(hw_web, hh_flange_inner);
-    shape.lineTo(hw_web, -hh_flange_inner);
-    shape.lineTo(hw, -hh_flange_inner);
-    shape.lineTo(hw, -hh);
-    shape.lineTo(-hw, -hh);
-    shape.lineTo(-hw, -hh_flange_inner);
-    shape.lineTo(-hw_web, -hh_flange_inner);
-    shape.lineTo(-hw_web, hh_flange_inner);
-    shape.lineTo(-hw, hh_flange_inner);
-    shape.lineTo(-hw, hh);
+    shape.moveTo(-hw, hh); shape.lineTo(hw, hh); shape.lineTo(hw, hh_flange_inner);
+    shape.lineTo(hw_web, hh_flange_inner); shape.lineTo(hw_web, -hh_flange_inner);
+    shape.lineTo(hw, -hh_flange_inner); shape.lineTo(hw, -hh); shape.lineTo(-hw, -hh);
+    shape.lineTo(-hw, -hh_flange_inner); shape.lineTo(-hw_web, -hh_flange_inner);
+    shape.lineTo(-hw_web, hh_flange_inner); shape.lineTo(-hw, hh_flange_inner); shape.lineTo(-hw, hh);
 
     const extrudeSettings = { depth: def.size.y, bevelEnabled: false };
     const geometry = new THREE.ExtrudeGeometry(shape, extrudeSettings);
     geometry.center();
 
     const mesh = new THREE.Mesh(geometry, def.material());
-    mesh.rotation.x = Math.PI / 2; // Rotate to stand upright on Y-axis
+    mesh.rotation.x = Math.PI / 2;
+    
+    const group = new THREE.Group();
+    group.add(mesh);
+    partObject = group;
+  
+  } else if (def.id === "steel_beam_h") {
+    // Horizontal I-beam geometry generation
+    const shape = new THREE.Shape();
+    const width = def.size.z;    // Flange width
+    const height = def.size.y;   // Profile height
+    const flangeThickness = height * 0.15;
+    const webThickness = width * 0.15;
 
+    const hw = width / 2, hh = height / 2;
+    const hw_web = webThickness / 2, hh_flange_inner = hh - flangeThickness;
+
+    shape.moveTo(-hw, hh); shape.lineTo(hw, hh); shape.lineTo(hw, hh_flange_inner);
+    shape.lineTo(hw_web, hh_flange_inner); shape.lineTo(hw_web, -hh_flange_inner);
+    shape.lineTo(hw, -hh_flange_inner); shape.lineTo(hw, -hh); shape.lineTo(-hw, -hh);
+    shape.lineTo(-hw, -hh_flange_inner); shape.lineTo(-hw_web, -hh_flange_inner);
+    shape.lineTo(-hw_web, hh_flange_inner); shape.lineTo(-hw, hh_flange_inner); shape.lineTo(-hw, hh);
+    
+    const extrudeSettings = { depth: def.size.x, bevelEnabled: false };
+    const geometry = new THREE.ExtrudeGeometry(shape, extrudeSettings);
+    geometry.center();
+    
+    const mesh = new THREE.Mesh(geometry, def.material());
+    mesh.rotation.y = Math.PI / 2; // Rotate to lie along the X-axis
+    
     const group = new THREE.Group();
     group.add(mesh);
     partObject = group;
