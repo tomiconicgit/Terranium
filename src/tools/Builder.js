@@ -61,66 +61,45 @@ export class Builder {
     if (this.pressed(6)) this.removeOne();
   }
 
-  // SNAPPING OVERHAUL
   suggest(def, hitPoint, n, anchorRoot, hitObject){
     const rotYaw = this.rot * Math.PI / 2;
     const rotQ = new THREE.Quaternion().setFromAxisAngle(Y, rotYaw);
 
-    // ===== FLATS =====
     if (def.baseType === 'flat') {
       const isHittingFlat = anchorRoot?.userData?.part?.baseType === 'flat';
-
-      // CASE 1: Stacking on top of another flat
       if (isHittingFlat && n.y > 0.9) {
         const base = anchorRoot;
         const pos = base.position.clone();
-        pos.y += base.userData.part.size.y; // Simply stack
+        pos.y += base.userData.part.size.y;
         return { pos, rot: rotQ, foundationCenter: base.userData.foundationCenter.clone() };
       }
-
-      // CASE 2: Placing adjacent to another flat (snapping to its level)
       if (isHittingFlat && Math.abs(n.y) < 0.1) {
         const base = anchorRoot;
         const out = new THREE.Vector3(Math.round(n.x), 0, Math.round(n.z));
         const pos = base.position.clone().addScaledVector(out, 3);
-        // CRITICAL: Use the base flat's Y position to keep it level
         pos.y = base.position.y;
         return { pos, rot: rotQ, foundationCenter: new THREE.Vector3(pos.x, 0, pos.z) };
       }
-
-      // CASE 3: Placing on raw terrain
       if (hitObject === this.terrain) {
         const snap3 = (v) => Math.round(v / 3) * 3;
-        const cx = snap3(hitPoint.x);
-        const cz = snap3(hitPoint.z);
-        
-        // Proximity check: is there a flat next to this grid cell?
+        const cx = snap3(hitPoint.x), cz = snap3(hitPoint.z);
         let adjacentY = null;
         for (const child of this.world.children) {
           if (child.userData?.part?.baseType === 'flat') {
-            const dist = Math.hypot(child.position.x - cx, child.position.z - cz);
-            if (dist < 3.1) { // 3.1 is a safe distance for adjacent 3x3 tiles
+            if (Math.hypot(child.position.x - cx, child.position.z - cz) < 3.1) {
               adjacentY = child.position.y;
               break;
             }
           }
         }
-        
-        let finalY;
-        if (adjacentY !== null) {
-          // If adjacent flat found, use its height
-          finalY = adjacentY;
-        } else {
-          // Otherwise, use terrain height and create a new foundation
-          finalY = this.scene.getTerrainHeightAt(cx, cz) + def.size.y / 2;
-        }
-
+        const finalY = (adjacentY !== null)
+          ? adjacentY
+          : this.scene.getTerrainHeightAt(cx, cz) + def.size.y / 2;
         const pos = new THREE.Vector3(cx, finalY, cz);
         return { pos, rot: rotQ, foundationCenter: new THREE.Vector3(cx, 0, cz) };
       }
     }
     
-    // ===== WALLS (Unchanged from your version) =====
     if (def.baseType === 'wall'){
       if (!anchorRoot) return null;
       if (anchorRoot.userData.part.baseType === 'wall' && n.y > 0.9) {
@@ -174,5 +153,5 @@ const Y = new THREE.Vector3(0,1,0);
 function findPlacedRoot(obj){ let p=obj; while(p){ if(p.parent?.name==='world')return p; p=p.parent; } return null; }
 function worldNormal(hit){ const n=(hit.face?.normal?.clone()||new THREE.Vector3(0,1,0)); return n.applyMatrix3(new THREE.Matrix3().getNormalMatrix(hit.object.matrixWorld)).normalize(); }
 function pickSide(point, cellCenter){ const d=point.clone().sub(cellCenter); return(Math.abs(d.x)>Math.abs(d.z))?(d.x>=0?'+x':'-x'):(d.z>=0?'+z':'-z'); }
-function outwardVector(side){ switch(side){ case'+x':return new THREE.Vector3(1,0,0); case'-x':return new THREE.Vector3(-1,0,0); case'+z':return new THREE.Vector3(0,0,1); case'-z':return new THREE.Vector3(0,0,-1);} return new THREE.Vector3(); }
+function outwardVector(side){ switch(side){ case'+x':return new THREE.Vector3(1,0,0); case'-x':return new THREE.Vector3(-1,0,0); case'+z':return new THREE.Vector3(0,0,1); case'-z':return new THREE.Vector3(0,0,-1);} return new THREE.Vector3(1,0,0); } // BUG FIX: Return a default vector
 function yawForSide(side){ switch(side){ case'+x':return Math.PI/2; case'-x':return-Math.PI/2; case'+z':return 0; case'-z':return Math.PI; } return 0; }
