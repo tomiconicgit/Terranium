@@ -1,11 +1,9 @@
-<!-- File: index.html -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
   <title>Terranium</title>
 
-  <!-- PWA / iOS -->
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1.0, user-scalable=no" />
   <meta name="theme-color" content="#0a0a0a" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
@@ -15,7 +13,6 @@
   <link rel="icon" href="./icon-192.png" sizes="192x192" />
   <link rel="icon" href="./icon-512.png" sizes="512x512" />
 
-  <!-- Import map (three only) -->
   <script type="importmap">
     {
       "imports": {
@@ -31,13 +28,30 @@
     body { touch-action:none; -webkit-user-select:none; font-family:system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
     #app { position:fixed; inset:0; }
 
-    /* Error overlay */
+    /* --- Upgraded Error Overlay --- */
     #errorOverlay {
-      position:fixed; inset:0;
-      background:rgba(0,0,0,0.92);
-      color:#ff6; font:14px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-      white-space:pre-wrap; padding:12px; display:none; z-index:999999; overflow:auto;
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,0.95);
+      color: #ff6; font: 14px/1.6 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      padding: 16px; display: none; z-index: 999999;
+      display: none; flex-direction: column;
     }
+    #errorOverlay .error-header {
+        font-size: 18px; color: #ff8080; margin-bottom: 12px; font-weight: bold;
+    }
+    #errorOverlay .error-content {
+        flex: 1; overflow: auto; white-space: pre-wrap;
+    }
+    #errorOverlay .error-actions {
+        margin-top: 16px; flex-shrink: 0;
+    }
+    #errorOverlay .copy-btn {
+        background: #444; color: #fff; border: 1px solid #666;
+        padding: 8px 14px; border-radius: 6px; cursor: pointer;
+        font-family: inherit; font-size: 14px;
+    }
+    #errorOverlay .copy-btn:hover { background: #555; }
+    #errorOverlay .copy-btn:active { background: #333; }
 
     /* Rotate-to-landscape overlay */
     #rotateOverlay {
@@ -94,7 +108,6 @@
   <div id="reticle"></div>
   <div id="hotbar" aria-label="hotbar"></div>
 
-  <!-- Rotate overlay -->
   <div id="rotateOverlay" aria-live="polite">
     <div class="card">
       <h2>Rotate your device</h2>
@@ -102,28 +115,62 @@
     </div>
   </div>
 
-  <!-- Error overlay -->
-  <div id="errorOverlay"></div>
+  <div id="errorOverlay">
+    <div class="error-header">⚠️ Application Error</div>
+    <div class="error-content" id="errorContent"></div>
+    <div class="error-actions">
+        <button id="errorCopyBtn" class="copy-btn">Copy Report</button>
+    </div>
+  </div>
 
-  <!-- Error capture -->
   <script>
     const errorOverlay = document.getElementById('errorOverlay');
-    function showError(msg, src, line, col, err){
-      const extra = [
-        src ? `\nSource: ${src}${line?':'+line:''}${col?':'+col:''}` : '',
-        err?.message ? `\nReason: ${err.message}` : '',
-        err?.name ? `\nType: ${err.name}` : '',
-        err?.stack ? `\n\n${err.stack}` : ''
-      ].join('');
-      errorOverlay.style.display = 'block';
-      errorOverlay.textContent = '⚠️ JS Error:\n' + msg + extra;
+    const errorContent = document.getElementById('errorContent');
+    const errorCopyBtn = document.getElementById('errorCopyBtn');
+    let fullErrorText = '';
+
+    function showError(msg, src, line, col, err) {
+      // Build a detailed, readable report
+      const reportParts = [
+        '--- ⚠️ Terranium Error Report ---',
+        `Message: ${msg}`,
+      ];
+      if (src) {
+        reportParts.push(`Source: ${src}${line?':'+line:''}${col?':'+col:''}`);
+      }
+      if (err?.name) {
+        reportParts.push(`Type: ${err.name}`);
+      }
+      if (err?.message && err.message !== msg) {
+        reportParts.push(`Reason: ${err.message}`);
+      }
+      if (err?.stack) {
+        reportParts.push(`\n--- Stack Trace ---\n${err.stack}`);
+      }
+
+      fullErrorText = reportParts.join('\n');
+      
+      // Display the report
+      errorContent.textContent = fullErrorText;
+      errorOverlay.style.display = 'flex';
+      
       console.error('BOOT ERROR:', msg, err);
     }
+
+    errorCopyBtn.addEventListener('click', () => {
+        navigator.clipboard.writeText(fullErrorText).then(() => {
+            errorCopyBtn.textContent = 'Copied!';
+            setTimeout(() => { errorCopyBtn.textContent = 'Copy Report'; }, 2000);
+        }).catch(copyErr => {
+            errorCopyBtn.textContent = 'Failed to copy';
+            console.error('Failed to copy error report:', copyErr);
+        });
+    });
+
     window.addEventListener('error', e => showError(e.message, e.filename, e.lineno, e.colno, e.error));
     window.addEventListener('unhandledrejection', e => showError(e.reason?.message || String(e.reason), '', '', '', e.reason));
   </script>
 
-  <!-- Service worker (relative path) + old SW/cache cleanup -->
   <script>
     (async function setupSW(){
       try {
@@ -144,7 +191,6 @@
     })();
   </script>
 
-  <!-- Rotate-to-landscape -->
   <script>
     const rotateOverlay = document.getElementById('rotateOverlay');
     function isLandscapeNow() {
@@ -163,7 +209,6 @@
     updateRotateOverlay(); lockLandscape();
   </script>
 
-  <!-- Boot with module preflight -->
   <script type="module">
     const V = Date.now();
 
@@ -176,7 +221,6 @@
     };
 
     async function preflight() {
-      // Check local modules exist and are reachable (gives you the exact URL if one 404s)
       const local = [
         './src/main.js',
         './src/scene/Scene.js',
@@ -191,16 +235,10 @@
         try {
           const r = await fetch(url, { cache: 'no-store', redirect: 'follow' });
           if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
-          const ct = (r.headers.get('content-type')||'').toLowerCase();
-          if (!ct.includes('javascript')) {
-            console.warn('Non-JS content-type for', url.href, ct);
-          }
         } catch (e) {
           throw new Error(`Missing or blocked module:\n${url.href}\n${e.message}`);
         }
       }
-
-      // Quick sanity on CDN import map
       try { await import('three'); } catch (e) {
         throw new Error('Failed to import "three" from import map.\n' + (e.message||e));
       }
