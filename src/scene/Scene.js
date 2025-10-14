@@ -26,8 +26,8 @@ export class Scene extends THREE.Scene {
     this.add(createSky(horizonColor));
 
     /* ---------- Lights ---------- */
-    // ✨ FIX: Restored previous lighting and tuned to brighten shadows
-    this.add(new THREE.AmbientLight(0xccdeff, 0.35));
+    // ✨ FIX: Increased ambient light intensity to brighten shadows a bit more
+    this.add(new THREE.AmbientLight(0xccdeff, 0.45)); 
     this.add(new THREE.HemisphereLight(0xe0e8ff, 0x95abcc, 0.55));
 
     const sun = new THREE.DirectionalLight(0xffffff, 1.2);
