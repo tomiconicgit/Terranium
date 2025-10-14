@@ -20,7 +20,8 @@ export class Scene extends THREE.Scene {
   constructor() {
     super();
 
-    const horizonColor = new THREE.Color(0xada8d1); // Purplish haze
+    // ✨ FIX: Changed horizon color to a crisp, icy blue
+    const horizonColor = new THREE.Color(0xaaccff);
     this.background = horizonColor;
 
     this.add(createSky(horizonColor));
@@ -35,7 +36,6 @@ export class Scene extends THREE.Scene {
     sun.shadow.mapSize.set(2048, 2048);
     sun.shadow.camera.near = 10;
     sun.shadow.camera.far  = 400;
-    // ✨ FIX: Increased negative bias to prevent shadow acne (separation lines)
     sun.shadow.bias = -0.0005;
     this.sun = sun;
     this.add(sun);
@@ -44,8 +44,9 @@ export class Scene extends THREE.Scene {
     /* ---------- Terrain ---------- */
     const size = 100;
     const segments = 128;
-    const flatRadius = 35; // 70x70 area
-    const baseHeight = -0.5; // Set the flat area just below y=0
+    const flatRadius = 35;
+    // ✨ FIX: Set the flat area to be exactly at y=0. This fixes floating blocks.
+    const baseHeight = 0.0;
     const geo = new THREE.PlaneGeometry(size * 2, size * 2, segments, segments);
     const pos = geo.attributes.position;
 
@@ -54,22 +55,23 @@ export class Scene extends THREE.Scene {
         const y = pos.getY(i);
         const r = Math.hypot(x, y);
 
-        // ✨ FIX: Start with base height, then add mountains on top
         let height = baseHeight;
+        // ✨ FIX: Ensure mountains are always higher than the flat area.
         if (r > flatRadius) {
             const mountainFactor = smoothstep(flatRadius, size * 0.6, r);
-            const baseMountain = fbm(x * 0.03, y * 0.03, 5) * 25.0; // Taller mountains
+            // Remap noise to be mostly positive to ensure mountains go up
+            const baseMountain = (fbm(x * 0.03, y * 0.03, 5) + 0.5) * 20.0;
             const detailMountain = fbm(x * 0.1, y * 0.1, 4) * 5.0;
-            // The height is added to the base height
             height += (baseMountain + detailMountain) * mountainFactor;
         }
         pos.setZ(i, height);
     }
     geo.computeVertexNormals();
     
+    // ✨ FIX: Changed material to a brighter, snowy white
     const mat = new THREE.MeshStandardMaterial({
-        color: 0xe5e8f0,
-        roughness: 0.7,
+        color: 0xf5f9fc,
+        roughness: 0.65,
         metalness: 0.0,
     });
 
@@ -103,8 +105,9 @@ export class Scene extends THREE.Scene {
   }
 
   getTerrainHeightAt(wx, wz) {
-    if (Math.hypot(wx, wz) <= 35) return -0.5;
-    return -0.5; // Default to base height
+    // ✨ FIX: Return the correct base height of the flat area
+    if (Math.hypot(wx, wz) <= 35) return 0.0;
+    return 0.0; // Default to base height
   }
 
   pressSand() { /* Disabled */ }
@@ -132,7 +135,6 @@ function createSky(horizonColor) {
             uniform vec3 bottomColor;
             void main() {
                 float h = normalize(vWorld).y * 0.5 + 0.5;
-                // ✨ FIX: Increased power to lower the horizon and show more sky
                 vec3 col = mix(bottomColor, topColor, pow(h, 2.5));
                 gl_FragColor = vec4(col, 1.0);
             }
