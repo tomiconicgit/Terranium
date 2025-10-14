@@ -1,15 +1,13 @@
-// src/tools/Builder.js — Advanced snapping and asset placement
+// Builder.js — fixed snapping (pipes, lights), no z-fighting on barriers, hole floors dig pits
 import * as THREE from 'three';
 import { makeCatalog, buildPart } from '../assets/Catalog.js';
 
 const Z_FIGHT_OFFSET = 0.001;
 
 function findPartRoot(object, placedObjectsGroup) {
-    let current = object;
-    while (current && current.parent !== placedObjectsGroup) {
-        current = current.parent;
-    }
-    return current;
+  let current = object;
+  while (current && current.parent !== placedObjectsGroup) current = current.parent;
+  return current;
 }
 
 export class Builder {
@@ -40,20 +38,14 @@ export class Builder {
     this.settingsPanel.onChange(() => this.applyGlobalSettings());
   }
 
-  setActiveAsset(def) {
-    this.activeAssetDef = def;
-    this.prevKey = ''; // Force preview rebuild
-  }
+  setActiveAsset(def) { this.activeAssetDef = def; this.prevKey = ''; }
 
   pad(){ const a=navigator.getGamepads?.()||[]; for(const p of a) if(p&&p.connected) return p; return null; }
   pressed(i){ const p=this.pad(); if(!p) return false; const n=!!p.buttons[i]?.pressed,b=!!this._lastButtons[i]; this._lastButtons[i]=n; return n&&!b; }
 
   update(){
     const def = this.activeAssetDef;
-    if (!def) {
-        this.preview.visible = false;
-        return;
-    }
+    if (!def) { this.preview.visible = false; return; }
 
     const placePressed = this.pressed(7);
     const removePressed = this.pressed(6);
@@ -66,11 +58,11 @@ export class Builder {
         if (partToRemove) {
           partToRemove.parent.remove(partToRemove);
           partToRemove.traverse(obj => {
-              if (obj.geometry) obj.geometry.dispose();
-              if (obj.material) {
-                  if(Array.isArray(obj.material)) obj.material.forEach(m => m.dispose());
-                  else obj.material.dispose();
-              }
+            if (obj.geometry) obj.geometry.dispose();
+            if (obj.material) {
+              if(Array.isArray(obj.material)) obj.material.forEach(m => m.dispose());
+              else obj.material.dispose();
+            }
           });
           return;
         }
@@ -79,7 +71,6 @@ export class Builder {
     
     this.ray.setFromCamera(new THREE.Vector2(0,0), this.camera);
     const hits = this.ray.intersectObjects([this.terrain, ...this.placedObjects.children], true);
-    
     if (!hits.length){ this.preview.visible=false; this._hover=null; return; }
 
     const hit = hits[0];
@@ -88,17 +79,15 @@ export class Builder {
     if (!sugg) { this.preview.visible = false; this._hover = null; return; }
 
     const pos = sugg.pos;
-    const rot = sugg.rot ? sugg.rot : new THREE.Euler(settings.rotationY, 0, 0, 'YXZ'); // Simplified rotation
+    const rot = sugg.rot ? sugg.rot : new THREE.Euler(settings.rotationY, 0, 0, 'YXZ');
 
-    const key = `${def.id}|${pos.x.toFixed(1)},${pos.y.toFixed(1)},${pos.z.toFixed(1)}|${rot.y.toFixed(2)}|${JSON.stringify(settings)}`;
-    
+    const key = `${def.id}|${pos.x.toFixed(2)},${pos.y.toFixed(2)},${pos.z.toFixed(2)}|${rot.y.toFixed(2)}|${JSON.stringify(settings)}`;
     if (key !== this.prevKey){
       this.preview.clear();
       const previewPart = buildPart(def, settings, this.dynamicEnvMap);
       this.preview.add(previewPart);
       this.prevKey = key;
     }
-    
     this.preview.position.copy(pos);
     this.preview.rotation.copy(rot);
     this.preview.visible = true;
@@ -107,9 +96,7 @@ export class Builder {
     if (placePressed) this.placeOne();
   }
 
-  applyGlobalSettings() {
-    this.prevKey = '';
-  }
+  applyGlobalSettings() { this.prevKey = ''; }
   
   suggestPlacement(def, hit, settings) {
     const pos = new THREE.Vector3();
@@ -117,80 +104,73 @@ export class Builder {
     const hitRoot = findPartRoot(hit.object, this.placedObjects);
 
     switch (def.baseType) {
-        case 'tool':
-            if (hit.object === this.terrain) {
-                pos.copy(hit.point).setY(0);
-                return { pos, rot };
-            }
-            return null;
+      case 'tool': {
+        if (hit.object === this.terrain) { pos.copy(hit.point).setY(0); return { pos, rot }; }
+        return null;
+      }
 
-        case 'floor':
-            if (hit.object === this.terrain) {
-                pos.x = Math.round(hit.point.x / def.size.x) * def.size.x;
-                pos.z = Math.round(hit.point.z / def.size.z) * def.size.z;
-                pos.y = def.size.y / 2;
-                return { pos, rot };
-            }
-            if (hitRoot && (hitRoot.userData.part?.baseType === 'floor' || hitRoot.userData.part?.baseType === 'wall')) {
-                pos.copy(hitRoot.position);
-                pos.y += hitRoot.userData.part.size.y / 2 + def.size.y / 2 + Z_FIGHT_OFFSET;
-                return { pos, rot };
-            }
-            return null;
-        
-        case 'wall':
-        case 'door':
-        case 'railing':
-            if (hitRoot && hitRoot.userData.part?.baseType === 'floor') {
-                const basePos = hitRoot.position;
-                const baseSize = hitRoot.userData.part.size;
-                const localHit = hitRoot.worldToLocal(hit.point.clone());
-                
-                const edges = [
-                    { name: 'px', dist: Math.abs(localHit.x - baseSize.x/2), vec: new THREE.Vector3(1,0,0), rotY: 0 },
-                    { name: 'nx', dist: Math.abs(localHit.x + baseSize.x/2), vec: new THREE.Vector3(-1,0,0), rotY: Math.PI },
-                    { name: 'pz', dist: Math.abs(localHit.z - baseSize.z/2), vec: new THREE.Vector3(0,0,1), rotY: -Math.PI/2 },
-                    { name: 'nz', dist: Math.abs(localHit.z + baseSize.z/2), vec: new THREE.Vector3(0,0,-1), rotY: Math.PI/2 },
-                ];
-                edges.sort((a,b) => a.dist - b.dist);
-                const edge = edges[0];
+      case 'floor': {
+        if (hit.object === this.terrain) {
+          pos.x = Math.round(hit.point.x / def.size.x) * def.size.x;
+          pos.z = Math.round(hit.point.z / def.size.z) * def.size.z;
+          pos.y = def.size.y / 2;
+          return { pos, rot };
+        }
+        if (hitRoot && (hitRoot.userData.part?.baseType === 'floor' || hitRoot.userData.part?.baseType === 'wall')) {
+          pos.copy(hitRoot.position);
+          pos.y += hitRoot.userData.part.size.y / 2 + def.size.y / 2 + Z_FIGHT_OFFSET;
+          return { pos, rot };
+        }
+        return null;
+      }
 
-                pos.copy(basePos).addScaledVector(edge.vec, baseSize.x/2);
-                pos.y += baseSize.y/2 + def.size.y/2;
-                rot.y = edge.rotY;
-                return {pos, rot};
-            }
-            return null;
+      case 'wall': {
+        if (hitRoot && hitRoot.userData.part?.baseType === 'floor') {
+          const basePos = hitRoot.position;
+          const baseSize = hitRoot.userData.part.size;
+          const localHit = hitRoot.worldToLocal(hit.point.clone());
+          const edges = [
+            { name:'px', dist: Math.abs(localHit.x - baseSize.x/2), vec: new THREE.Vector3(1,0,0),  rotY: 0 },
+            { name:'nx', dist: Math.abs(localHit.x + baseSize.x/2), vec: new THREE.Vector3(-1,0,0), rotY: Math.PI },
+            { name:'pz', dist: Math.abs(localHit.z - baseSize.z/2), vec: new THREE.Vector3(0,0,1),  rotY: -Math.PI/2 },
+            { name:'nz', dist: Math.abs(localHit.z + baseSize.z/2), vec: new THREE.Vector3(0,0,-1), rotY: Math.PI/2 },
+          ].sort((a,b)=>a.dist-b.dist)[0];
 
-        case 'ramp':
-             if (hitRoot && hitRoot.userData.part?.baseType === 'floor') {
-                const basePos = hitRoot.position;
-                const baseSize = hitRoot.userData.part.size;
-                const n = hit.face.normal.clone().applyQuaternion(hitRoot.quaternion.clone().invert());
-                n.set(Math.round(n.x), 0, Math.round(n.z)).normalize();
+          const outward = def.size.z/2 + 0.02; // push out to avoid z-fight with floor top
+          pos.copy(basePos).addScaledVector(edges.vec, baseSize.x/2 + outward);
+          pos.y += baseSize.y/2 + def.size.y/2 + Z_FIGHT_OFFSET;
+          rot.y = edges.rotY;
+          return { pos, rot };
+        }
+        return null;
+      }
 
-                if (Math.abs(n.y) > 0.1) return null; // Not a side face
+      case 'pipe': {
+        // Snap on floor at hit point, align to nearest axis
+        if (hit.object === this.terrain || (hitRoot && hitRoot.userData.part?.baseType === 'floor')) {
+          const baseY = (hitRoot ? hitRoot.position.y + hitRoot.userData.part.size.y/2 : 0);
+          pos.x = Math.round(hit.point.x / def.size.z) * def.size.z;
+          pos.z = Math.round(hit.point.z / def.size.z) * def.size.z;
+          pos.y = baseY + def.size.y/2 + 0.02;
+          // align to closest axis
+          const ax = Math.abs(hit.face?.normal.x || 0) > Math.abs(hit.face?.normal.z || 0);
+          rot.y = ax ? 0 : Math.PI/2;
+          return { pos, rot };
+        }
+        return null;
+      }
 
-                rot.y = Math.atan2(n.x, n.z);
-                const offset = (baseSize.x / 2) + (def.size.z / 2);
-                pos.copy(basePos).addScaledVector(n, offset);
-                pos.y += baseSize.y / 2 - def.size.y / 2; // Align top of ramp with floor
-                return { pos, rot };
-             }
-             return null;
-        
-        case 'light':
-            if (def.subType === 'wall_light' && hitRoot && hitRoot.userData.part?.baseType === 'wall') {
-                pos.copy(hit.point).addScaledVector(hit.face.normal, def.size.z / 2);
-                rot.y = Math.atan2(hit.face.normal.x, hit.face.normal.z);
-                return { pos, rot };
-            }
-            if (def.subType === 'lamp_post' && hitRoot && hitRoot.userData.part?.baseType === 'floor') {
-                pos.copy(hit.point);
-                pos.y = hitRoot.position.y + hitRoot.userData.part.size.y / 2 + def.size.y / 2;
-                return { pos, rot };
-            }
-            return null;
+      case 'light': {
+        // Place mast on floor tops
+        if (def.subType === 'mast' && (hit.object === this.terrain || (hitRoot && hitRoot.userData.part?.baseType === 'floor'))) {
+          const baseY = (hitRoot ? hitRoot.position.y + hitRoot.userData.part.size.y/2 : 0);
+          pos.x = Math.round(hit.point.x / 1) * 1;
+          pos.z = Math.round(hit.point.z / 1) * 1;
+          pos.y = baseY + def.size.y/2 + 0.02;
+          return { pos, rot };
+        }
+        return null;
+      }
     }
     return null;
   }
@@ -200,10 +180,10 @@ export class Builder {
     const { pos, rot, def, settings } = this._hover;
 
     if (def.baseType === 'tool') {
-        if (def.id === 'tool_pit_digger' && this.scene.digPit) {
-            this.scene.digPit(pos, def.size);
-        }
-        return; // Don't place a mesh for tools
+      if (def.id === 'tool_pit_digger' && this.scene.digPit) {
+        this.scene.digPit(pos, def.size, 2.0, 0.5);
+      }
+      return;
     }
 
     const part = buildPart(def, settings, this.dynamicEnvMap);
@@ -211,6 +191,11 @@ export class Builder {
     part.rotation.copy(rot);
     part.userData.settings = { ...settings };
     this.placedObjects.add(part);
+
+    // Auto-dig when placing "hole" floors
+    if (def.baseType === 'floor' && /hole_/.test(def.subType) && this.scene.digPit) {
+      const depth = (part.userData?.holeDepth) || 2.0;
+      this.scene.digPit(pos, def.size, depth, 0.5);
+    }
   }
 }
-
