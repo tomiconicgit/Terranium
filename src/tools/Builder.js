@@ -153,5 +153,5 @@ const Y = new THREE.Vector3(0,1,0);
 function findPlacedRoot(obj){ let p=obj; while(p){ if(p.parent?.name==='world')return p; p=p.parent; } return null; }
 function worldNormal(hit){ const n=(hit.face?.normal?.clone()||new THREE.Vector3(0,1,0)); return n.applyMatrix3(new THREE.Matrix3().getNormalMatrix(hit.object.matrixWorld)).normalize(); }
 function pickSide(point, cellCenter){ const d=point.clone().sub(cellCenter); return(Math.abs(d.x)>Math.abs(d.z))?(d.x>=0?'+x':'-x'):(d.z>=0?'+z':'-z'); }
-function outwardVector(side){ switch(side){ case'+x':return new THREE.Vector3(1,0,0); case'-x':return new THREE.Vector3(-1,0,0); case'+z':return new THREE.Vector3(0,0,1); case'-z':return new THREE.Vector3(0,0,-1);} return new THREE.Vector3(1,0,0); } // BUG FIX: Return a default vector
+function outwardVector(side){ switch(side){ case'+x':return new THREE.Vector3(1,0,0); case'-x':return new THREE.Vector3(-1,0,0); case'+z':return new THREE.Vector3(0,0,1); case'-z':return new THREE.Vector3(0,0,-1);} return new THREE.Vector3(1,0,0); }
 function yawForSide(side){ switch(side){ case'+x':return Math.PI/2; case'-x':return-Math.PI/2; case'+z':return 0; case'-z':return Math.PI; } return 0; }
