@@ -1,4 +1,4 @@
-// NASA pad kit — round 4 (edge snap, stadium lights, elbow/full pipes, slab bevels, wall set)
+// NASA pad kit — round 5 (asset redesign, better snapping)
 import * as THREE from "three";
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 
@@ -19,7 +19,7 @@ export function makeCatalog() {
     { id:"wall_smooth_top2",  name:"Wall • Smooth Top (2h)", category:"Walls", baseType:"wall", subType:"smooth_top2", size:{x:tile,y:2,z:0.35}, preview:"#6c7681" },
 
     // Columns / Truss / Railings
-    { id:"column_round_01", name:"Column (1×4)", category:"Beams & Columns", baseType:"wall", subType:"column_round_flatcaps", size:{x:1,y:4,z:1}, preview:"#a7b3c0" },
+    { id:"column_round_01", name:"Steel Column (1×4)", category:"Beams & Columns", baseType:"wall", subType:"column_round_flatcaps", size:{x:1,y:4,z:1}, preview:"#a7b3c0" },
     { id:"truss_frame_01",  name:"Truss Frame",  category:"Beams & Columns", baseType:"wall", subType:"truss", size:{x:tile,y:4,z:0.5}, preview:"#a7b3c0" },
     { id:"railing_guard_01", name:"Guard Railing", category:"Ramps & Railings", baseType:"railing", subType:"guard", size:{x:tile,y:1.1,z:0.22}, preview:"#b1bdca" },
 
@@ -28,8 +28,8 @@ export function makeCatalog() {
     { id:"pipe_full_01",  name:"Pipe • Full",  category:"Pipes", baseType:"pipe", subType:"full",  size:{x:0.6,y:0.6,z:4}, preview:"#8f9aa5" },
 
     // Lights — stadium cluster
-    { id:"light_stadium_down", name:"Stadium Flood (Down)", category:"Lights", baseType:"light", subType:"stadium_down", size:{x:1.6, y:6.5, z:1.6}, preview:"#e8f0ff" },
-    { id:"light_stadium_up",   name:"Stadium Flood (Up)",   category:"Lights", baseType:"light", subType:"stadium_up",   size:{x:1.6, y:6.5, z:1.6}, preview:"#e8f0ff" },
+    { id:"light_stadium_down", name:"Stadium Flood (Down)", category:"Lights", baseType:"light", subType:"stadium_down", size:{x:2.2, y:6.5, z:2.2}, preview:"#e8f0ff" },
+    { id:"light_stadium_up",   name:"Stadium Flood (Up)",   category:"Lights", baseType:"light", subType:"stadium_up",   size:{x:2.2, y:6.5, z:2.2}, preview:"#e8f0ff" },
   ];
 }
 
@@ -95,8 +95,9 @@ function buildWallLike(def, M) {
   if (def.subType === 'glass_half') {
     const frame = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), M('#6e7b88', { rough: 0.55, metal: 0.15 }));
     g.add(frame);
+    // **FIX**: More transparent glass material
     const glass = new THREE.Mesh(new THREE.PlaneGeometry(w*0.92, h*0.75), new THREE.MeshStandardMaterial({
-      color: 0xdfefff, roughness: 0.05, metalness: 0.0, opacity: 0.35, transparent: true, envMapIntensity: 0.6
+      color: 0xdfefff, roughness: 0.02, metalness: 0.0, opacity: 0.22, transparent: true, envMapIntensity: 0.8
     }));
     glass.position.z = d*0.26;
     g.add(glass);
@@ -104,17 +105,12 @@ function buildWallLike(def, M) {
   }
 
   if (def.subType === 'column_round_flatcaps') {
-    // flat ends, rounded long sides: box core + 4 half-cylinders
-    const r = Math.min(0.18, def.size.x*0.35);
-    const core = new THREE.Mesh(new THREE.BoxGeometry(def.size.x - 2*r, h, def.size.z - 2*r), M('#aeb8c3', { rough: 0.5, metal: 0.45 }));
-    g.add(core);
-    const side = new THREE.CylinderGeometry(r, r, h, 18, 1, true);
-    const m = M('#aeb8c3', { rough: 0.5, metal: 0.45 });
-    const c1 = new THREE.Mesh(side, m); c1.rotation.z = Math.PI/2; c1.position.set( (def.size.x/2 - r), 0, 0);
-    const c2 = c1.clone(); c2.position.x = -c1.position.x;
-    const c3 = new THREE.Mesh(side, m); c3.rotation.x = Math.PI/2; c3.position.set(0, 0, (def.size.z/2 - r));
-    const c4 = c3.clone(); c4.position.z = -c3.position.z;
-    g.add(c1,c2,c3,c4);
+    // **FIX**: Replaced complex geometry with a single rounded box for a clean, beveled steel column look.
+    const column = new THREE.Mesh(
+        new RoundedBoxGeometry(w, h, d, 4, 0.15),
+        M('#aeb8c3', { rough: 0.4, metal: 0.75 })
+    );
+    g.add(column);
     return g;
   }
 
@@ -198,28 +194,42 @@ function buildPipe(def, M) {
 /* ---------- Lights (stadium style) ---------- */
 function buildLight(def, M) {
   const g = new THREE.Group();
-  const up = (def.subType === 'stadium_up');
-
-  const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.22, def.size.y, 18), M('#9aa6b2', { rough: 0.5, metal: 0.6 }));
+  const poleH = def.size.y - 1.5;
+  const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.24, poleH, 18), M('#8a95a2', { rough: 0.6, metal: 0.5 }));
+  pole.position.y = -0.75;
   g.add(pole);
 
-  // head: circular plate with ring of spot pods
-  const headY = def.size.y/2;
-  const plate = new THREE.Mesh(new THREE.CylinderGeometry(0.9,0.9,0.08,24), M('#65727d',{rough:0.5,metal:0.4}));
-  plate.position.y = headY;
-  g.add(plate);
+  // **FIX**: Redesigned head assembly to look like NASA-style floodlights
+  const head = new THREE.Group();
+  head.position.y = poleH / 2;
+  g.add(head);
 
-  const podMat = M('#eaf3ff',{rough:0.2,metal:0.0,emissive:0xdde9ff,e:3.4});
-  const pods = 12, r = 0.75;
-  for (let i=0;i<pods;i++){
-    const a = (i/pods)*Math.PI*2;
-    const x = Math.cos(a)*r, z = Math.sin(a)*r;
-    const pod = new THREE.Mesh(new THREE.ConeGeometry(0.18,0.22,14), podMat);
-    pod.position.set(x, headY+0.12, z);
-    pod.lookAt(new THREE.Vector3(0, up ? headY+5 : 0, 0)); // up or down focus
-    g.add(pod);
+  const frameMat = M('#65727d', { rough: 0.5, metal: 0.4 });
+  const arm1 = new THREE.Mesh(new THREE.BoxGeometry(2, 0.15, 0.15), frameMat);
+  const arm2 = arm1.clone();
+  arm2.rotation.y = Math.PI / 2;
+  head.add(arm1, arm2);
+
+  const lightBox = new THREE.BoxGeometry(0.8, 0.6, 1.0);
+  const lightMat = M('#40454b', { rough: 0.3, metal: 0.6 });
+  const lensMat = M('#eaf3ff', { rough: 0.1, metal: 0.0, emissive: 0xffffff, e: 15 });
+  const up = (def.subType === 'stadium_up');
+
+  const positions = [
+    new THREE.Vector3(0.7, 0.3, 0), new THREE.Vector3(-0.7, 0.3, 0),
+    new THREE.Vector3(0, 0.3, 0.7), new THREE.Vector3(0, 0.3, -0.7),
+  ];
+
+  for (const pos of positions) {
+    const light = new THREE.Group();
+    const body = new THREE.Mesh(lightBox, lightMat);
+    const lens = new THREE.Mesh(new THREE.PlaneGeometry(0.65, 0.45), lensMat);
+    lens.position.z = 0.51;
+    light.add(body, lens);
+    light.position.copy(pos);
+    light.lookAt(0, up ? 10 : -10, 0); // Aim up or down
+    head.add(light);
   }
-
   return g;
 }
 
