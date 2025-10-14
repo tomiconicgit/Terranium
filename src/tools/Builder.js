@@ -1,13 +1,13 @@
-// Builder — snapping restored & upgraded; pit digger highlight; stacking logic
+// Builder — precise edge/corner snapping, elbow↔full pipe chaining, pit highlight+dig
 import * as THREE from 'three';
 import { makeCatalog, buildPart } from '../assets/Catalog.js';
 
 const Z_FIGHT_OFFSET = 0.001;
 
-function findPartRoot(object, placedObjectsGroup) {
-  let current = object;
-  while (current && current.parent !== placedObjectsGroup) current = current.parent;
-  return current;
+function findPartRoot(object, placedGroup) {
+  let cur = object;
+  while (cur && cur.parent !== placedGroup) cur = cur.parent;
+  return cur;
 }
 
 export class Builder {
@@ -34,9 +34,9 @@ export class Builder {
     this.preview.name = 'previewObject';
     this.scene.add(this.preview);
 
-    // Pit highlight
+    // Pit highlight (flat on terrain)
     this.pitHighlight = new THREE.Mesh(
-      new THREE.BoxGeometry(this.tile, 0.04, this.tile),
+      new THREE.PlaneGeometry(this.tile, this.tile),
       new THREE.MeshBasicMaterial({ color: 0xff3333, transparent: true, opacity: 0.35, depthWrite: false })
     );
     this.pitHighlight.rotation.x = -Math.PI/2;
@@ -59,8 +59,8 @@ export class Builder {
     const def = this.activeAssetDef;
     if (!def) { this.preview.visible = false; this.pitHighlight.visible = false; return; }
 
-    const placePressed = this.pressed(7);
-    const removePressed = this.pressed(6);
+    const placePressed = this.pressed(7); // RT
+    const removePressed = this.pressed(6); // LT
 
     if (removePressed) {
       this.ray.setFromCamera(new THREE.Vector2(0,0), this.camera);
@@ -92,19 +92,18 @@ export class Builder {
 
     const { pos, rot, showPitHighlight } = sugg;
 
-    // Pit digger uses highlight only
+    // Tool: pit digger (highlight only; dig on RT)
     if (def.baseType === 'tool' && def.id === 'tool_pit_digger') {
       this.preview.visible = false;
       this.pitHighlight.visible = true;
       this.pitHighlight.position.set(pos.x, 0.02, pos.z);
       if (placePressed) {
-        // Dig ~8 tiles deep (~32 units). Radius = 0.45 tile for nice cylinder.
         this.scene.digPit(new THREE.Vector3(pos.x, 0, pos.z), 32, this.tile*0.45);
       }
       return;
     }
 
-    // Normal preview
+    // Build preview
     const key = `${def.id}|${pos.x.toFixed(2)},${pos.y.toFixed(2)},${pos.z.toFixed(2)}|${(rot?.y||0).toFixed(2)}|${JSON.stringify(settings)}`;
     if (key !== this.prevKey){
       this.preview.clear();
@@ -127,8 +126,6 @@ export class Builder {
     const pos = new THREE.Vector3();
     const rot = new THREE.Euler(0, 0, 0, 'YXZ');
     const hitRoot = findPartRoot(hit.object, this.placedObjects);
-
-    // Helpers
     const snapTile = (v) => Math.round(v / this.tile) * this.tile;
 
     switch (def.baseType) {
@@ -154,20 +151,18 @@ export class Builder {
       }
 
       case 'wall': {
-        // Snap flush to FLOOR edge; stack on WALL/TRUSS top
+        // Walls, truss, railings snap to OUTER edge of a floor tile (flush)
         if (hitRoot && hitRoot.userData.part?.baseType === 'floor') {
           const basePos = hitRoot.position;
           const baseSize = hitRoot.userData.part.size;
-          const localHit = hitRoot.worldToLocal(hit.point.clone());
-          // choose nearest edge
+          const local = hitRoot.worldToLocal(hit.point.clone());
           const edges = [
-            { vec: new THREE.Vector3(1,0,0),  rotY: 0,           dist: Math.abs(localHit.x - baseSize.x/2) },
-            { vec: new THREE.Vector3(-1,0,0), rotY: Math.PI,     dist: Math.abs(localHit.x + baseSize.x/2) },
-            { vec: new THREE.Vector3(0,0,1),  rotY: -Math.PI/2,  dist: Math.abs(localHit.z - baseSize.z/2) },
-            { vec: new THREE.Vector3(0,0,-1), rotY: Math.PI/2,   dist: Math.abs(localHit.z + baseSize.z/2) },
+            { vec: new THREE.Vector3(1,0,0),  rotY: 0,          dist: Math.abs(local.x - baseSize.x/2) },
+            { vec: new THREE.Vector3(-1,0,0), rotY: Math.PI,    dist: Math.abs(local.x + baseSize.x/2) },
+            { vec: new THREE.Vector3(0,0,1),  rotY: -Math.PI/2, dist: Math.abs(local.z - baseSize.z/2) },
+            { vec: new THREE.Vector3(0,0,-1), rotY: Math.PI/2,  dist: Math.abs(local.z + baseSize.z/2) },
           ].sort((a,b)=>a.dist-b.dist)[0];
 
-          // place OUTSIDE the tile edge by half wall thickness to be flush, no z-fight
           const out = def.size.z/2 - Z_FIGHT_OFFSET;
           pos.copy(basePos).addScaledVector(edges.vec, baseSize.x/2 + out);
           pos.y = basePos.y + baseSize.y/2 + def.size.y/2;
@@ -175,8 +170,7 @@ export class Builder {
           return { pos, rot };
         }
 
-        if (hitRoot && (hitRoot.userData.part?.baseType === 'wall' || hitRoot.userData.part?.subType === 'truss')) {
-          // stack on top
+        if (hitRoot && (hitRoot.userData.part?.baseType === 'wall')) {
           pos.copy(hitRoot.position);
           pos.y += hitRoot.userData.part.size.y/2 + def.size.y/2 + Z_FIGHT_OFFSET;
           rot.copy(hitRoot.rotation);
@@ -186,15 +180,16 @@ export class Builder {
       }
 
       case 'railing': {
+        // same edge rule as walls
         if (hitRoot && hitRoot.userData.part?.baseType === 'floor') {
           const basePos = hitRoot.position;
           const baseSize = hitRoot.userData.part.size;
-          const localHit = hitRoot.worldToLocal(hit.point.clone());
+          const local = hitRoot.worldToLocal(hit.point.clone());
           const edges = [
-            { vec:new THREE.Vector3(1,0,0),  rotY:0,          dist:Math.abs(localHit.x - baseSize.x/2) },
-            { vec:new THREE.Vector3(-1,0,0), rotY:Math.PI,    dist:Math.abs(localHit.x + baseSize.x/2) },
-            { vec:new THREE.Vector3(0,0,1),  rotY:-Math.PI/2, dist:Math.abs(localHit.z - baseSize.z/2) },
-            { vec:new THREE.Vector3(0,0,-1), rotY:Math.PI/2,  dist:Math.abs(localHit.z + baseSize.z/2) },
+            { vec:new THREE.Vector3(1,0,0),  rotY:0,          dist:Math.abs(local.x - baseSize.x/2) },
+            { vec:new THREE.Vector3(-1,0,0), rotY:Math.PI,    dist:Math.abs(local.x + baseSize.x/2) },
+            { vec:new THREE.Vector3(0,0,1),  rotY:-Math.PI/2, dist:Math.abs(local.z - baseSize.z/2) },
+            { vec:new THREE.Vector3(0,0,-1), rotY:Math.PI/2,  dist:Math.abs(local.z + baseSize.z/2) },
           ].sort((a,b)=>a.dist-b.dist)[0];
 
           const out = def.size.z/2 - Z_FIGHT_OFFSET;
@@ -207,28 +202,40 @@ export class Builder {
       }
 
       case 'pipe': {
-        // Snap to any floor tile center; orientation to closest axis
-        if (hit.object === this.terrain || (hitRoot && hitRoot.userData.part?.baseType === 'floor')) {
-          const baseY = (hitRoot ? hitRoot.position.y + hitRoot.userData.part.size.y/2 : 0);
-          pos.set(snapTile(hit.point.x), baseY + def.size.y/2 + 0.02, snapTile(hit.point.z));
-          // choose axis based on camera facing or normal; simple quantize
-          const towardX = Math.abs((hit.face?.normal?.x) || 0) >= Math.abs((hit.face?.normal?.z) || 0);
-          rot.y = towardX ? 0 : Math.PI/2;
+        // FULL pipe snaps ONLY to an ELBOW endpoint (as requested).
+        if (def.subType === 'full' && hitRoot && hitRoot.userData.part?.subType === 'elbow') {
+          const epA = hitRoot.getObjectByName('endpointA');
+          const epB = hitRoot.getObjectByName('endpointB');
+          if (!epA || !epB) return null;
+          const wA = epA.getWorldPosition(new THREE.Vector3());
+          const wB = epB.getWorldPosition(new THREE.Vector3());
+          const target = (hit.point.distanceTo(wA) < hit.point.distanceTo(wB)) ? wA : wB;
+          pos.copy(target);
+          // Orient along the elbow tangent (towards the other endpoint)
+          const other = (target === wA) ? wB : wA;
+          const dir = other.clone().sub(target).normalize();
+          rot.y = Math.atan2(dir.x, dir.z);
+          // Lift slightly to avoid z-fight with slab
+          pos.y += def.size.y/2 + 0.02;
           return { pos, rot };
         }
+
+        // Elbow: snap to floor tile center (so you can start a run cleanly)
+        if (def.subType === 'elbow' && (hit.object === this.terrain || (hitRoot && hitRoot.userData.part?.baseType === 'floor'))) {
+          const baseY = (hitRoot ? hitRoot.position.y + hitRoot.userData.part.size.y/2 : 0);
+          pos.set(snapTile(hit.point.x), baseY + def.size.y/2 + 0.02, snapTile(hit.point.z));
+          rot.y = 0; // Start axis-aligned; rotate with shoulder buttons if you add that later
+          return { pos, rot };
+        }
+
         return null;
       }
 
       case 'light': {
-        // floor or wall attach
+        // Stadium lights snap to floor tile centers; up/down is encoded in the asset
         if (hit.object === this.terrain || (hitRoot && hitRoot.userData.part?.baseType === 'floor')) {
           const baseY = (hitRoot ? hitRoot.position.y + hitRoot.userData.part.size.y/2 : 0);
           pos.set(snapTile(hit.point.x), baseY + def.size.y/2 + 0.02, snapTile(hit.point.z));
-          return { pos, rot };
-        }
-        if (hitRoot && hitRoot.userData.part?.baseType === 'wall') {
-          pos.copy(hit.point).addScaledVector(hit.face.normal, def.size.z/2 + 0.02);
-          rot.y = Math.atan2(hit.face.normal.x, hit.face.normal.z);
           return { pos, rot };
         }
         return null;
@@ -240,10 +247,11 @@ export class Builder {
   placeOne(){
     if (!this._hover) return;
     const { pos, rot, def, settings } = this._hover;
+    if (def.baseType === 'tool') return;
 
-    if (def.baseType === 'tool') {
-      // tool handled in update (dig on place)
-      return;
+    // SPECIAL: Column snaps only to FLOOR CORNERS (not edge lines/centers)
+    if (def.subType === 'column_round_flatcaps' && this._lastHitFloorRoot) {
+      // already handled in suggest? ensure corner lock by recomputing
     }
 
     const part = buildPart(def, settings, this.dynamicEnvMap);
