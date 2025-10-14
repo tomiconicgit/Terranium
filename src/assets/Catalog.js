@@ -12,7 +12,8 @@ const MATERIALS = {
   'flat': new THREE.MeshPhongMaterial({ color: 0xc0c5c9, specular: 0x000000, flatShading: true, side: THREE.DoubleSide }),
   'smooth': new THREE.MeshLambertMaterial({ color: 0xc0c5c9, side: THREE.DoubleSide }),
   'glossy': new THREE.MeshStandardMaterial({ color: 0xc0c5c9, metalness: 0.9, roughness: 0.45, side: THREE.DoubleSide }),
-  'reflective': new THREE.MeshPhongMaterial({ color: 0xb0b5b9, envMap: textureCube, side: THREE.DoubleSide, reflectivity: 0.8 }),
+  // ✨ FIX: Increased reflectivity for a stronger mirror-like effect.
+  'reflective': new THREE.MeshPhongMaterial({ color: 0xb0b5b9, envMap: textureCube, side: THREE.DoubleSide, reflectivity: 0.95 }),
 };
 
 /* ---------- Procedural Building Catalog ---------- */
