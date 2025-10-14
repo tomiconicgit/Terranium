@@ -15,7 +15,7 @@ export function makeCatalog() {
 
 /* ---------- Mesh builder ---------- */
 export function buildPart(def, options = {}, dynamicEnvMap) {
-  const { tessellation = 1, pattern = 'flat' } = options;
+  const { tessellation = 1 } = options;
   
   const material = new THREE.MeshStandardMaterial({
     envMap: dynamicEnvMap,
@@ -23,91 +23,7 @@ export function buildPart(def, options = {}, dynamicEnvMap) {
   });
 
   let partObject;
-  if (def.id === "metal_floor") {
-    // ✅ FIX: Increased base segments for better pattern resolution
-    const segments = Math.max(16, 12 * tessellation);
-    let geometry;
-
-    if (pattern === 'grating') {
-        const shape = new THREE.Shape();
-        const w = def.size.x, h = def.size.z;
-        const hw = w/2, hh = h/2;
-        shape.moveTo(-hw, -hh); shape.lineTo(hw, -hh);
-        shape.lineTo(hw, hh); shape.lineTo(-hw, hh);
-        shape.lineTo(-hw, -hh);
-
-        const holeSize = 0.2;
-        const barSize = 0.05;
-        const step = holeSize + barSize;
-        const numX = Math.floor(w / step);
-        const numZ = Math.floor(h / step);
-
-        for (let i = -numX/2; i < numX/2; i++) {
-            for (let j = -numZ/2; j < numZ/2; j++) {
-                const hole = new THREE.Path();
-                const x = (i * step) + (step / 2 - barSize);
-                const z = (j * step) + (step / 2 - barSize);
-                hole.moveTo(x - holeSize/2, z - holeSize/2);
-                hole.lineTo(x + holeSize/2, z - holeSize/2);
-                hole.lineTo(x + holeSize/2, z + holeSize/2);
-                hole.lineTo(x - holeSize/2, z + holeSize/2);
-                shape.holes.push(hole);
-            }
-        }
-        const extrudeSettings = { depth: def.size.y, bevelEnabled: false };
-        geometry = new THREE.ExtrudeGeometry(shape, extrudeSettings);
-        geometry.center().rotateX(-Math.PI / 2);
-    } else { // Handle flat, tiles, bricks, hexagons with vertex displacement
-        geometry = new THREE.BoxGeometry(def.size.x, def.size.y, def.size.z, segments, 1, segments);
-        if (pattern !== 'flat') {
-            const pos = geometry.attributes.position;
-            const halfThick = def.size.y / 2;
-            // ✅ FIX: Increased pattern height to be much more visible
-            const patternHeight = def.size.y * 0.75; 
-
-            for (let i = 0; i < pos.count; i++) {
-                if (pos.getY(i) > halfThick * 0.99) { // Is vertex on top face?
-                    const x = pos.getX(i);
-                    const z = pos.getZ(i);
-                    let displacement = 0;
-
-                    if (pattern === 'tiles') {
-                        const grout = 0.05;
-                        const tileSize = 1.0;
-                        const tileX = Math.abs((x + tileSize/2) % tileSize);
-                        const tileZ = Math.abs((z + tileSize/2) % tileSize);
-                        if (tileX < grout || tileX > tileSize-grout || tileZ < grout || tileZ > tileSize-grout) {
-                            displacement = -patternHeight;
-                        }
-                    } else if (pattern === 'bricks') {
-                        const grout = 0.05;
-                        const brickW = 1.0, brickH = 0.5;
-                        const rowZ = Math.floor((z + 100.0) / brickH);
-                        const offsetX = (rowZ % 2 === 0) ? 0 : brickW / 2;
-                        const tileX = Math.abs((x + offsetX + brickW/2) % brickW);
-                        const tileZ = Math.abs((z + brickH/2) % brickH);
-                        if (tileX < grout || tileX > brickW-grout || tileZ < grout || tileZ > brickH-grout) {
-                            displacement = -patternHeight;
-                        }
-                    } else if (pattern === 'hexagons') {
-                        const size = 0.5; 
-                        const grout = 0.1;
-                        const a = 2.0 * Math.PI / (3.0 * size);
-                        const b = a / Math.sqrt(3.0);
-                        const val = Math.cos(a * x) + Math.cos(b * (x + Math.sqrt(3.0) * z)) + Math.cos(b * (x - Math.sqrt(3.0) * z));
-                        if (val < 1.5 - grout) { 
-                            displacement = -patternHeight;
-                        }
-                    }
-                    pos.setY(i, halfThick + displacement);
-                }
-            }
-            geometry.computeVertexNormals();
-        }
-    }
-    partObject = new THREE.Mesh(geometry, material);
-
-  } else if (def.id === "guard_rail") {
+  if (def.id === "guard_rail") {
     const w = def.size.x, h = def.size.y;
     const hw = w/2, hh = h/2;
     const postWidth = 0.1, railHeight = 0.1;
@@ -199,7 +115,7 @@ export function buildPart(def, options = {}, dynamicEnvMap) {
     else mesh.rotation.y = Math.PI / 2;
     partObject = new THREE.Group().add(mesh);
 
-  } else { // Default for metal_wall
+  } else { // Default for metal_floor and metal_wall
     const geometry = new THREE.BoxGeometry(def.size.x, def.size.y, def.size.z, tessellation, 1, tessellation);
     partObject = new THREE.Mesh(geometry, material);
   }
