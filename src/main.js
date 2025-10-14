@@ -5,6 +5,7 @@ import { GamepadFPV } from './controls/GamepadFPV.js';
 import { Hotbar } from './ui/Hotbar.js';
 import { Builder } from './tools/Builder.js';
 import { SettingsPanel } from './ui/SettingsPanel.js';
+import { MATERIALS } from './assets/Catalog.js';
 
 const mount    = document.getElementById('app');
 const hotbarEl = document.getElementById('hotbar');
@@ -42,6 +43,10 @@ try {
   fpv.position.set(0, 3, 10);
   scene.add(fpv);
 
+  // ✨ FIX: Connect the reflection map to BOTH reflective material types
+  MATERIALS.reflective.envMap = scene.dynamicEnvMap;
+  MATERIALS.glossy.envMap = scene.dynamicEnvMap;
+
 } catch (e) {
   die('Renderer/scene init', e);
 }
@@ -63,7 +68,6 @@ window.addEventListener('resize', () => {
   camera.aspect = w / h;
   camera.updateProjectionMatrix();
   renderer.setSize(w, h);
-  // Re-render a static frame on resize if the game hasn't started
   if (!gameStarted) {
     renderer.render(scene, camera);
   }
@@ -86,7 +90,6 @@ function animate(){
   renderer.render(scene, camera);
 }
 
-// Render one static frame initially to show the blurred world
 renderer.render(scene, camera);
 
 startBtnEl.addEventListener('click', () => {
