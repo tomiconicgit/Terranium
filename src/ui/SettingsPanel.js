@@ -10,10 +10,23 @@ export class SettingsPanel {
     this.rotationZ = 0; // Left/Right roll
 
     // Get DOM elements
-    this.colorPicker = document.getElementById('color');
+    this.primaryColorPicker = document.getElementById('primaryColor');
     this.roughnessSlider = document.getElementById('roughness');
     this.metalnessSlider = document.getElementById('metalness');
     this.reflectivitySlider = document.getElementById('reflectivity');
+    
+    this.floorColorPickers = [
+        document.getElementById('floorColor1'), document.getElementById('floorColor2'),
+        document.getElementById('floorColor3'), document.getElementById('floorColor4'),
+        document.getElementById('floorColor5'),
+    ];
+
+    this.wallColorPickers = [
+        document.getElementById('wallColor1'), document.getElementById('wallColor2'),
+        document.getElementById('wallColor3'), document.getElementById('wallColor4'),
+        document.getElementById('wallColor5'),
+    ];
+
     this.tessellationSlider = document.getElementById('tessellation');
     this.rotateLeftBtn = document.getElementById('rotate-left');
     this.rotateRightBtn = document.getElementById('rotate-right');
@@ -26,11 +39,14 @@ export class SettingsPanel {
     this.btn.addEventListener('click', () => this.toggle());
 
     const trigger = () => this.triggerChange();
-    this.colorPicker.addEventListener('input', trigger);
+    this.primaryColorPicker.addEventListener('input', trigger);
     this.roughnessSlider.addEventListener('input', trigger);
     this.metalnessSlider.addEventListener('input', trigger);
     this.reflectivitySlider.addEventListener('input', trigger);
     this.tessellationSlider.addEventListener('input', trigger);
+    
+    this.floorColorPickers.forEach(p => p.addEventListener('input', trigger));
+    this.wallColorPickers.forEach(p => p.addEventListener('input', trigger));
     
     this.rotateLeftBtn.addEventListener('click', () => {
       this.rotationY -= Math.PI / 2;
@@ -83,7 +99,9 @@ export class SettingsPanel {
 
   getSettings() {
     return {
-      color: this.colorPicker.value,
+      primaryColor: this.primaryColorPicker.value,
+      floorColors: this.floorColorPickers.map(p => p.value),
+      wallColors: this.wallColorPickers.map(p => p.value),
       roughness: parseFloat(this.roughnessSlider.value),
       metalness: parseFloat(this.metalnessSlider.value),
       reflectivity: parseFloat(this.reflectivitySlider.value),
