@@ -92,8 +92,8 @@ export class Builder {
     }
     
     this.preview.position.copy(pos);
-    // ✅ CHANGED: Set all three rotation values using a specific order ('YXZ')
-    this.preview.rotation.set(settings.rotationX, settings.rotationY, settings.rotationZ, 'YXZ');
+    this.preview.rotation.y = settings.rotationY;
+    this.preview.rotation.x = settings.rotationX;
     this.preview.visible = true;
     this._hover = { pos, def, settings };
 
@@ -154,18 +154,16 @@ export class Builder {
             pos.y += baseSize.y;
             return { pos };
         }
+        // ✅ FIXED: Junction snapping logic
         else if (def.id === "steel_beam_h" && verticalBeamIds.includes(basePart.id)) {
             const topOfVerticalBeam = basePos.y + baseSize.y / 2;
-            const isNearTop = Math.abs(hit.point.y - topOfVerticalBeam) < 0.5;
+            const isNearTop = Math.abs(hit.point.y - topOfVerticalBeam) < 0.5; // Tolerance
 
+            // If the cursor is aimed near the top of the vertical beam, snap to it
             if (isNearTop) {
                 const y = topOfVerticalBeam + def.size.y / 2;
-                
-                // ✅ CHANGED: Calculate beam direction using Euler rotation for all 3 axes
                 const beamDirection = new THREE.Vector3(1, 0, 0);
-                const euler = new THREE.Euler(settings.rotationX, settings.rotationY, settings.rotationZ, 'YXZ');
-                beamDirection.applyEuler(euler);
-
+                beamDirection.applyAxisAngle(new THREE.Vector3(0, 1, 0), settings.rotationY);
                 const edgeOffset = beamDirection.clone().multiplyScalar(def.size.x / 2);
                 
                 const snapPosition1 = basePos.clone().add(edgeOffset);
@@ -197,8 +195,8 @@ export class Builder {
     });
 
     part.position.copy(pos);
-    // ✅ CHANGED: Set all three rotation values using a specific order ('YXZ')
-    part.rotation.set(settings.rotationX, settings.rotationY, settings.rotationZ, 'YXZ');
+    part.rotation.y = settings.rotationY;
+    part.rotation.x = settings.rotationX;
     part.userData.settings = { ...settings };
     this.placedObjects.add(part);
   }
