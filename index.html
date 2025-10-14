@@ -173,20 +173,30 @@
     <div class="setting-row">
       <label>Tilt</label>
       <div class="control-group">
-        <button id="tilt-left">⤾ Down</button>
-        <button id="tilt-right">Up ⤿</button>
+        <button id="tilt-left">⤵ Down</button>
+        <button id="tilt-right">Up ⤴</button>
       </div>
     </div>
     <div class="setting-row">
       <label>Roll</label>
       <div class="control-group">
-        <button id="roll-left">↶ Left</button>
-        <button id="roll-right">Right ↷</button>
+        <button id="roll-left">↩ Left</button>
+        <button id="roll-right">Right ↪</button>
       </div>
     </div>
     <div class="setting-row">
       <label for="tessellation">Tessellation</label>
       <input type="range" id="tessellation" min="1" max="20" step="1" value="1">
+    </div>
+    <div class="setting-row">
+      <label for="pattern">Pattern</label>
+      <select id="pattern">
+        <option value="flat">Flat</option>
+        <option value="tiles">Tiles</option>
+        <option value="bricks">Bricks</option>
+        <option value="grating">Grating</option>
+        <option value="hexagons">Hexagons</option>
+      </select>
     </div>
   </div>
 
