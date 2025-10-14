@@ -14,6 +14,7 @@ export class SettingsPanel {
     this.roughnessSlider = document.getElementById('roughness');
     this.metalnessSlider = document.getElementById('metalness');
     this.reflectivitySlider = document.getElementById('reflectivity');
+    this.noiseSlider = document.getElementById('noise'); // Get noise slider
     this.tessellationSlider = document.getElementById('tessellation');
     this.rotateLeftBtn = document.getElementById('rotate-left');
     this.rotateRightBtn = document.getElementById('rotate-right');
@@ -30,6 +31,7 @@ export class SettingsPanel {
     this.roughnessSlider.addEventListener('input', trigger);
     this.metalnessSlider.addEventListener('input', trigger);
     this.reflectivitySlider.addEventListener('input', trigger);
+    this.noiseSlider.addEventListener('input', trigger); // Add listener
     this.tessellationSlider.addEventListener('input', trigger);
     
     this.rotateLeftBtn.addEventListener('click', () => {
@@ -87,6 +89,7 @@ export class SettingsPanel {
       roughness: parseFloat(this.roughnessSlider.value),
       metalness: parseFloat(this.metalnessSlider.value),
       reflectivity: parseFloat(this.reflectivitySlider.value),
+      noise: parseFloat(this.noiseSlider.value), // Add noise value
       rotationY: this.rotationY,
       rotationX: this.rotationX,
       rotationZ: this.rotationZ,
