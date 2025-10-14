@@ -1,6 +1,6 @@
 // src/tools/Builder.js — Advanced snapping and global editing
 import * as THREE from 'three';
-import { makeCatalog, buildPart } from '../assets/Catalog.js'; // ✨ FIX: Removed MATERIALS from import
+import { makeCatalog, buildPart } from '../assets/Catalog.js';
 
 function findPartRoot(object, placedObjectsGroup) {
     let current = object;
@@ -111,9 +111,8 @@ export class Builder {
     material.metalness = settings.metalness;
     material.envMapIntensity = settings.reflectivity;
 
-    // Update the rust uniform in our custom shader
     if (material.userData.shader) {
-      material.userData.shader.uniforms.u_rust.value = settings.rust;
+      material.userData.shader.uniforms.u_bumpLevel.value = settings.bumpLevel;
     }
   }
   
