@@ -1,4 +1,4 @@
-// Scene.js — procedural sky with hemisphere lighting
+// Scene.js — procedural sky with real-time reflections and shadow bias
 import * as THREE from 'three';
 
 // --- Noise functions for terrain generation ---
@@ -26,7 +26,6 @@ export class Scene extends THREE.Scene {
     this.fog = new THREE.Fog(skyColor, 200, 600);
 
     /* ---------- Lights ---------- */
-    // ✨ FIX: Replaced previous lights with Hemisphere and Directional lights.
     const hemiLight = new THREE.HemisphereLight(skyColor, groundColor, 1.2);
     hemiLight.position.set(0, 50, 0);
     this.add(hemiLight);
@@ -37,12 +36,21 @@ export class Scene extends THREE.Scene {
     sun.shadow.mapSize.set(2048, 2048);
     sun.shadow.camera.near = 10;
     sun.shadow.camera.far  = 400;
+    // ✨ FIX: Added shadow bias to prevent shadow acne
+    sun.shadow.bias = -0.0005;
+    sun.shadow.normalBias = 0.02;
     this.sun = sun;
     this.add(sun);
     this.add(sun.target);
 
-    // Add the procedural sky dome
     this.add(createSky(hemiLight));
+
+    // ✨ NEW: Create a CubeCamera for real-time reflections
+    const cubeRenderTarget = new THREE.WebGLCubeRenderTarget(256);
+    this.cubeCamera = new THREE.CubeCamera(1, 1000, cubeRenderTarget);
+    this.cubeCamera.position.set(0, 5, 0); // Position it in the center of the action
+    this.dynamicEnvMap = cubeRenderTarget.texture;
+
 
     /* ... rest of the file is unchanged ... */
     const size = 100;
@@ -83,6 +91,11 @@ export class Scene extends THREE.Scene {
 
     this._cameraTarget = new THREE.Vector3();
   }
+
+  // ✨ NEW: Method to update the reflection probe each frame
+  updateReflections(renderer) {
+    this.cubeCamera.update(renderer, this);
+  }
   
   updateShadows(camera) {
     const shadowCam = this.sun.shadow.camera;
@@ -111,7 +124,6 @@ export class Scene extends THREE.Scene {
   pressSand() { /* Disabled */ }
 }
 
-// ✨ NEW: Procedural sky modeled on the hemisphere light example
 function createSky(hemiLight) {
   const vertexShader = `
     varying vec3 vWorldPosition;
