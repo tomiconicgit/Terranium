@@ -33,7 +33,6 @@ export class Builder {
     this._lastButtons = [];
     this._hover = null;
     
-    // Subscribe to settings changes for global updates
     this.settingsPanel.onChange(() => this.applyGlobalSettings());
   }
 
@@ -58,12 +57,20 @@ export class Builder {
 
     const pos = sugg.pos;
     const settings = this.settingsPanel.getSettings();
-    const key = `${def.id}|${pos.x.toFixed(1)},${pos.y.toFixed(1)},${pos.z.toFixed(1)}|${settings.rotation.toFixed(2)}|${settings.shading}|${settings.tessellation}`;
+    const key = `${def.id}|${pos.x.toFixed(1)},${pos.y.toFixed(1)},${pos.z.toFixed(1)}|${JSON.stringify(settings)}`;
 
     if (key !== this.prevKey){
       this.preview.clear();
       const ghost = buildPart(def, settings);
-      ghost.traverse(o=>{if(o.isMesh){const m=o.material.clone();m.transparent=true;m.opacity=0.6;m.depthWrite=false;o.material=m;}});
+      ghost.traverse(o=>{
+        if(o.isMesh){
+          // Clone the material for the preview so we can modify it
+          o.material = o.material.clone();
+          o.material.transparent = true; 
+          o.material.opacity = 0.6; 
+          o.material.depthWrite = false;
+        }
+      });
       this.preview.add(ghost);
       this.prevKey = key;
     }
@@ -87,31 +94,22 @@ export class Builder {
     );
   
     objectsToUpdate.forEach(child => {
-      // Store current transform
-      const position = child.position.clone();
-      const rotation = child.rotation.clone();
-      
-      // Update the stored settings on the object
-      child.userData.settings.shading = settings.shading;
-      child.userData.settings.tessellation = settings.tessellation;
+      // Update stored settings
+      Object.assign(child.userData.settings, settings);
   
-      // Rebuild the part with new settings
-      const newPart = buildPart(child.userData.part, child.userData.settings);
-      newPart.position.copy(position);
-      newPart.rotation.copy(rotation);
-      newPart.userData.settings = child.userData.settings; // carry over settings
-  
-      // Dispose old geometry/materials to prevent memory leaks
       child.traverse(obj => {
-        if (obj.geometry) obj.geometry.dispose();
+        if (obj.isMesh && obj.material) {
+          // Re-clone the base material to reset properties before applying new ones
+          obj.material = buildPart(child.userData.part, settings).children[0].children[0].material.clone();
+          
+          // Apply customizations
+          if ('color' in obj.material) obj.material.color.set(settings.color);
+          if ('roughness' in obj.material) obj.material.roughness = settings.roughness;
+          if ('metalness' in obj.material) obj.material.metalness = settings.metalness;
+        }
       });
-  
-      // Replace the object in the scene
-      this.placedObjects.remove(child);
-      this.placedObjects.add(newPart);
     });
   
-    // Force preview to rebuild with new settings as well
     this.prevKey = '';
   }
   
@@ -171,12 +169,21 @@ export class Builder {
     if (!this._hover) return;
     const { pos, def, settings } = this._hover;
     const part = buildPart(def, settings);
+    
+    // ✨ FIX: Clone the material for the new part to make it unique
+    part.traverse(child => {
+      if (child.isMesh) {
+        child.material = child.material.clone();
+        // Apply customizations
+        if ('color' in child.material) child.material.color.set(settings.color);
+        if ('roughness' in child.material) child.material.roughness = settings.roughness;
+        if ('metalness' in child.material) child.material.metalness = settings.metalness;
+      }
+    });
+
     part.position.copy(pos);
     part.rotation.y = settings.rotation;
-
-    // Store the settings with the object so we can edit it later
     part.userData.settings = { ...settings };
-    
     this.placedObjects.add(part);
   }
 
@@ -189,7 +196,7 @@ export class Builder {
         partToRemove.parent.remove(partToRemove);
         partToRemove.traverse(obj => {
             if (obj.geometry) obj.geometry.dispose();
-            // Note: materials are shared, so we don't dispose them here.
+            if (obj.material) obj.material.dispose();
         });
       }
     }
