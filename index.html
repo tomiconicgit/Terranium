@@ -117,6 +117,9 @@
       display:flex; flex-direction:column; gap:4px;
       font-size: 14px;
       transition: transform .3s ease-out, opacity .3s ease-out;
+      /* ✅ FIX: Make panel scrollable */
+      max-height: calc(100vh - 90px);
+      overflow-y: auto;
     }
     #settingsPanel.hidden { transform: translateX(-20px); opacity: 0; pointer-events: none; }
     #settingsPanel .setting-row {
@@ -186,7 +189,7 @@
     </div>
     <div class="setting-row">
       <label for="tessellation">Tessellation</label>
-      <input type="range" id="tessellation" min="1" max="20" step="1" value="1">
+      <input type="range" id="tessellation" min="1" max="20" step="1" value="10">
     </div>
     <div class="setting-row">
       <label for="pattern">Pattern</label>
