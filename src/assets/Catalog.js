@@ -5,6 +5,7 @@ import * as THREE from "three";
 export function makeCatalog() {
   return [
     { id: "metal_floor", name: "Metal Floor", baseType: "flat", size: {x:4, y:0.2, z:4}, preview:"#e0e5e9" },
+    { id: "metal_wall", name: "Metal Wall", baseType: "wall", size: {x:4, y:4, z:0.2}, preview:"#c0c5c9" },
     { id: "guard_rail", name: "Guard Rail", baseType: "railing", size: {x:4, y:2, z:0.2}, preview:"#d0d5d9" },
     { id: "metal_beam", name: "Metal Beam", baseType: "vertical", size: {x:1, y:4, z:1}, preview:"#e0e5e9" },
     { id: "steel_beam", name: "Steel Beam", baseType: "vertical", size: {x:0.8, y:4, z:1}, preview:"#c0c5c9" },
@@ -47,8 +48,9 @@ export function buildPart(def, options = {}, dynamicEnvMap) {
     const extrudeSettings = { depth: def.size.z, steps: 1, bevelEnabled: false };
     const geometry = new THREE.ExtrudeGeometry(shape, extrudeSettings);
     geometry.center();
+    // ✅ CORRECTION: The geometry is extruded along Z, so it's already correctly aligned with the wall/railing base part.
+    // No rotation is needed here. The placement logic will handle world rotation.
     const mesh = new THREE.Mesh(geometry, material);
-    mesh.rotation.y = Math.PI / 2; // Orient correctly
     partObject = new THREE.Group().add(mesh);
 
   } else if (def.id === "metal_beam") {
@@ -87,7 +89,7 @@ export function buildPart(def, options = {}, dynamicEnvMap) {
     else mesh.rotation.y = Math.PI / 2;
     partObject = new THREE.Group().add(mesh);
 
-  } else { // Default for metal_floor
+  } else { // Default for metal_floor and metal_wall
     const geometry = new THREE.BoxGeometry(def.size.x, def.size.y, def.size.z, tessellation, 1, tessellation);
     partObject = new THREE.Mesh(geometry, material);
   }
