@@ -41,7 +41,7 @@ export class Builder {
     this.scene.add(this.pitHighlight);
     
     this.reticleEl = document.getElementById('reticle');
-    this.animatedObjects = []; // For animated assets like the smoke valve
+    this.animatedObjects = [];
 
     this.prevKey = '';
     this._lastButtons = [];
@@ -55,7 +55,7 @@ export class Builder {
   pad(){ const a=navigator.getGamepads?.()||[]; for(const p of a) if(p&&p.connected) return p; return null; }
   pressed(i){ const p=this.pad(); if(!p) return false; const n=!!p.buttons[i]?.pressed,b=!!this._lastButtons[i]; this._lastButtons[i]=n; return n&&!b; }
 
-  update(dt){ // Now receives delta time for animations
+  update(dt){
     const def = this.activeAssetDef;
     if (!def) { this.preview.visible = false; this.pitHighlight.visible = false; return; }
 
@@ -80,63 +80,144 @@ export class Builder {
       this.handlePitDigger(hit, placePressed);
     } else {
         const sugg = this.suggestPlacement(def, hit, settings);
-        if (!sugg) { 
-            this.preview.visible = false; this._hover = null; this.pitHighlight.visible = false; 
-        } else {
+        if (sugg) {
             this.updatePreview(def, sugg.pos, sugg.rot, settings);
             if (placePressed) this.placeOne();
+        } else {
+            this.preview.visible = false; this._hover = null; this.pitHighlight.visible = false; 
         }
     }
     
-    // Update any animated objects
     this.animatedObjects.forEach(obj => {
         if (obj.userData.update) obj.userData.update(dt);
     });
   }
 
-  handlePitDigger(hit, placePressed) { /* ... Omitted for brevity, no changes ... */ }
+  handlePitDigger(hit, placePressed) {
+    this.preview.visible = false;
+    if (hit.object === this.terrain) {
+        const snapTile = (v) => Math.round(v / this.tile) * this.tile;
+        const snappedPos = new THREE.Vector3(snapTile(hit.point.x), hit.point.y, snapTile(hit.point.z));
+        this.pitHighlight.position.copy(snappedPos).y += 0.02;
+        this.pitHighlight.visible = true;
+        if (placePressed) {
+            this.scene.digPit(snappedPos, this.tile, this.tile);
+        }
+    } else {
+        this.pitHighlight.visible = false;
+    }
+  }
 
+  // **FIX**: Complete rewrite of placement logic for robustness.
   suggestPlacement(def, hit, settings) {
     const pos = new THREE.Vector3();
     const rot = new THREE.Euler(0, settings.rotationY, 0, 'YXZ');
     const hitRoot = findPartRoot(hit.object, this.placedObjects);
     const snapTile = (v) => Math.round(v / this.tile) * this.tile;
 
-    // **FIX**: Correctly handle placing objects on terrain, especially in pits
-    if (hit.object === this.terrain) {
-        pos.set(snapTile(hit.point.x), hit.point.y + def.size.y/2, snapTile(hit.point.z));
-        return { pos, rot };
-    }
-    
-    if (def.baseType === 'floor' && hitRoot?.userData.part?.baseType === 'wall') {
-        const wallDef = hitRoot.userData.part;
-        pos.copy(hitRoot.position);
-        pos.y = hitRoot.position.y + wallDef.size.y / 2 + def.size.y / 2 + Z_FIGHT_OFFSET;
-        return { pos, rot: hitRoot.rotation.clone() };
+    // --- Priority Snapping Rules (object-to-object) ---
+    if (hitRoot) {
+        // Snapping pipes to other pipes (includes the new end valve)
+        if (def.baseType === 'pipe' && hitRoot.userData.part?.baseType === 'pipe') {
+            const pipeSnap = this.getPipeSnap(def, hit, hitRoot);
+            if (pipeSnap) return pipeSnap;
+        }
+
+        // Snapping floors on top of walls/trusses
+        if (def.baseType === 'floor' && hitRoot.userData.part?.baseType === 'wall') {
+            const wallDef = hitRoot.userData.part;
+            pos.copy(hitRoot.position);
+            pos.y = hitRoot.position.y + wallDef.size.y / 2 + def.size.y / 2 + Z_FIGHT_OFFSET;
+            return { pos, rot: hitRoot.rotation.clone() };
+        }
+
+        // Snapping walls/railings (stacking or on floor edges)
+        if (['wall', 'railing'].includes(def.baseType)) {
+            const edgeSnap = this.getEdgeSnap(def, hit, hitRoot, rot);
+            if (edgeSnap) return edgeSnap;
+        }
     }
 
-    if (def.baseType === 'pipe') {
-      const pipeSnap = this.getPipeSnap(def, hit, hitRoot);
-      if (pipeSnap) return pipeSnap;
-    }
-
-    if (['wall', 'railing'].includes(def.baseType)) {
-      const edgeSnap = this.getEdgeSnap(def, hit, hitRoot, rot);
-      if (edgeSnap) return edgeSnap;
-    }
-    
-    if (hitRoot && hitRoot.userData.part?.baseType === 'floor') {
-        const y = hitRoot.position.y + hitRoot.userData.part.size.y / 2;
-        pos.set(snapTile(hit.point.x), y + def.size.y/2 + Z_FIGHT_OFFSET, snapTile(hit.point.z));
+    // --- Fallback Placement Rule (on a surface) ---
+    // This allows placing on the terrain (including inside pits) or on top of floors.
+    if (hit.object === this.terrain || hitRoot?.userData.part?.baseType === 'floor') {
+        pos.set(snapTile(hit.point.x), hit.point.y + def.size.y / 2 + Z_FIGHT_OFFSET, snapTile(hit.point.z));
         return { pos, rot };
     }
-    
+
+    // If no rules matched, no placement is possible
     return null;
   }
 
-  getEdgeSnap(def, hit, hitRoot, currentRot) { /* ... Omitted for brevity, no changes ... */ return null; }
-  getPipeSnap(def, hit, hitRoot) { /* ... Omitted for brevity, no changes ... */ return null; }
-  updatePreview(def, pos, rot, settings) { /* ... Omitted for brevity, no changes ... */ }
+  getEdgeSnap(def, hit, hitRoot, currentRot) {
+    if (!hitRoot) return null;
+    const baseDef = hitRoot.userData.part;
+    if (!baseDef) return null;
+    const snapTile = (v) => Math.round(v / this.tile) * this.tile;
+
+    // Stack on top of another wall-like object
+    if (baseDef.baseType === 'wall') {
+        return {
+            pos: hitRoot.position.clone().setY(hitRoot.position.y + baseDef.size.y/2 + def.size.y/2 + Z_FIGHT_OFFSET),
+            rot: hitRoot.rotation.clone()
+        };
+    }
+    // Snap to the edge of a floor
+    if (baseDef.baseType === 'floor') {
+        const basePos = hitRoot.position;
+        const pos = new THREE.Vector3(snapTile(hit.point.x), 0, snapTile(hit.point.z));
+        pos.y = basePos.y + baseDef.size.y/2 + def.size.y/2;
+        return { pos, rot: currentRot };
+    }
+    return null;
+  }
+
+  getPipeSnap(def, hit, hitRoot) {
+      if (!hitRoot || !hitRoot.userData.part) return null;
+      
+      const pos = new THREE.Vector3();
+      const rot = new THREE.Euler(0, 0, 0, 'YXZ');
+
+      const epA = hitRoot.getObjectByName('endpointA')?.getWorldPosition(new THREE.Vector3());
+      const epB = hitRoot.getObjectByName('endpointB')?.getWorldPosition(new THREE.Vector3());
+      
+      let targetPos, otherPos;
+      
+      // Handle valve which only has one endpoint
+      if (hitRoot.userData.part.subType === 'end_valve') {
+          if (!epA) return null;
+          targetPos = epA;
+          // To get direction, we look back towards the center of the valve part
+          otherPos = hitRoot.getWorldPosition(new THREE.Vector3());
+      } else {
+           if (!epA || !epB) return null;
+           targetPos = hit.point.distanceTo(epA) < hit.point.distanceTo(epB) ? epA : epB;
+           otherPos = targetPos === epA ? epB : epA;
+      }
+
+      const dir = targetPos.clone().sub(otherPos).normalize();
+      pos.copy(targetPos);
+
+      // For the end valve, we need to face the other way
+      const placementDir = def.subType === 'end_valve' ? dir.negate() : dir;
+      rot.setFromQuaternion(new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0,0,-1), placementDir));
+
+      return { pos, rot };
+  }
+
+  updatePreview(def, pos, rot, settings) {
+    const key = `${def.id}|${pos.x.toFixed(2)},${pos.y.toFixed(2)},${pos.z.toFixed(2)}|${(rot?.y||0).toFixed(2)}`;
+    if (key !== this.prevKey){
+      this.preview.clear();
+      this.preview.add(buildPart(def, settings, this.dynamicEnvMap));
+      this.prevKey = key;
+    }
+    this.preview.position.copy(pos);
+    if (rot) this.preview.rotation.copy(rot);
+    this.preview.visible = true;
+    this.pitHighlight.visible = false;
+    this._hover = { pos, rot, def, settings };
+  }
 
   placeOne(){
     if (!this._hover) return;
@@ -147,7 +228,6 @@ export class Builder {
     part.position.copy(pos);
     if (rot) part.rotation.copy(rot);
     
-    // If the part is animated, add it to our update list
     if (part.userData.update) {
         this.animatedObjects.push(part);
     }
@@ -160,7 +240,6 @@ export class Builder {
       if (hits.length > 0) {
           const partToRemove = findPartRoot(hits[0].object, this.placedObjects);
           if (partToRemove) {
-              // If the part was animated, remove it from the update list
               if (partToRemove.userData.update) {
                   this.animatedObjects = this.animatedObjects.filter(obj => obj !== partToRemove);
               }
