@@ -92,7 +92,6 @@ export class Builder {
     }
     
     this.preview.position.copy(pos);
-    // ✅ CHANGED: Set all three rotation values using a specific order ('YXZ')
     this.preview.rotation.set(settings.rotationX, settings.rotationY, settings.rotationZ, 'YXZ');
     this.preview.visible = true;
     this._hover = { pos, def, settings };
@@ -116,6 +115,7 @@ export class Builder {
     const pos = new THREE.Vector3();
     const hitRoot = findPartRoot(hit.object, this.placedObjects);
     const verticalBeamIds = ["metal_beam", "steel_beam"];
+    const floorIds = ["metal_floor", "scifi_roof"]; // Treat roof like floor for beam snapping
 
     if (hit.object === this.terrain && def.id === "metal_floor") {
         const gridSize = def.size.x;
@@ -138,7 +138,8 @@ export class Builder {
                 return { pos };
             }
         }
-        else if (verticalBeamIds.includes(def.id) && basePart.id === "metal_floor" && n.y > 0.9) {
+        // ✅ REVERTED: Previous snapping logic for vertical beams on floor/roof
+        else if (verticalBeamIds.includes(def.id) && floorIds.includes(basePart.id) && n.y > 0.9) {
             const localHitPoint = hitRoot.worldToLocal(hit.point.clone());
             const uvX = (localHitPoint.x + baseSize.x / 2) / baseSize.x;
             const uvZ = (localHitPoint.z + baseSize.z / 2) / baseSize.z;
@@ -161,7 +162,6 @@ export class Builder {
             if (isNearTop) {
                 const y = topOfVerticalBeam + def.size.y / 2;
                 
-                // ✅ CHANGED: Calculate beam direction using Euler rotation for all 3 axes
                 const beamDirection = new THREE.Vector3(1, 0, 0);
                 const euler = new THREE.Euler(settings.rotationX, settings.rotationY, settings.rotationZ, 'YXZ');
                 beamDirection.applyEuler(euler);
@@ -181,6 +181,34 @@ export class Builder {
                 return { pos };
             }
         }
+        // ✅ ADDED: Snapping logic for SciFi Roof
+        else if (def.id === "scifi_roof") {
+            // Snapping roof on top of vertical beams
+            if (verticalBeamIds.includes(basePart.id) && n.y > 0.9) {
+                const localHitPoint = hitRoot.worldToLocal(hit.point.clone());
+                const uvX = (localHitPoint.x + baseSize.x / 2) / baseSize.x;
+                const uvZ = (localHitPoint.z + baseSize.z / 2) / baseSize.z;
+                const subTileX = Math.floor(uvX * baseSize.x);
+                const subTileZ = Math.floor(uvZ * baseSize.z);
+                pos.x = basePos.x - baseSize.x / 2 + subTileX + 0.5;
+                pos.z = basePos.z - baseSize.z / 2 + subTileZ + 0.5;
+                pos.y = basePos.y + baseSize.y / 2 + def.size.y / 2;
+                return { pos };
+            }
+            // Snapping roof to another roof (like floor to floor)
+            else if (basePart.id === "scifi_roof") {
+                if (n.y > 0.9) { // Snap on top
+                    pos.copy(basePos); 
+                    pos.y += baseSize.y;
+                    return { pos }; 
+                }
+                else if (Math.abs(n.y) < 0.1) { // Snap to side
+                    const dir = new THREE.Vector3(Math.round(n.x), 0, Math.round(n.z));
+                    pos.copy(basePos).addScaledVector(dir, baseSize.x);
+                    return { pos };
+                }
+            }
+        }
     }
     return null;
   }
@@ -197,7 +225,6 @@ export class Builder {
     });
 
     part.position.copy(pos);
-    // ✅ CHANGED: Set all three rotation values using a specific order ('YXZ')
     part.rotation.set(settings.rotationX, settings.rotationY, settings.rotationZ, 'YXZ');
     part.userData.settings = { ...settings };
     this.placedObjects.add(part);
