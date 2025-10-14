@@ -20,17 +20,17 @@ export class Scene extends THREE.Scene {
   constructor() {
     super();
 
-    // ✨ FIX: Changed horizon color to a crisp, icy blue
     const horizonColor = new THREE.Color(0xaaccff);
     this.background = horizonColor;
 
     this.add(createSky(horizonColor));
 
     /* ---------- Lights ---------- */
-    this.add(new THREE.AmbientLight(0xffffff, 0.2));
-    this.add(new THREE.HemisphereLight(0xe0e8ff, 0xb8b0c0, 0.4));
+    // ✨ FIX: Changed ambient and hemisphere lights to cooler colors for an arctic feel
+    this.add(new THREE.AmbientLight(0xccdeff, 0.25));
+    this.add(new THREE.HemisphereLight(0xe0e8ff, 0x95abcc, 0.5));
 
-    const sun = new THREE.DirectionalLight(0xffffff, 1.2);
+    const sun = new THREE.DirectionalLight(0xffffff, 1.2); // Pure white sun
     sun.position.set(80, 100, -70);
     sun.castShadow = true;
     sun.shadow.mapSize.set(2048, 2048);
@@ -45,7 +45,6 @@ export class Scene extends THREE.Scene {
     const size = 100;
     const segments = 128;
     const flatRadius = 35;
-    // ✨ FIX: Set the flat area to be exactly at y=0. This fixes floating blocks.
     const baseHeight = 0.0;
     const geo = new THREE.PlaneGeometry(size * 2, size * 2, segments, segments);
     const pos = geo.attributes.position;
@@ -56,10 +55,8 @@ export class Scene extends THREE.Scene {
         const r = Math.hypot(x, y);
 
         let height = baseHeight;
-        // ✨ FIX: Ensure mountains are always higher than the flat area.
         if (r > flatRadius) {
             const mountainFactor = smoothstep(flatRadius, size * 0.6, r);
-            // Remap noise to be mostly positive to ensure mountains go up
             const baseMountain = (fbm(x * 0.03, y * 0.03, 5) + 0.5) * 20.0;
             const detailMountain = fbm(x * 0.1, y * 0.1, 4) * 5.0;
             height += (baseMountain + detailMountain) * mountainFactor;
@@ -68,7 +65,6 @@ export class Scene extends THREE.Scene {
     }
     geo.computeVertexNormals();
     
-    // ✨ FIX: Changed material to a brighter, snowy white
     const mat = new THREE.MeshStandardMaterial({
         color: 0xf5f9fc,
         roughness: 0.65,
@@ -105,9 +101,8 @@ export class Scene extends THREE.Scene {
   }
 
   getTerrainHeightAt(wx, wz) {
-    // ✨ FIX: Return the correct base height of the flat area
     if (Math.hypot(wx, wz) <= 35) return 0.0;
-    return 0.0; // Default to base height
+    return 0.0;
   }
 
   pressSand() { /* Disabled */ }
