@@ -27,7 +27,7 @@ export class Builder {
 
     this.ray = new THREE.Raycaster();
     this.preview = new THREE.Group();
-    this.preview.name = 'previewObject'; // Renamed from 'ghost'
+    this.preview.name = 'previewObject';
     this.scene.add(this.preview);
 
     this.prevKey = '';
@@ -42,11 +42,31 @@ export class Builder {
 
   update(){
     const def = this.catalog[this.hotbar.index];
-    if (!def) return;
-
     const placePressed = this.pressed(7);
     const removePressed = this.pressed(6);
 
+    // ✅ FIXED: Robust removal logic runs first and is independent of placement.
+    if (removePressed) {
+      this.ray.setFromCamera(new THREE.Vector2(0,0), this.camera);
+      const hits = this.ray.intersectObjects(this.placedObjects.children, true);
+
+      if (hits.length > 0) {
+        const partToRemove = findPartRoot(hits[0].object, this.placedObjects);
+        if (partToRemove) {
+          partToRemove.parent.remove(partToRemove);
+          partToRemove.traverse(obj => {
+              if (obj.geometry) obj.geometry.dispose();
+              if (obj.material) obj.material.dispose();
+          });
+          // Exit early to prevent any other action in the same frame
+          return;
+        }
+      }
+    }
+    
+    // --- Placement Logic ---
+    if (!def) return;
+    
     this.ray.setFromCamera(new THREE.Vector2(0,0), this.camera);
     const hits = this.ray.intersectObjects([this.terrain, ...this.placedObjects.children], true);
     
@@ -64,7 +84,6 @@ export class Builder {
       this.preview.clear();
       const previewPart = buildPart(def, settings, this.dynamicEnvMap);
       
-      // ✅ FIXED: Preview is now solid. Transparency lines are removed.
       previewPart.traverse(o=>{
         if(o.isMesh){
             this.customizeMaterial(o.material, settings);
@@ -79,14 +98,11 @@ export class Builder {
     this.preview.rotation.y = settings.rotationY;
     this.preview.rotation.x = settings.rotationX;
     this.preview.visible = true;
-    this._hover = { pos, def, settings, hit };
+    this._hover = { pos, def, settings };
 
     if (placePressed) this.placeOne();
-    if (removePressed) this.removeOne();
   }
 
-  // ✅ FIXED: This function no longer updates placed objects.
-  // It just clears the preview key to force a rebuild with new settings.
   applyGlobalSettings() {
     this.prevKey = '';
   }
@@ -179,18 +195,5 @@ export class Builder {
     this.placedObjects.add(part);
   }
 
-  removeOne(){
-    if (!this._hover?.hit) return;
-    const hitObj = this._hover.hit.object;
-    if (hitObj !== this.terrain) {
-      const partToRemove = findPartRoot(hitObj, this.placedObjects);
-      if (partToRemove) {
-        partToRemove.parent.remove(partToRemove);
-        partToRemove.traverse(obj => {
-            if (obj.geometry) obj.geometry.dispose();
-            if (obj.material) obj.material.dispose();
-        });
-      }
-    }
-  }
+  // ✅ REMOVED: The old removeOne() method is no longer needed.
 }
