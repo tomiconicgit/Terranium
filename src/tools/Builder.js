@@ -1,6 +1,6 @@
 // src/tools/Builder.js — Advanced snapping and global editing
 import * as THREE from 'three';
-import { makeCatalog, buildPart } from '../assets/Catalog.js';
+import { makeCatalog, buildPart, MATERIALS } from '../assets/Catalog.js'; // Import MATERIALS library
 
 function findPartRoot(object, placedObjectsGroup) {
     let current = object;
@@ -64,7 +64,6 @@ export class Builder {
       const ghost = buildPart(def, settings);
       ghost.traverse(o=>{
         if(o.isMesh){
-          // Clone the material for the preview so we can modify it
           o.material = o.material.clone();
           o.material.transparent = true; 
           o.material.opacity = 0.6; 
@@ -84,6 +83,7 @@ export class Builder {
     if (removePressed) this.removeOne();
   }
 
+  // ✨ FIX: This function is now safer and more efficient.
   applyGlobalSettings() {
     const currentDef = this.catalog[this.hotbar.index];
     if (!currentDef) return;
@@ -94,23 +94,43 @@ export class Builder {
     );
   
     objectsToUpdate.forEach(child => {
-      // Update stored settings
-      Object.assign(child.userData.settings, settings);
-  
-      child.traverse(obj => {
-        if (obj.isMesh && obj.material) {
-          // Re-clone the base material to reset properties before applying new ones
-          obj.material = buildPart(child.userData.part, settings).children[0].children[0].material.clone();
+      // Rebuild geometry only if tessellation changes
+      if (child.userData.settings.tessellation !== settings.tessellation) {
+          const newPart = buildPart(child.userData.part, settings);
+          newPart.position.copy(child.position);
+          newPart.rotation.copy(child.rotation);
           
-          // Apply customizations
-          if ('color' in obj.material) obj.material.color.set(settings.color);
-          if ('roughness' in obj.material) obj.material.roughness = settings.roughness;
-          if ('metalness' in obj.material) obj.material.metalness = settings.metalness;
-        }
-      });
+          // Apply customizations to the new part's material
+          newPart.traverse(obj => {
+              if (obj.isMesh) {
+                  obj.material = obj.material.clone();
+                  if ('color' in obj.material) obj.material.color.set(settings.color);
+                  if ('roughness' in obj.material) obj.material.roughness = settings.roughness;
+                  if ('metalness' in obj.material) obj.material.metalness = settings.metalness;
+              }
+          });
+          
+          this.placedObjects.remove(child);
+          this.placedObjects.add(newPart);
+          newPart.userData.settings = { ...settings };
+
+      } else { // Otherwise, just update the material
+          child.traverse(obj => {
+              if (obj.isMesh && obj.material) {
+                  if (child.userData.settings.shading !== settings.shading) {
+                    obj.material = MATERIALS[settings.shading].clone();
+                  }
+                  if ('color' in obj.material) obj.material.color.set(settings.color);
+                  if ('roughness' in obj.material) obj.material.roughness = settings.roughness;
+                  if ('metalness' in obj.material) obj.material.metalness = settings.metalness;
+              }
+          });
+      }
+      // Update the stored settings on the object
+      Object.assign(child.userData.settings, settings);
     });
   
-    this.prevKey = '';
+    this.prevKey = ''; // Force preview to update
   }
   
   suggestPlacement(def, hit) {
@@ -165,16 +185,18 @@ export class Builder {
     return null;
   }
 
+  // ✨ FIX: This function now correctly clones and customizes materials.
   placeOne(){
     if (!this._hover) return;
     const { pos, def, settings } = this._hover;
     const part = buildPart(def, settings);
     
-    // ✨ FIX: Clone the material for the new part to make it unique
     part.traverse(child => {
       if (child.isMesh) {
+        // Clone the base material to make it unique for this object
         child.material = child.material.clone();
-        // Apply customizations
+        
+        // Apply customizations from sliders
         if ('color' in child.material) child.material.color.set(settings.color);
         if ('roughness' in child.material) child.material.roughness = settings.roughness;
         if ('metalness' in child.material) child.material.metalness = settings.metalness;
@@ -183,7 +205,7 @@ export class Builder {
 
     part.position.copy(pos);
     part.rotation.y = settings.rotation;
-    part.userData.settings = { ...settings };
+    part.userData.settings = { ...settings }; // Store settings for later edits
     this.placedObjects.add(part);
   }
 
