@@ -2,13 +2,19 @@
 import * as THREE from "three";
 
 // --- Material Library ---
-// ✨ FIX: Removed the skybox texture and redefined 'reflective' material.
-const MATERIALS = {
+// ✨ FIX: 'reflective' material is now prepared to receive a dynamic envMap.
+export const MATERIALS = {
   'wireframe': new THREE.MeshBasicMaterial({ wireframe: true, color: 0x4dd2ff }),
   'flat': new THREE.MeshPhongMaterial({ color: 0xc0c5c9, specular: 0x000000, flatShading: true, side: THREE.DoubleSide }),
   'smooth': new THREE.MeshLambertMaterial({ color: 0xc0c5c9, side: THREE.DoubleSide }),
   'glossy': new THREE.MeshStandardMaterial({ color: 0xc0c5c9, metalness: 0.9, roughness: 0.45, side: THREE.DoubleSide }),
-  'reflective': new THREE.MeshStandardMaterial({ color: 0xb0b5b9, metalness: 0.95, roughness: 0.0, side: THREE.DoubleSide }),
+  'reflective': new THREE.MeshStandardMaterial({
+    color: 0xffffff, // White color reflects the environment most accurately
+    metalness: 1.0,  // Full metalness for mirror effect
+    roughness: 0.0,  // Zero roughness for sharp reflections
+    envMap: null,    // This will be replaced by the dynamic reflection probe
+    side: THREE.DoubleSide
+  }),
 };
 
 /* ---------- Procedural Building Catalog ---------- */
@@ -80,7 +86,7 @@ export function buildPart(def, options = {}) {
     partObject = group;
 
   } else { // Default for metal_floor
-    const geometry = new THREE.BoxGeometry(def.size.x, def.size.y, def.size.z);
+    const geometry = new THREE.BoxGeometry(def.size.x, def.size.y, def.size.z, tessellation, 1, tessellation);
     partObject = new THREE.Mesh(geometry, material);
   }
   
