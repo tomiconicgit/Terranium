@@ -5,7 +5,7 @@ import * as THREE from "three";
 export function makeCatalog() {
   return [
     { id: "metal_floor", name: "Metal Floor", baseType: "flat", size: {x:4, y:0.2, z:4}, preview:"#e0e5e9" },
-    { id: "metal_wall", name: "Metal Wall", baseType: "wall", size: {x:4, y:4, z:0.2}, preview:"#d0d5d9" },
+    { id: "guard_rail", name: "Guard Rail", baseType: "railing", size: {x:4, y:2, z:0.2}, preview:"#d0d5d9" },
     { id: "metal_beam", name: "Metal Beam", baseType: "vertical", size: {x:1, y:4, z:1}, preview:"#e0e5e9" },
     { id: "steel_beam", name: "Steel Beam", baseType: "vertical", size: {x:0.8, y:4, z:1}, preview:"#c0c5c9" },
     { id: "steel_beam_h", name: "Steel Beam (H)", baseType: "horizontal", size: {x:4, y:1, z:0.8}, preview:"#b5bac0" },
@@ -22,7 +22,36 @@ export function buildPart(def, options = {}, dynamicEnvMap) {
   });
 
   let partObject;
-  if (def.id === "metal_beam") {
+  if (def.id === "guard_rail") {
+    const shape = new THREE.Shape();
+    const w = def.size.x, h = def.size.y;
+    const hw = w/2, hh = h/2;
+    const topRailH = 0.15, bottomRailH = 0.1, postW = 0.1;
+
+    // Outer boundary
+    shape.moveTo(-hw, -hh);
+    shape.lineTo(hw, -hh);
+    shape.lineTo(hw, hh);
+    shape.lineTo(-hw, hh);
+    shape.lineTo(-hw, -hh);
+
+    // Inner holes
+    const hole1 = new THREE.Path();
+    hole1.moveTo(-hw + postW, -hh + bottomRailH);
+    hole1.lineTo( hw - postW, -hh + bottomRailH);
+    hole1.lineTo( hw - postW,  hh - topRailH);
+    hole1.lineTo(-hw + postW,  hh - topRailH);
+    hole1.lineTo(-hw + postW, -hh + bottomRailH);
+    shape.holes.push(hole1);
+
+    const extrudeSettings = { depth: def.size.z, steps: 1, bevelEnabled: false };
+    const geometry = new THREE.ExtrudeGeometry(shape, extrudeSettings);
+    geometry.center();
+    const mesh = new THREE.Mesh(geometry, material);
+    mesh.rotation.y = Math.PI / 2; // Orient correctly
+    partObject = new THREE.Group().add(mesh);
+
+  } else if (def.id === "metal_beam") {
     const shape = new THREE.Shape();
     const w = def.size.x, r = 0.1, hw = w / 2;
     shape.moveTo(-hw + r, -hw); shape.lineTo(hw - r, -hw);
@@ -58,7 +87,7 @@ export function buildPart(def, options = {}, dynamicEnvMap) {
     else mesh.rotation.y = Math.PI / 2;
     partObject = new THREE.Group().add(mesh);
 
-  } else { // Default for metal_floor and metal_wall
+  } else { // Default for metal_floor
     const geometry = new THREE.BoxGeometry(def.size.x, def.size.y, def.size.z, tessellation, 1, tessellation);
     partObject = new THREE.Mesh(geometry, material);
   }
