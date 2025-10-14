@@ -5,7 +5,7 @@ import { GamepadFPV } from './controls/GamepadFPV.js';
 import { Hotbar } from './ui/Hotbar.js';
 import { Builder } from './tools/Builder.js';
 import { SettingsPanel } from './ui/SettingsPanel.js';
-import { MATERIALS } from './assets/Catalog.js';
+// ✨ FIX: Removed the obsolete import for MATERIALS
 
 const mount    = document.getElementById('app');
 const hotbarEl = document.getElementById('hotbar');
@@ -42,10 +42,6 @@ try {
   fpv = new GamepadFPV(camera);
   fpv.position.set(0, 3, 10);
   scene.add(fpv);
-
-  // ✨ FIX: Connect the reflection map to BOTH reflective material types
-  MATERIALS.reflective.envMap = scene.dynamicEnvMap;
-  MATERIALS.glossy.envMap = scene.dynamicEnvMap;
 
 } catch (e) {
   die('Renderer/scene init', e);
