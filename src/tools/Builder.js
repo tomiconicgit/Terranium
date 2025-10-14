@@ -53,11 +53,12 @@ export class Builder {
     if (!hits.length){ this.preview.visible=false; this._hover=null; return; }
 
     const hit = hits[0];
-    const sugg = this.suggestPlacement(def, hit);
+    const settings = this.settingsPanel.getSettings();
+    // ✅ UPDATED: Pass settings to the suggestion logic
+    const sugg = this.suggestPlacement(def, hit, settings);
     if (!sugg) { this.preview.visible = false; this._hover = null; return; }
 
     const pos = sugg.pos;
-    const settings = this.settingsPanel.getSettings();
     const key = `${def.id}|${pos.x.toFixed(1)},${pos.y.toFixed(1)},${pos.z.toFixed(1)}|${JSON.stringify(settings)}`;
 
     if (key !== this.prevKey){
@@ -76,11 +77,10 @@ export class Builder {
     }
     
     this.preview.position.copy(pos);
-    // ✅ CHANGED: Apply both Y and X rotations
     this.preview.rotation.y = settings.rotationY;
     this.preview.rotation.x = settings.rotationX;
     this.preview.visible = true;
-    this._hover = { pos, def, settings, hit }; // Pass hit object for removal
+    this._hover = { pos, def, settings, hit };
 
     if (placePressed) this.placeOne();
     if (removePressed) this.removeOne();
@@ -101,7 +101,6 @@ export class Builder {
           this.customizeMaterial(obj.material, settings);
         }
       });
-      // ✅ CHANGED: Update rotation on existing objects
       child.rotation.y = settings.rotationY;
       child.rotation.x = settings.rotationX;
       Object.assign(child.userData.settings, settings);
@@ -115,11 +114,10 @@ export class Builder {
     material.roughness = settings.roughness;
     material.metalness = settings.metalness;
     material.envMapIntensity = settings.reflectivity;
-
-    // ✅ REMOVED: Bump logic is gone
   }
   
-  suggestPlacement(def, hit) {
+  // ✅ UPDATED: Function now accepts settings
+  suggestPlacement(def, hit, settings) {
     const n = hit.face.normal;
     const pos = new THREE.Vector3();
     const hitRoot = findPartRoot(hit.object, this.placedObjects);
@@ -162,12 +160,31 @@ export class Builder {
             pos.y += baseSize.y;
             return { pos };
         }
-        // ✅ FIXED: Horizontal beam snapping logic
+        // ✅ FIXED: Snapping logic for horizontal beams
         else if (def.id === "steel_beam_h" && verticalBeamIds.includes(basePart.id) && n.y > 0.9) {
-            // Set Y pos to be flush on top of the vertical beam
             const y = basePos.y + baseSize.y / 2 + def.size.y / 2;
-            // Use the raycast hit point for X and Z to avoid auto-centering
-            pos.set(hit.point.x, y, hit.point.z);
+
+            // 1. Define the beam's orientation based on rotation
+            const beamDirection = new THREE.Vector3(1, 0, 0); // Horizontal beam lies on its local X-axis
+            beamDirection.applyAxisAngle(new THREE.Vector3(0, 1, 0), settings.rotationY);
+
+            // 2. Calculate the offset from the beam's edge to its center
+            const halfLength = def.size.x / 2;
+            const edgeOffset = beamDirection.clone().multiplyScalar(halfLength);
+            
+            // 3. Determine the direction from the hit point towards the center of the vertical support
+            const toSupportCenter = basePos.clone().sub(hit.point);
+            toSupportCenter.y = 0; // Project onto the horizontal plane
+
+            // 4. Decide whether to add or subtract the offset
+            // This ensures the beam extends away from the support structure
+            if (beamDirection.dot(toSupportCenter) > 0) {
+                pos.copy(hit.point).add(edgeOffset);
+            } else {
+                pos.copy(hit.point).sub(edgeOffset);
+            }
+            
+            pos.y = y; // Set the calculated Y position
             return { pos };
         }
     }
@@ -186,7 +203,6 @@ export class Builder {
     });
 
     part.position.copy(pos);
-    // ✅ CHANGED: Apply both rotations when placing object
     part.rotation.y = settings.rotationY;
     part.rotation.x = settings.rotationX;
     part.userData.settings = { ...settings };
