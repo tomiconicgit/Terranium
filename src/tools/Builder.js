@@ -136,60 +136,54 @@ export class Builder {
         const baseSize = basePart.size;
         const baseRot = hitRoot.rotation;
 
-        // ✅ FIX: Placing a WALL or RAILING on the EDGE of a FLOOR
+        // ✅ FIX 1: Placing a WALL or RAILING on the EDGE of a FLOOR
         if ((def.id === "guard_rail" || def.id === "metal_wall") && basePart.id === "metal_floor" && n.y > 0.9) {
             const localHit = hitRoot.worldToLocal(hit.point.clone());
             const halfX = baseSize.x / 2;
             const halfZ = baseSize.z / 2;
 
+            // Determine closest edge (px, nx, pz, nz)
             const distances = [
-                { edge: 'px', val: halfX, dist: Math.abs(localHit.x - halfX) },
-                { edge: 'nx', val: -halfX, dist: Math.abs(localHit.x + halfX) },
-                { edge: 'pz', val: halfZ, dist: Math.abs(localHit.z - halfZ) },
-                { edge: 'nz', val: -halfZ, dist: Math.abs(localHit.z + halfZ) },
+                { edge: 'px', dist: Math.abs(localHit.x - halfX) }, { edge: 'nx', dist: Math.abs(localHit.x + halfX) },
+                { edge: 'pz', dist: Math.abs(localHit.z - halfZ) }, { edge: 'nz', dist: Math.abs(localHit.z + halfZ) },
             ];
             distances.sort((a, b) => a.dist - b.dist);
-            const closestEdge = distances[0];
-            const wallThickness = def.size.z;
+            const closestEdge = distances[0].edge;
 
-            pos.copy(basePos);
-            pos.y = basePos.y + baseSize.y / 2 + def.size.y / 2 + Z_FIGHT_OFFSET;
             const rot = new THREE.Euler(0, 0, 0, 'YXZ');
+            pos.copy(basePos); // Start at floor center
+            pos.y = basePos.y + baseSize.y / 2 + def.size.y / 2 + Z_FIGHT_OFFSET;
             
-            if (closestEdge.edge.includes('x')) { // Edge is along Z axis
-                rot.y = 0;
-                pos.x = basePos.x + closestEdge.val - (Math.sign(closestEdge.val) * wallThickness / 2);
-                pos.z = hit.point.z;
-            } else { // Edge is along X axis
+            // Position wall/railing center on the center of the floor edge, then offset outwards
+            if (closestEdge === 'px') {
                 rot.y = Math.PI / 2;
-                pos.z = basePos.z + closestEdge.val - (Math.sign(closestEdge.val) * wallThickness / 2);
-                pos.x = hit.point.x;
+                pos.x += halfX - (def.size.z / 2);
+            } else if (closestEdge === 'nx') {
+                rot.y = Math.PI / 2;
+                pos.x -= halfX - (def.size.z / 2);
+            } else if (closestEdge === 'pz') {
+                rot.y = 0;
+                pos.z += halfZ - (def.size.z / 2);
+            } else if (closestEdge === 'nz') {
+                rot.y = 0;
+                pos.z -= halfZ - (def.size.z / 2);
             }
             return { pos, rot };
         }
 
         // 2. Placing a FLOOR on TOP of a WALL
         if (def.id === "metal_floor" && basePart.id === "metal_wall" && n.y > 0.9) {
-            const topOfWall = basePos.y + baseSize.y / 2;
             const rot = new THREE.Euler(0, baseRot.y, 0, 'YXZ');
-            const wallThickness = baseSize.z;
-            const floorThickness = def.size.z;
+            // Shift the new floor so its edge is flush with the wall's outer edge
+            const wallNormal = new THREE.Vector3(0, 0, 1).applyEuler(baseRot);
+            const offset = (def.size.z / 2) - (baseSize.z / 2);
 
-            // Determine which face of the wall was hit (in local space)
-            const localHit = hitRoot.worldToLocal(hit.point.clone());
-            const side = Math.sign(baseRot.y < Math.PI/4 ? localHit.z : localHit.x);
-            
             pos.copy(basePos);
-            pos.y = topOfWall + def.size.y / 2 + Z_FIGHT_OFFSET;
-            
-            // Get wall's normal vector in world space
-            const wallNormal = new THREE.Vector3(0,0,1).applyEuler(baseRot);
-            const offset = (floorThickness / 2) - (wallThickness / 2);
-            pos.addScaledVector(wallNormal, side * offset);
-            
+            pos.y += baseSize.y/2 + def.size.y/2 + Z_FIGHT_OFFSET;
+            pos.addScaledVector(wallNormal, offset);
             return { pos, rot };
         }
-
+        
         // 3. Stacking floors
         if (def.id === "metal_floor" && basePart.id === "metal_floor") {
             if (n.y > 0.9) { pos.copy(basePos); pos.y += baseSize.y + Z_FIGHT_OFFSET; return { pos }; }
@@ -204,7 +198,6 @@ export class Builder {
             const localHitPoint = hitRoot.worldToLocal(hit.point.clone());
             const halfSizeX = baseSize.x / 2;
             const halfSizeZ = baseSize.z / 2;
-
             pos.x = basePos.x + Math.round(localHitPoint.x / halfSizeX) * halfSizeX;
             pos.z = basePos.z + Math.round(localHitPoint.z / halfSizeZ) * halfSizeZ;
             pos.y = basePos.y + baseSize.y / 2 + def.size.y / 2 + Z_FIGHT_OFFSET;
@@ -216,11 +209,24 @@ export class Builder {
             pos.y += baseSize.y + Z_FIGHT_OFFSET;
             return { pos };
         }
-        // ✅ FIX: Placing a horizontal beam on a vertical one (restored simple top-snapping)
+        
+        // ✅ FIX 2: Placing a horizontal beam's END on a vertical beam's TOP
         else if (def.id === "steel_beam_h" && verticalBeamIds.includes(basePart.id) && n.y > 0.9) {
+            const rot = new THREE.Euler(settings.rotationX, settings.rotationY, settings.rotationZ, 'YXZ');
+            
+            // Start at the center of the vertical beam's top face
             pos.copy(basePos);
             pos.y += baseSize.y / 2 + def.size.y / 2 + Z_FIGHT_OFFSET;
-            return { pos }; // Use rotation from settings panel
+            
+            // Create an offset vector pointing along the horizontal beam's length
+            const offset = new THREE.Vector3(-1, 0, 0); // Negative X is the "end" of our beam model
+            offset.applyEuler(rot);
+            offset.multiplyScalar(def.size.x / 2); // Half the length of the horizontal beam
+            
+            // Add the offset to snap the end to the center
+            pos.add(offset);
+            
+            return { pos, rot };
         }
     }
     return null;
