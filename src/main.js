@@ -32,7 +32,8 @@ try {
   renderer = new THREE.WebGLRenderer({ antialias: true });
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 0.9;
+  // **FIX**: Increased exposure for a brighter scene
+  renderer.toneMappingExposure = 1.0;
   renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
   renderer.setSize(window.innerWidth, window.innerHeight);
 
@@ -104,4 +105,3 @@ startBtnEl.addEventListener('click', () => {
   startScreenEl.classList.add('hidden');
   animate();
 }, { once: true });
-
