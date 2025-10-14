@@ -5,9 +5,10 @@ export class SettingsPanel {
     this.panel = panelEl;
     this._changeCallback = null;
     
-    // ✅ CHANGED: Now handles two rotation axes
-    this.rotationY = 0; // Left/Right rotation
+    // ✅ CHANGED: Now handles three rotation axes
+    this.rotationY = 0; // Left/Right turn
     this.rotationX = 0; // Up/Down tilt
+    this.rotationZ = 0; // Left/Right roll
 
     // Get DOM elements
     this.colorPicker = document.getElementById('color');
@@ -17,10 +18,12 @@ export class SettingsPanel {
     this.tessellationSlider = document.getElementById('tessellation');
     this.rotateLeftBtn = document.getElementById('rotate-left');
     this.rotateRightBtn = document.getElementById('rotate-right');
-    
-    // ✅ ADDED: Get new tilt buttons
     this.tiltLeftBtn = document.getElementById('tilt-left');
     this.tiltRightBtn = document.getElementById('tilt-right');
+    
+    // ✅ ADDED: Get new roll buttons
+    this.rollLeftBtn = document.getElementById('roll-left');
+    this.rollRightBtn = document.getElementById('roll-right');
 
     this.isOpen = false;
     this.btn.addEventListener('click', () => this.toggle());
@@ -41,13 +44,22 @@ export class SettingsPanel {
       this.triggerChange();
     });
 
-    // ✅ ADDED: Event listeners for new tilt buttons
     this.tiltLeftBtn.addEventListener('click', () => {
       this.rotationX -= Math.PI / 2;
       this.triggerChange();
     });
     this.tiltRightBtn.addEventListener('click', () => {
       this.rotationX += Math.PI / 2;
+      this.triggerChange();
+    });
+    
+    // ✅ ADDED: Event listeners for new roll buttons
+    this.rollLeftBtn.addEventListener('click', () => {
+      this.rotationZ -= Math.PI / 2;
+      this.triggerChange();
+    });
+    this.rollRightBtn.addEventListener('click', () => {
+      this.rotationZ += Math.PI / 2;
       this.triggerChange();
     });
     
@@ -79,9 +91,10 @@ export class SettingsPanel {
       roughness: parseFloat(this.roughnessSlider.value),
       metalness: parseFloat(this.metalnessSlider.value),
       reflectivity: parseFloat(this.reflectivitySlider.value),
-      // ✅ CHANGED: Return both rotation values
+      // ✅ CHANGED: Return all three rotation values
       rotationY: this.rotationY,
       rotationX: this.rotationX,
+      rotationZ: this.rotationZ,
       tessellation: parseInt(this.tessellationSlider.value),
     };
   }
