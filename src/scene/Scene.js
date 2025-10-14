@@ -1,4 +1,4 @@
-// Scene.js — procedural snow terrain with mountains and custom sky
+// Scene.js — procedural sky with hemisphere lighting
 import * as THREE from 'three';
 
 // --- Noise functions for terrain generation ---
@@ -20,29 +20,29 @@ export class Scene extends THREE.Scene {
   constructor() {
     super();
 
-    // ✨ FIX: Load a cube texture for the skybox to provide detailed reflections.
-    const textureCube = new THREE.CubeTextureLoader()
-      .setPath('https://unpkg.com/three@0.169.0/examples/textures/cube/pisa/')
-      .load(['px.png', 'nx.png', 'py.png', 'ny.png', 'pz.png', 'nz.png']);
-    
-    this.background = textureCube;
-
+    const skyColor = 0xcce0ff;
+    const groundColor = 0x95abcc;
+    this.background = new THREE.Color(skyColor);
+    this.fog = new THREE.Fog(skyColor, 200, 600);
 
     /* ---------- Lights ---------- */
-    // ✨ FIX: Adjusted light colors to be more neutral for the photographic skybox.
-    this.add(new THREE.AmbientLight(0xeeeeee, 0.6)); 
-    this.add(new THREE.HemisphereLight(0xffffff, 0x444444, 0.7));
+    // ✨ FIX: Replaced previous lights with Hemisphere and Directional lights.
+    const hemiLight = new THREE.HemisphereLight(skyColor, groundColor, 1.2);
+    hemiLight.position.set(0, 50, 0);
+    this.add(hemiLight);
 
-    const sun = new THREE.DirectionalLight(0xffffff, 1.2);
+    const sun = new THREE.DirectionalLight(0xffffff, 1.5);
     sun.position.set(80, 100, -70);
     sun.castShadow = true;
     sun.shadow.mapSize.set(2048, 2048);
     sun.shadow.camera.near = 10;
     sun.shadow.camera.far  = 400;
-    sun.shadow.bias = -0.0005;
     this.sun = sun;
     this.add(sun);
     this.add(sun.target);
+
+    // Add the procedural sky dome
+    this.add(createSky(hemiLight));
 
     /* ... rest of the file is unchanged ... */
     const size = 100;
@@ -111,4 +111,41 @@ export class Scene extends THREE.Scene {
   pressSand() { /* Disabled */ }
 }
 
-// The old createSky function is no longer needed and can be removed.
+// ✨ NEW: Procedural sky modeled on the hemisphere light example
+function createSky(hemiLight) {
+  const vertexShader = `
+    varying vec3 vWorldPosition;
+    void main() {
+      vec4 worldPosition = modelMatrix * vec4( position, 1.0 );
+      vWorldPosition = worldPosition.xyz;
+      gl_Position = projectionMatrix * viewMatrix * worldPosition;
+    }`;
+
+  const fragmentShader = `
+    uniform vec3 uTopColor;
+    uniform vec3 uBottomColor;
+    uniform float uOffset;
+    uniform float uExponent;
+    varying vec3 vWorldPosition;
+    void main() {
+      float h = normalize( vWorldPosition + uOffset ).y;
+      gl_FragColor = vec4( mix( uBottomColor, uTopColor, max( pow( max( h , 0.0), uExponent ), 0.0 ) ), 1.0 );
+    }`;
+
+  const uniforms = {
+    'uTopColor': { value: new THREE.Color(hemiLight.color) },
+    'uBottomColor': { value: new THREE.Color(hemiLight.groundColor) },
+    'uOffset': { value: 33 },
+    'uExponent': { value: 0.6 }
+  };
+
+  const skyGeo = new THREE.SphereGeometry(1000, 32, 15);
+  const skyMat = new THREE.ShaderMaterial({
+    uniforms: uniforms,
+    vertexShader: vertexShader,
+    fragmentShader: fragmentShader,
+    side: THREE.BackSide
+  });
+
+  return new THREE.Mesh(skyGeo, skyMat);
+}
