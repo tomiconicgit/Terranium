@@ -1,4 +1,4 @@
-// NASA pad kit — round 7 (fixes and feature implementation)
+// NASA pad kit — round 8 (restoring floor designs)
 import * as THREE from "three";
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 
@@ -62,15 +62,41 @@ export function buildPart(def, options = {}, dynamicEnvMap) {
 
 /* ---------- Floors ---------- */
 function buildFloor(def, M) {
-  const g = new THREE.Group();
-  const { x:w, y:h, z:d } = def.size;
+    const g = new THREE.Group();
+    const { x: w, y: h, z: d } = def.size;
 
-  if (def.subType === 'concrete_slab') {
-    const slab = new THREE.Mesh(new RoundedBoxGeometry(w, h, d, 2, 0.08), M('#9aa2ab', { rough: 0.9 }));
-    g.add(slab);
-    return g;
-  }
-  return new THREE.Mesh(new THREE.BoxGeometry(w, h, d), M());
+    // **FIX**: Restored concrete slab design with beveled outlines.
+    if (def.subType === 'concrete_slab') {
+        const slab = new THREE.Mesh(new RoundedBoxGeometry(w, h, d, 2, 0.08), M('#9aa2ab', { rough: 0.9 }));
+        g.add(slab);
+        // Add subtle panel lines
+        const lineMat = M('#000000', { rough: 0.9 });
+        const line1 = new THREE.Mesh(new THREE.BoxGeometry(w, h + 0.02, 0.05), lineMat);
+        const line2 = new THREE.Mesh(new THREE.BoxGeometry(0.05, h + 0.02, d), lineMat);
+        g.add(line1, line2);
+        return g;
+    }
+
+    // **FIX**: Restored steel plate design with rounded edges and 4 bolts.
+    if (def.subType === 'plate_01') {
+        const plate = new THREE.Mesh(new RoundedBoxGeometry(w, h, d, 4, 0.1), M('#7f8a95', { rough: 0.4, metal: 0.9 }));
+        g.add(plate);
+
+        const boltMat = M('#5c6773', { rough: 0.3, metal: 1.0 });
+        const boltGeom = new THREE.CylinderGeometry(0.08, 0.08, h + 0.02, 8);
+        const boltPositions = [
+            { x: -w/4, z: -d/4 }, { x: w/4, z: -d/4 },
+            { x: -w/4, z: d/4 }, { x: w/4, z: d/4 },
+        ];
+        for (const pos of boltPositions) {
+            const bolt = new THREE.Mesh(boltGeom, boltMat);
+            bolt.position.set(pos.x, 0, pos.z);
+            g.add(bolt);
+        }
+        return g;
+    }
+
+    return new THREE.Mesh(new THREE.BoxGeometry(w, h, d), M());
 }
 
 /* ---------- Walls / Columns / Truss ---------- */
@@ -122,7 +148,6 @@ function buildWallLike(def, M) {
       new THREE.Mesh(new THREE.BoxGeometry(cap, h, d), frameMat),
       new THREE.Mesh(new THREE.BoxGeometry(cap, h, d), frameMat),
     ];
-    // Adjust position to be on the edge, not center
     bars[0].position.y = -h/2 + cap/2; bars[1].position.y =  h/2 - cap/2;
     bars[2].position.x = -w/2 + cap/2; bars[3].position.x =  w/2 - cap/2;
     bars.forEach(b => g.add(b));
@@ -141,21 +166,17 @@ function buildWallLike(def, M) {
 function buildRailing(def, M) {
     const g = new THREE.Group();
     const { x: w, y: h, z: d } = def.size;
-    // **FIX**: Complete overhaul of railing asset for a cleaner, more robust look.
     if (def.subType === 'guard') {
         const postMat = M('#aab5c3', { rough: 0.45, metal: 0.65 });
         const railMat = M('#ced7e2', { rough: 0.35, metal: 0.7 });
         const postGeom = new RoundedBoxGeometry(d, h, d, 2, 0.03);
 
-        // Add 3 posts
         for (let i = 0; i < 3; i++) {
             const post = new THREE.Mesh(postGeom, postMat);
             post.position.x = -w / 2 + i * (w / 2);
-            post.position.y = h / 2 - h; // Position relative to group center
+            post.position.y = h / 2 - h;
             g.add(post);
         }
-
-        // Add top handrail
         const railGeom = new RoundedBoxGeometry(w, 0.1, d, 2, 0.03);
         const topRail = new THREE.Mesh(railGeom, railMat);
         topRail.position.y = h/2 - 0.1;
@@ -187,7 +208,6 @@ function buildPipe(def, M) {
     const body = new THREE.Mesh(new THREE.CylinderGeometry(rad, rad, len, 20), pipeMat);
     body.rotation.x = Math.PI/2;
     g.add(body);
-    // **FIX**: Corrected endpoint B name and position
     const a = new THREE.Object3D(); a.name = 'endpointA'; a.position.set(0, 0, -len/2);
     const b = new THREE.Object3D(); b.name = 'endpointB'; b.position.set(0, 0, len/2);
     g.add(a,b);
@@ -231,10 +251,8 @@ function buildLight(def, M) {
         light.add(body, lens);
         
         light.position.copy(pos);
-        
-        // **FIX**: Point lights precisely at a 45-degree angle up or down.
-        light.lookAt(0, light.position.y, 0); // Aim horizontally towards the pole first
-        light.rotation.x += (up ? -1 : 1) * (Math.PI / 4); // Then tilt exactly 45 degrees
+        light.lookAt(0, light.position.y, 0);
+        light.rotation.x += (up ? -1 : 1) * (Math.PI / 4);
         
         head.add(light);
     }
