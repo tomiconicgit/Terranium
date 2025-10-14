@@ -76,9 +76,11 @@ export class Builder {
     }
     
     this.preview.position.copy(pos);
-    this.preview.rotation.y = settings.rotation;
+    // ✅ CHANGED: Apply both Y and X rotations
+    this.preview.rotation.y = settings.rotationY;
+    this.preview.rotation.x = settings.rotationX;
     this.preview.visible = true;
-    this._hover = { pos, def, settings };
+    this._hover = { pos, def, settings, hit }; // Pass hit object for removal
 
     if (placePressed) this.placeOne();
     if (removePressed) this.removeOne();
@@ -99,6 +101,9 @@ export class Builder {
           this.customizeMaterial(obj.material, settings);
         }
       });
+      // ✅ CHANGED: Update rotation on existing objects
+      child.rotation.y = settings.rotationY;
+      child.rotation.x = settings.rotationX;
       Object.assign(child.userData.settings, settings);
     });
   
@@ -111,9 +116,7 @@ export class Builder {
     material.metalness = settings.metalness;
     material.envMapIntensity = settings.reflectivity;
 
-    if (material.userData.shader) {
-      material.userData.shader.uniforms.u_bumpLevel.value = settings.bumpLevel;
-    }
+    // ✅ REMOVED: Bump logic is gone
   }
   
   suggestPlacement(def, hit) {
@@ -159,9 +162,12 @@ export class Builder {
             pos.y += baseSize.y;
             return { pos };
         }
+        // ✅ FIXED: Horizontal beam snapping logic
         else if (def.id === "steel_beam_h" && verticalBeamIds.includes(basePart.id) && n.y > 0.9) {
-            pos.copy(basePos);
-            pos.y += basePart.size.y / 2 + def.size.y / 2;
+            // Set Y pos to be flush on top of the vertical beam
+            const y = basePos.y + baseSize.y / 2 + def.size.y / 2;
+            // Use the raycast hit point for X and Z to avoid auto-centering
+            pos.set(hit.point.x, y, hit.point.z);
             return { pos };
         }
     }
@@ -180,7 +186,9 @@ export class Builder {
     });
 
     part.position.copy(pos);
-    part.rotation.y = settings.rotation;
+    // ✅ CHANGED: Apply both rotations when placing object
+    part.rotation.y = settings.rotationY;
+    part.rotation.x = settings.rotationX;
     part.userData.settings = { ...settings };
     this.placedObjects.add(part);
   }
