@@ -1,8 +1,7 @@
-// src/tools/Builder.js — Advanced snapping for procedural parts
+// src/tools/Builder.js — Advanced snapping and global editing
 import * as THREE from 'three';
 import { makeCatalog, buildPart } from '../assets/Catalog.js';
 
-// Helper function to find the root part object from a raycast hit
 function findPartRoot(object, placedObjectsGroup) {
     let current = object;
     while (current && current.parent !== placedObjectsGroup) {
@@ -33,6 +32,9 @@ export class Builder {
     this.prevKey = '';
     this._lastButtons = [];
     this._hover = null;
+    
+    // Subscribe to settings changes for global updates
+    this.settingsPanel.onChange(() => this.applyGlobalSettings());
   }
 
   pad(){ const a=navigator.getGamepads?.()||[]; for(const p of a) if(p&&p.connected) return p; return null; }
@@ -55,45 +57,78 @@ export class Builder {
     if (!sugg) { this.preview.visible = false; this._hover = null; return; }
 
     const pos = sugg.pos;
-    const currentSettings = this.settingsPanel.getSettings();
-    const rotationY = currentSettings.rotation;
-
-    // The key now includes rotation to force a preview update when the slider changes
-    const key = `${def.id}|${pos.x.toFixed(1)},${pos.y.toFixed(1)},${pos.z.toFixed(1)}|${rotationY.toFixed(2)}`;
+    const settings = this.settingsPanel.getSettings();
+    const key = `${def.id}|${pos.x.toFixed(1)},${pos.y.toFixed(1)},${pos.z.toFixed(1)}|${settings.rotation.toFixed(2)}|${settings.shading}|${settings.tessellation}`;
 
     if (key !== this.prevKey){
       this.preview.clear();
-      const ghost = buildPart(def);
-      ghost.traverse(o=>{if(o.isMesh){const m=o.material.clone();m.transparent=true;m.opacity=0.45;m.depthWrite=false;o.material=m;}});
+      const ghost = buildPart(def, settings);
+      ghost.traverse(o=>{if(o.isMesh){const m=o.material.clone();m.transparent=true;m.opacity=0.6;m.depthWrite=false;o.material=m;}});
       this.preview.add(ghost);
       this.prevKey = key;
     }
     
     this.preview.position.copy(pos);
-    this.preview.rotation.y = rotationY; // Apply rotation to the preview
+    this.preview.rotation.y = settings.rotation;
     this.preview.visible = true;
-    this._hover = { pos, def, rotationY }; // Store rotation for placement
+    this._hover = { pos, def, settings };
 
     if (placePressed) this.placeOne();
     if (removePressed) this.removeOne();
   }
 
+  applyGlobalSettings() {
+    const currentDef = this.catalog[this.hotbar.index];
+    if (!currentDef) return;
+  
+    const settings = this.settingsPanel.getSettings();
+    const objectsToUpdate = this.placedObjects.children.filter(
+      child => child.userData.part?.id === currentDef.id
+    );
+  
+    objectsToUpdate.forEach(child => {
+      // Store current transform
+      const position = child.position.clone();
+      const rotation = child.rotation.clone();
+      
+      // Update the stored settings on the object
+      child.userData.settings.shading = settings.shading;
+      child.userData.settings.tessellation = settings.tessellation;
+  
+      // Rebuild the part with new settings
+      const newPart = buildPart(child.userData.part, child.userData.settings);
+      newPart.position.copy(position);
+      newPart.rotation.copy(rotation);
+      newPart.userData.settings = child.userData.settings; // carry over settings
+  
+      // Dispose old geometry/materials to prevent memory leaks
+      child.traverse(obj => {
+        if (obj.geometry) obj.geometry.dispose();
+      });
+  
+      // Replace the object in the scene
+      this.placedObjects.remove(child);
+      this.placedObjects.add(newPart);
+    });
+  
+    // Force preview to rebuild with new settings as well
+    this.prevKey = '';
+  }
+  
   suggestPlacement(def, hit) {
     const n = hit.face.normal;
     const pos = new THREE.Vector3();
     const hitRoot = findPartRoot(hit.object, this.placedObjects);
     const verticalBeamIds = ["metal_beam", "steel_beam"];
 
-    // Case 1: Hitting the terrain (for Metal Floor)
     if (hit.object === this.terrain && def.id === "metal_floor") {
-        const gridSize = def.size.x; // 4 for metal floor
+        const gridSize = def.size.x;
         pos.x = Math.round(hit.point.x / gridSize) * gridSize;
         pos.z = Math.round(hit.point.z / gridSize) * gridSize;
         pos.y = def.size.y / 2;
         return { pos };
     }
 
-    // Case 2: Hitting another placed part
     if (hitRoot && hitRoot.userData.part) {
         const basePart = hitRoot.userData.part;
         const basePos = hitRoot.position.clone();
@@ -107,7 +142,6 @@ export class Builder {
                 return { pos };
             }
         }
-        // Place a vertical beam on a floor
         else if (verticalBeamIds.includes(def.id) && basePart.id === "metal_floor" && n.y > 0.9) {
             const localHitPoint = hitRoot.worldToLocal(hit.point.clone());
             const uvX = (localHitPoint.x + baseSize.x / 2) / baseSize.x;
@@ -119,13 +153,11 @@ export class Builder {
             pos.y = basePos.y + baseSize.y / 2 + def.size.y / 2;
             return { pos };
         }
-        // Stack vertical beams on top of each other
         else if (verticalBeamIds.includes(def.id) && verticalBeamIds.includes(basePart.id) && n.y > 0.9) {
             pos.copy(basePos);
             pos.y += baseSize.y;
             return { pos };
         }
-        // Place a horizontal beam on top of a vertical one
         else if (def.id === "steel_beam_h" && verticalBeamIds.includes(basePart.id) && n.y > 0.9) {
             pos.copy(basePos);
             pos.y += basePart.size.y / 2 + def.size.y / 2;
@@ -137,24 +169,14 @@ export class Builder {
 
   placeOne(){
     if (!this._hover) return;
-    const { pos, def, rotationY } = this._hover;
-    const part = buildPart(def);
-    
-    const settings = this.settingsPanel.getSettings();
-
-    // Apply material settings from the panel to the new part
-    part.traverse(child => {
-      if (child.isMesh) {
-        // Clone the material to ensure we don't modify the original
-        child.material = child.material.clone();
-        child.material.color.set(settings.color);
-        child.material.roughness = settings.roughness;
-        child.material.metalness = settings.metalness;
-      }
-    });
-
+    const { pos, def, settings } = this._hover;
+    const part = buildPart(def, settings);
     part.position.copy(pos);
-    part.rotation.y = rotationY; // Apply rotation
+    part.rotation.y = settings.rotation;
+
+    // Store the settings with the object so we can edit it later
+    part.userData.settings = { ...settings };
+    
     this.placedObjects.add(part);
   }
 
@@ -165,6 +187,10 @@ export class Builder {
       const partToRemove = findPartRoot(hitObj, this.placedObjects);
       if (partToRemove) {
         partToRemove.parent.remove(partToRemove);
+        partToRemove.traverse(obj => {
+            if (obj.geometry) obj.geometry.dispose();
+            // Note: materials are shared, so we don't dispose them here.
+        });
       }
     }
   }
