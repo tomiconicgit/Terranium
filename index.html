@@ -116,52 +116,58 @@
 
     #settingsPanel {
       position:fixed; top:72px; left:16px; z-index:30;
-      width:240px; padding:12px 16px; border-radius:14px;
-      background:rgba(10,10,12,0.65); backdrop-filter:blur(8px);
+      width:260px; padding:8px; border-radius:8px;
+      background:rgba(20,22,25,0.8); backdrop-filter:blur(10px);
       border:1px solid rgba(255,255,255,0.1);
-      display:flex; flex-direction:column; gap:12px;
+      display:flex; flex-direction:column; gap:4px;
+      font-size: 14px;
       transition: transform .3s ease-out, opacity .3s ease-out;
     }
     #settingsPanel.hidden {
-      transform: translateX(-20px);
-      opacity: 0;
-      pointer-events: none;
+      transform: translateX(-20px); opacity: 0; pointer-events: none;
     }
-    #settingsPanel .card-header {
-      font-weight:600; font-size:16px; padding-bottom:4px;
-      border-bottom:1px solid rgba(255,255,255,0.1);
+    #settingsPanel .setting-row {
+      display:grid; grid-template-columns: 100px 1fr; align-items:center;
+      padding: 8px 12px; border-radius: 4px;
     }
-    #settingsPanel .setting {
-      display:flex; flex-direction:column; gap:6px;
+    #settingsPanel .setting-row:hover { background:rgba(255,255,255,0.05); }
+    #settingsPanel label { color:rgba(255,255,255,0.9); }
+    #settingsPanel .control-group { display:flex; gap:6px; }
+
+    #settingsPanel select, #settingsPanel input, #settingsPanel button {
+      background: #333; color: #fff; border: 1px solid #555; border-radius: 4px;
+      font-size: 13px; padding: 4px 6px;
     }
-    #settingsPanel label {
-      font-size:12px; color:rgba(255,255,255,0.8);
-    }
-    #settingsPanel input[type="range"] { width:100%; }
-    #settingsPanel input[type="color"] {
-      width:100%; height:28px; border:none; padding:0; background:none; cursor:pointer;
-    }
+    #settingsPanel select { width:100%; }
+    #settingsPanel input[type="range"] { padding: 0; width:100%; }
+    #settingsPanel button { cursor:pointer; width:100%; }
+    #settingsPanel button:hover { background:#444; }
+    #settingsPanel button:active { background:#222; }
   </style>
 </head>
 <body>
-  <div id="settingsBtn">âï¸</div>
+  <div id="settingsBtn">⚙️</div>
   <div id="settingsPanel" class="hidden">
-    <div class="card-header">Placement Settings</div>
-    <div class="setting">
-      <label for="rotation">Y-Axis Rotation</label>
-      <input type="range" id="rotation" min="0" max="6.28" step="0.01" value="0">
+    <div class="setting-row">
+      <label for="shading">Shading</label>
+      <select id="shading">
+        <option value="glossy">Glossy</option>
+        <option value="smooth">Smooth</option>
+        <option value="flat">Flat</option>
+        <option value="reflective">Reflective</option>
+        <option value="wireframe">Wireframe</option>
+      </select>
     </div>
-    <div class="setting">
-      <label for="color">Color</label>
-      <input type="color" id="color" value="#e0e5e9">
+    <div class="setting-row">
+      <label>Rotation</label>
+      <div class="control-group">
+        <button id="rotate-left">⟲ Left</button>
+        <button id="rotate-right">Right ⟳</button>
+      </div>
     </div>
-    <div class="setting">
-      <label for="roughness">Roughness</label>
-      <input type="range" id="roughness" min="0" max="1" step="0.01" value="0.45">
-    </div>
-    <div class="setting">
-      <label for="metalness">Metalness</label>
-      <input type="range" id="metalness" min="0" max="1" step="0.01" value="0.9">
+    <div class="setting-row">
+      <label for="tessellation">Tessellation</label>
+      <input type="range" id="tessellation" min="1" max="20" step="1" value="1">
     </div>
   </div>
 
@@ -177,7 +183,7 @@
   </div>
 
   <div id="errorOverlay">
-    <div class="error-header">â ï¸ Application Error</div>
+    <div class="error-header">⚠️ Application Error</div>
     <div class="error-content" id="errorContent"></div>
     <div class="error-actions">
         <button id="errorCopyBtn" class="copy-btn">Copy Report</button>
@@ -193,7 +199,7 @@
     function showError(msg, src, line, col, err) {
       // Build a detailed, readable report
       const reportParts = [
-        '--- â ï¸ Terranium Error Report ---',
+        '--- ⚠️ Terranium Error Report ---',
         `Message: ${msg}`,
       ];
       if (src) {
