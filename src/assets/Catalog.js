@@ -1,4 +1,4 @@
-// NASA pad kit — round 5 (asset redesign, better snapping)
+// NASA pad kit — round 6 (model fixes, snapping overhaul)
 import * as THREE from "three";
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 
@@ -13,7 +13,7 @@ export function makeCatalog() {
     { id:"floor_concrete_01", name:"Concrete Slab", category:"Floors", baseType:"floor", subType:"concrete_slab", size:{x:tile, y:0.3, z:tile}, preview:"#9aa2ab" },
     { id:"floor_plate_01",    name:"Steel Plate",   category:"Floors", baseType:"floor", subType:"plate_01",      size:{x:tile, y:0.25, z:tile}, preview:"#7f8a95" },
 
-    // Walls (only the 3 you want)
+    // Walls
     { id:"wall_flat_smooth",  name:"Wall • Smooth (4h)", category:"Walls", baseType:"wall", subType:"flat_smooth", size:{x:tile,y:4,z:0.35}, preview:"#6c7681" },
     { id:"wall_glass_half",   name:"Wall • Glass (2h)",  category:"Walls", baseType:"wall", subType:"glass_half",  size:{x:tile,y:2,z:0.35}, preview:"#8fb4d6" },
     { id:"wall_smooth_top2",  name:"Wall • Smooth Top (2h)", category:"Walls", baseType:"wall", subType:"smooth_top2", size:{x:tile,y:2,z:0.35}, preview:"#6c7681" },
@@ -23,11 +23,11 @@ export function makeCatalog() {
     { id:"truss_frame_01",  name:"Truss Frame",  category:"Beams & Columns", baseType:"wall", subType:"truss", size:{x:tile,y:4,z:0.5}, preview:"#a7b3c0" },
     { id:"railing_guard_01", name:"Guard Railing", category:"Ramps & Railings", baseType:"railing", subType:"guard", size:{x:tile,y:1.1,z:0.22}, preview:"#b1bdca" },
 
-    // Pipes (no loose covers; full snaps to elbow)
+    // Pipes
     { id:"pipe_elbow_01", name:"Pipe • Elbow", category:"Pipes", baseType:"pipe", subType:"elbow", size:{x:0.6,y:0.6,z:2}, preview:"#8f9aa5" },
     { id:"pipe_full_01",  name:"Pipe • Full",  category:"Pipes", baseType:"pipe", subType:"full",  size:{x:0.6,y:0.6,z:4}, preview:"#8f9aa5" },
 
-    // Lights — stadium cluster
+    // Lights
     { id:"light_stadium_down", name:"Stadium Flood (Down)", category:"Lights", baseType:"light", subType:"stadium_down", size:{x:2.2, y:6.5, z:2.2}, preview:"#e8f0ff" },
     { id:"light_stadium_up",   name:"Stadium Flood (Up)",   category:"Lights", baseType:"light", subType:"stadium_up",   size:{x:2.2, y:6.5, z:2.2}, preview:"#e8f0ff" },
   ];
@@ -66,19 +66,10 @@ function buildFloor(def, M) {
   const { x:w, y:h, z:d } = def.size;
 
   if (def.subType === 'concrete_slab') {
-    // subtle perimeter bevel so adjacent tiles read as separate slabs
     const slab = new THREE.Mesh(new RoundedBoxGeometry(w, h, d, 2, 0.08), M('#9aa2ab', { rough: 0.9 }));
     g.add(slab);
     return g;
   }
-
-  if (def.subType === 'plate_01') {
-    const plate = new THREE.Mesh(new RoundedBoxGeometry(w, h, d, 2, 0.05), M('#7e8994', { rough: 0.6, metal: 0.2 }));
-    g.add(plate);
-    addCornerBolts(g, w, d, h, M('#5a626b', { rough: 0.45, metal: 0.7 }));
-    return g;
-  }
-
   return new THREE.Mesh(new THREE.BoxGeometry(w, h, d), M());
 }
 
@@ -95,7 +86,6 @@ function buildWallLike(def, M) {
   if (def.subType === 'glass_half') {
     const frame = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), M('#6e7b88', { rough: 0.55, metal: 0.15 }));
     g.add(frame);
-    // **FIX**: More transparent glass material
     const glass = new THREE.Mesh(new THREE.PlaneGeometry(w*0.92, h*0.75), new THREE.MeshStandardMaterial({
       color: 0xdfefff, roughness: 0.02, metalness: 0.0, opacity: 0.22, transparent: true, envMapIntensity: 0.8
     }));
@@ -105,12 +95,29 @@ function buildWallLike(def, M) {
   }
 
   if (def.subType === 'column_round_flatcaps') {
-    // **FIX**: Replaced complex geometry with a single rounded box for a clean, beveled steel column look.
-    const column = new THREE.Mesh(
-        new RoundedBoxGeometry(w, h, d, 4, 0.15),
-        M('#aeb8c3', { rough: 0.4, metal: 0.75 })
-    );
-    g.add(column);
+    // **FIX**: Composite shape guarantees flat ends for stacking, with beveled sides.
+    const r = Math.min(0.18, w * 0.35); // Bevel radius
+    const coreW = w - 2 * r;
+    const coreD = d - 2 * r;
+    const coreMat = M('#aeb8c3', { rough: 0.4, metal: 0.75 });
+
+    // Main shaft (guarantees flat top/bottom)
+    const core = new THREE.Mesh(new THREE.BoxGeometry(coreW, h, coreD), coreMat);
+    g.add(core);
+
+    // Rounded sides
+    const sideGeom = new THREE.CylinderGeometry(r, r, h, 16, 1, false);
+    const c1 = new THREE.Mesh(sideGeom, coreMat); c1.position.x = coreW / 2;
+    const c2 = c1.clone(); c2.position.x = -coreW / 2;
+    const c3 = new THREE.Mesh(sideGeom, coreMat); c3.position.z = coreD / 2; c3.rotation.y = Math.PI / 2;
+    const c4 = c3.clone(); c4.position.z = -coreD / 2;
+    
+    // Union-like operation by capping the open box
+    const capGeom = new THREE.PlaneGeometry(coreW, coreD);
+    const cap1 = new THREE.Mesh(capGeom, coreMat); cap1.rotation.x = Math.PI/2; cap1.position.y = h/2;
+    const cap2 = cap1.clone(); cap2.rotation.x = -Math.PI/2; cap2.position.y = -h/2;
+    
+    g.add(c1, c2, c3, c4, cap1, cap2);
     return g;
   }
 
@@ -142,22 +149,18 @@ function buildRailing(def, M) {
   const g = new THREE.Group();
   const { x:w, y:h } = def.size;
   if (def.subType === 'guard') {
-    const postMat = M('#b1bdca', { rough: 0.4, metal: 0.6 });
     const railMat = M('#ced7e2', { rough: 0.35, metal: 0.7 });
-    const posts = 3;
-    for (let i=0;i<posts;i++){
-      const x = -w/2 + i*(w/(posts-1));
-      const post = new THREE.Mesh(new THREE.CylinderGeometry(0.06,0.06,h,12), postMat);
-      post.position.set(x, 0, 0); g.add(post);
+    for (let i=0;i<3;i++){
+      const post = new THREE.Mesh(new THREE.CylinderGeometry(0.06,0.06,h,12), M('#b1bdca', { rough: 0.4, metal: 0.6 }));
+      post.position.set(-w/2 + i*(w/2), 0, 0); g.add(post);
     }
-    const top = new THREE.Mesh(new THREE.CylinderGeometry(0.07,0.07,w-0.12,12), railMat);
+    const top = new THREE.Mesh(new THREE.CylinderGeometry(0.07,0.07,w,12), railMat);
     top.rotation.z = Math.PI/2; top.position.y = h/2 - 0.1; g.add(top);
-    const mid = top.clone(); mid.position.y = h/3; g.add(mid);
   }
   return g;
 }
 
-/* ---------- Pipes (no loose covers; elbow exposes endpoints for snapping) ---------- */
+/* ---------- Pipes ---------- */
 function buildPipe(def, M) {
   const g = new THREE.Group();
   const diam = def.size.x;
@@ -165,13 +168,13 @@ function buildPipe(def, M) {
 
   if (def.subType === 'elbow') {
     const rad = diam/2;
-    const bendR = Math.max(1.2, rad * 3.0);
+    const bendR = 1.2;
     const elbow = new THREE.Mesh(new THREE.TorusGeometry(bendR, rad, 16, 32, Math.PI/2), pipeMat);
-    elbow.rotation.z = Math.PI/2;
+    elbow.rotation.x = -Math.PI / 2;
     g.add(elbow);
     // Endpoints for snapping
-    const a = new THREE.Object3D(); a.name = 'endpointA'; a.position.set(-bendR, 0, 0);
-    const b = new THREE.Object3D(); b.name = 'endpointB'; b.position.set(0, 0, bendR);
+    const a = new THREE.Object3D(); a.name = 'endpointA'; a.position.set(bendR, 0, 0);
+    const b = new THREE.Object3D(); b.name = 'endpointB'; b.position.set(0, bendR, 0);
     g.add(a,b);
     return g;
   }
@@ -181,69 +184,52 @@ function buildPipe(def, M) {
     const body = new THREE.Mesh(new THREE.CylinderGeometry(rad, rad, len, 20), pipeMat);
     body.rotation.x = Math.PI/2;
     g.add(body);
-    // endpoints for future chaining
     const a = new THREE.Object3D(); a.name = 'endpointA'; a.position.set(0, 0, -len/2);
-    const b = new THREE.Object3D(); b.name = 'endpointB'; b.position.set(0, 0,  len/2);
+    const b = new THREE.Object3D(); b.name = 'endpointB'; a.name = 'endpointA'; a.position.set(0, 0, -len/2);
     g.add(a,b);
     return g;
   }
-
   return g;
 }
 
-/* ---------- Lights (stadium style) ---------- */
+/* ---------- Lights ---------- */
 function buildLight(def, M) {
-  const g = new THREE.Group();
-  const poleH = def.size.y - 1.5;
-  const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.24, poleH, 18), M('#8a95a2', { rough: 0.6, metal: 0.5 }));
-  pole.position.y = -0.75;
-  g.add(pole);
+    const g = new THREE.Group();
+    const poleH = def.size.y - 1.0;
+    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.24, poleH, 18), M('#8a95a2', { rough: 0.6, metal: 0.5 }));
+    g.add(pole);
 
-  // **FIX**: Redesigned head assembly to look like NASA-style floodlights
-  const head = new THREE.Group();
-  head.position.y = poleH / 2;
-  g.add(head);
+    // **FIX**: Head assembly now sits flush on the pole
+    const head = new THREE.Group();
+    head.position.y = poleH / 2 - 0.2; // Lowered to connect with pole
+    g.add(head);
 
-  const frameMat = M('#65727d', { rough: 0.5, metal: 0.4 });
-  const arm1 = new THREE.Mesh(new THREE.BoxGeometry(2, 0.15, 0.15), frameMat);
-  const arm2 = arm1.clone();
-  arm2.rotation.y = Math.PI / 2;
-  head.add(arm1, arm2);
+    const frameMat = M('#65727d', { rough: 0.5, metal: 0.4 });
+    const arm1 = new THREE.Mesh(new THREE.BoxGeometry(2, 0.15, 0.15), frameMat);
+    const arm2 = arm1.clone();
+    arm2.rotation.y = Math.PI / 2;
+    head.add(arm1, arm2);
 
-  const lightBox = new THREE.BoxGeometry(0.8, 0.6, 1.0);
-  const lightMat = M('#40454b', { rough: 0.3, metal: 0.6 });
-  const lensMat = M('#eaf3ff', { rough: 0.1, metal: 0.0, emissive: 0xffffff, e: 15 });
-  const up = (def.subType === 'stadium_up');
+    const lightBox = new THREE.BoxGeometry(0.8, 0.6, 1.0);
+    const lightMat = M('#40454b', { rough: 0.3, metal: 0.6 });
+    const lensMat = M('#eaf3ff', { rough: 0.1, metal: 0.0, emissive: 0xffffff, e: 15 });
+    const up = (def.subType === 'stadium_up');
 
-  const positions = [
-    new THREE.Vector3(0.7, 0.3, 0), new THREE.Vector3(-0.7, 0.3, 0),
-    new THREE.Vector3(0, 0.3, 0.7), new THREE.Vector3(0, 0.3, -0.7),
-  ];
+    const positions = [
+        new THREE.Vector3(0.7, 0.3, 0), new THREE.Vector3(-0.7, 0.3, 0),
+        new THREE.Vector3(0, 0.3, 0.7), new THREE.Vector3(0, 0.3, -0.7),
+    ];
 
-  for (const pos of positions) {
-    const light = new THREE.Group();
-    const body = new THREE.Mesh(lightBox, lightMat);
-    const lens = new THREE.Mesh(new THREE.PlaneGeometry(0.65, 0.45), lensMat);
-    lens.position.z = 0.51;
-    light.add(body, lens);
-    light.position.copy(pos);
-    light.lookAt(0, up ? 10 : -10, 0); // Aim up or down
-    head.add(light);
-  }
-  return g;
-}
-
-/* ---------- helpers ---------- */
-function addCornerBolts(group, w, d, y, mat) {
-  const r = 0.05, h = y*0.6;
-  const off = 0.35 * Math.min(w, d);
-  const pos = [
-    [-w/2+off, d/2-off], [w/2-off, d/2-off],
-    [-w/2+off, -d/2+off], [w/2-off, -d/2+off],
-  ];
-  for (const [x,z] of pos) {
-    const bolt = new THREE.Mesh(new THREE.CylinderGeometry(r, r, h, 10), mat);
-    bolt.position.set(x, y*0.35, z);
-    group.add(bolt);
-  }
+    for (const pos of positions) {
+        const light = new THREE.Group();
+        const body = new THREE.Mesh(lightBox, lightMat);
+        const lens = new THREE.Mesh(new THREE.PlaneGeometry(0.65, 0.45), lensMat);
+        lens.position.z = 0.51;
+        light.add(body, lens);
+        light.position.copy(pos);
+        // **FIX**: More pronounced angle
+        light.lookAt(0, up ? 50 : -50, 0);
+        head.add(light);
+    }
+    return g;
 }
