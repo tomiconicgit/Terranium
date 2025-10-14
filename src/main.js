@@ -5,13 +5,14 @@ import { GamepadFPV } from './controls/GamepadFPV.js';
 import { Hotbar } from './ui/Hotbar.js';
 import { Builder } from './tools/Builder.js';
 import { SettingsPanel } from './ui/SettingsPanel.js';
-import { MATERIALS } from './assets/Catalog.js';
 
 const mount    = document.getElementById('app');
 const hotbarEl = document.getElementById('hotbar');
 const overlay  = document.getElementById('errorOverlay');
 const settingsBtnEl = document.getElementById('settingsBtn');
 const settingsPanelEl = document.getElementById('settingsPanel');
+const startScreenEl = document.getElementById('startScreen');
+const startBtnEl = document.getElementById('startBtn');
 
 function die(msg, err){
   overlay.style.display = 'block';
@@ -30,7 +31,7 @@ try {
   renderer.setSize(window.innerWidth, window.innerHeight);
 
   renderer.shadowMap.enabled = true;
-  renderer.shadowMap.type = THREE.PCFSoftShadowMap; // Softer shadows, less prone to artifacts
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
   mount.appendChild(renderer.domElement);
 
@@ -40,10 +41,6 @@ try {
   fpv = new GamepadFPV(camera);
   fpv.position.set(0, 3, 10);
   scene.add(fpv);
-
-  // ✨ NEW: Connect the scene's dynamic reflection map to the material library
-  MATERIALS.reflective.envMap = scene.dynamicEnvMap;
-
 
 } catch (e) {
   die('Renderer/scene init', e);
@@ -66,10 +63,16 @@ window.addEventListener('resize', () => {
   camera.aspect = w / h;
   camera.updateProjectionMatrix();
   renderer.setSize(w, h);
+  // Re-render a static frame on resize if the game hasn't started
+  if (!gameStarted) {
+    renderer.render(scene, camera);
+  }
 });
 
 /* ---------- Loop ---------- */
 const clock = new THREE.Clock();
+let gameStarted = false;
+
 function animate(){
   requestAnimationFrame(animate);
   const dt = Math.min(0.05, clock.getDelta());
@@ -78,10 +81,16 @@ function animate(){
   builder.update(dt);
 
   if (typeof scene.updateShadows === 'function') scene.updateShadows(camera);
-  
-  // ✨ NEW: Update the real-time reflection before rendering the main scene
   if (typeof scene.updateReflections === 'function') scene.updateReflections(renderer);
 
   renderer.render(scene, camera);
 }
-animate();
+
+// Render one static frame initially to show the blurred world
+renderer.render(scene, camera);
+
+startBtnEl.addEventListener('click', () => {
+  gameStarted = true;
+  startScreenEl.classList.add('hidden');
+  animate();
+}, { once: true });
