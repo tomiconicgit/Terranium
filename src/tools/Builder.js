@@ -34,7 +34,7 @@ export class Builder {
 
     this.pitHighlight = new THREE.Mesh(
       new THREE.PlaneGeometry(this.tile, this.tile),
-      new THREE.MeshBasicMaterial({ color: 0xffaa33, transparent: true, opacity: 0.45, depthWrite: false, side: THREE.DoubleSide })
+      new THREE.MeshBasicMaterial({ color: 0xffaa33, transparent: true, opacity: 0.45, side: THREE.DoubleSide, depthWrite: false })
     );
     this.pitHighlight.rotation.x = -Math.PI/2;
     this.pitHighlight.visible = false;
@@ -90,11 +90,14 @@ export class Builder {
   handlePitDigger(hit, placePressed) {
     this.preview.visible = false;
     if (hit.object === this.terrain) {
-        this.pitHighlight.position.copy(hit.point).y += 0.02;
+        // Snap highlight to grid
+        const snapTile = (v) => Math.round(v / this.tile) * this.tile;
+        const snappedPos = new THREE.Vector3(snapTile(hit.point.x), hit.point.y, snapTile(hit.point.z));
+        this.pitHighlight.position.copy(snappedPos).y += 0.02;
         this.pitHighlight.visible = true;
         if (placePressed) {
-            // **FIX**: Create a perfect square pit with depth = tile size
-            this.scene.digPit(hit.point, this.tile, this.tile);
+            // **FIX**: Call digPit with the snapped position, size, and depth
+            this.scene.digPit(snappedPos, this.tile, this.tile);
         }
     } else {
         this.pitHighlight.visible = false;
@@ -107,7 +110,7 @@ export class Builder {
     const hitRoot = findPartRoot(hit.object, this.placedObjects);
     const snapTile = (v) => Math.round(v / this.tile) * this.tile;
 
-    // **FIX**: Allow floors to snap on top of walls and trusses
+    // **FIX**: Add logic to snap floors on top of walls and trusses
     if (def.baseType === 'floor' && hitRoot && hitRoot.userData.part?.baseType === 'wall') {
         const wallDef = hitRoot.userData.part;
         pos.copy(hitRoot.position);
@@ -128,7 +131,7 @@ export class Builder {
     // Default floor snapping
     if (hit.object === this.terrain || (hitRoot && hitRoot.userData.part?.baseType === 'floor')) {
         const y = (hitRoot ? hitRoot.position.y + hitRoot.userData.part.size.y / 2 : 0);
-        pos.set(snapTile(hit.point.x), y + def.size.y/2, snapTile(hit.point.z));
+        pos.set(snapTile(hit.point.x), y + def.size.y/2 + Z_FIGHT_OFFSET, snapTile(hit.point.z));
         return { pos, rot };
     }
     return null;
@@ -154,14 +157,10 @@ export class Builder {
         
         const center = new THREE.Vector3(snapTile(hit.point.x), 0, snapTile(hit.point.z));
         
-        const pos = center.clone();
+        pos.copy(center);
         pos.y = basePos.y + baseSize.y/2 + def.size.y/2;
-
-        const alignedRot = currentRot.clone();
-        const yRot = Math.round(alignedRot.y / (Math.PI/2)) * (Math.PI/2);
-        alignedRot.y = yRot;
         
-        return { pos, rot: alignedRot };
+        return { pos, rot: currentRot };
     }
     return null;
   }
@@ -172,11 +171,11 @@ export class Builder {
       const rot = new THREE.Euler(0, 0, 0, 'YXZ');
 
       if (hitRoot && hitRoot.userData.part?.baseType === 'pipe') {
-          // **FIX**: Correctly get world positions and use them (epA/epB, not wA/wB)
           const epA = hitRoot.getObjectByName('endpointA')?.getWorldPosition(new THREE.Vector3());
           const epB = hitRoot.getObjectByName('endpointB')?.getWorldPosition(new THREE.Vector3());
           if (!epA || !epB) return null;
 
+          // **FIX**: Corrected ReferenceError by using epA and epB instead of wA/wB
           const targetPos = hit.point.distanceTo(epA) < hit.point.distanceTo(epB) ? epA : epB;
           const otherPos = targetPos === epA ? epB : epA;
           const dir = targetPos.clone().sub(otherPos).normalize();
