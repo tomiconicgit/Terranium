@@ -7,7 +7,7 @@ export function makeCatalog() {
 
   return [
     // Tools
-    { id:"tool_pit_digger", name:"Pit Digger", category:"Tools", baseType:"tool", size:{x:tile,y:tile,z:tile}, preview:"#ff6b6b" },
+    { id:"tool_pit_digger", name:"Pit Digger", category:"Tools", baseType:"tool", size:{x:tile,y:tile,z:tile}, preview:"#ff9a3b" },
 
     // Floors
     { id:"floor_concrete_01", name:"Concrete Slab", category:"Floors", baseType:"floor", subType:"concrete_slab", size:{x:tile, y:0.3, z:tile}, preview:"#9aa2ab" },
@@ -21,7 +21,7 @@ export function makeCatalog() {
     // Columns / Truss / Railings
     { id:"column_round_01", name:"Steel Column (1×4)", category:"Beams & Columns", baseType:"wall", subType:"column_round_flatcaps", size:{x:1,y:4,z:1}, preview:"#a7b3c0" },
     { id:"truss_frame_01",  name:"Truss Frame",  category:"Beams & Columns", baseType:"wall", subType:"truss", size:{x:tile,y:4,z:0.5}, preview:"#a7b3c0" },
-    { id:"railing_guard_01", name:"Guard Railing", category:"Ramps & Railings", baseType:"railing", subType:"guard", size:{x:tile,y:1.1,z:0.22}, preview:"#b1bdca" },
+    { id:"railing_guard_01", name:"Guard Railing", category:"Ramps & Railings", baseType:"railing", subType:"guard", size:{x:tile,y:1.1,z:0.15}, preview:"#b1bdca" },
 
     // Pipes
     { id:"pipe_elbow_01", name:"Pipe • Elbow", category:"Pipes", baseType:"pipe", subType:"elbow", size:{x:0.6,y:0.6,z:2}, preview:"#8f9aa5" },
@@ -95,28 +95,20 @@ function buildWallLike(def, M) {
   }
 
   if (def.subType === 'column_round_flatcaps') {
-    // **FIX**: Composite shape guarantees flat ends for stacking, with beveled sides.
-    const r = Math.min(0.18, w * 0.35); // Bevel radius
+    const r = Math.min(0.18, w * 0.35);
     const coreW = w - 2 * r;
     const coreD = d - 2 * r;
     const coreMat = M('#aeb8c3', { rough: 0.4, metal: 0.75 });
-
-    // Main shaft (guarantees flat top/bottom)
     const core = new THREE.Mesh(new THREE.BoxGeometry(coreW, h, coreD), coreMat);
     g.add(core);
-
-    // Rounded sides
     const sideGeom = new THREE.CylinderGeometry(r, r, h, 16, 1, false);
     const c1 = new THREE.Mesh(sideGeom, coreMat); c1.position.x = coreW / 2;
     const c2 = c1.clone(); c2.position.x = -coreW / 2;
     const c3 = new THREE.Mesh(sideGeom, coreMat); c3.position.z = coreD / 2; c3.rotation.y = Math.PI / 2;
     const c4 = c3.clone(); c4.position.z = -coreD / 2;
-    
-    // Union-like operation by capping the open box
     const capGeom = new THREE.PlaneGeometry(coreW, coreD);
     const cap1 = new THREE.Mesh(capGeom, coreMat); cap1.rotation.x = Math.PI/2; cap1.position.y = h/2;
     const cap2 = cap1.clone(); cap2.rotation.x = -Math.PI/2; cap2.position.y = -h/2;
-    
     g.add(c1, c2, c3, c4, cap1, cap2);
     return g;
   }
@@ -130,8 +122,8 @@ function buildWallLike(def, M) {
       new THREE.Mesh(new THREE.BoxGeometry(cap, h, d), frameMat),
       new THREE.Mesh(new THREE.BoxGeometry(cap, h, d), frameMat),
     ];
-    bars[0].position.y = -h/2; bars[1].position.y =  h/2;
-    bars[2].position.x = -w/2; bars[3].position.x =  w/2;
+    bars[0].position.y = -h/2 + cap/2; bars[1].position.y =  h/2 - cap/2;
+    bars[2].position.x = -w/2 + cap/2; bars[3].position.x =  w/2 - cap/2;
     bars.forEach(b => g.add(b));
     const diagMat = M('#b7c2ce', { rough: 0.45, metal: 0.55 });
     const diag1 = new THREE.Mesh(new THREE.BoxGeometry(cap, Math.hypot(w, h), d*0.6), diagMat);
@@ -146,18 +138,31 @@ function buildWallLike(def, M) {
 
 /* ---------- Railings ---------- */
 function buildRailing(def, M) {
-  const g = new THREE.Group();
-  const { x:w, y:h } = def.size;
-  if (def.subType === 'guard') {
+    const g = new THREE.Group();
+    const { x: w, y: h, z: d } = def.size;
+    // **FIX**: Overhauled railing asset for a sleeker, more modern look
+    const postMat = M('#aab5c3', { rough: 0.45, metal: 0.65 });
     const railMat = M('#ced7e2', { rough: 0.35, metal: 0.7 });
-    for (let i=0;i<3;i++){
-      const post = new THREE.Mesh(new THREE.CylinderGeometry(0.06,0.06,h,12), M('#b1bdca', { rough: 0.4, metal: 0.6 }));
-      post.position.set(-w/2 + i*(w/2), 0, 0); g.add(post);
+    const segments = 3;
+    const segW = w / segments;
+
+    // Posts
+    for (let i = 0; i <= segments; i++) {
+        const post = new THREE.Mesh(new RoundedBoxGeometry(d, h, d, 2, 0.03), postMat);
+        post.position.x = -w / 2 + i * segW;
+        post.position.y = h/2-h;
+        g.add(post);
     }
-    const top = new THREE.Mesh(new THREE.CylinderGeometry(0.07,0.07,w,12), railMat);
-    top.rotation.z = Math.PI/2; top.position.y = h/2 - 0.1; g.add(top);
-  }
-  return g;
+
+    // Rails (top and middle)
+    const topRail = new THREE.Mesh(new RoundedBoxGeometry(w + d, 0.1, d, 2, 0.03), railMat);
+    topRail.position.y = h/2 - 0.1;
+    const midRail = topRail.clone();
+    midRail.scale.set(1, 0.8, 0.8);
+    midRail.position.y = 0;
+    g.add(topRail, midRail);
+
+    return g;
 }
 
 /* ---------- Pipes ---------- */
@@ -184,8 +189,9 @@ function buildPipe(def, M) {
     const body = new THREE.Mesh(new THREE.CylinderGeometry(rad, rad, len, 20), pipeMat);
     body.rotation.x = Math.PI/2;
     g.add(body);
+    // **FIX**: Correctly named and positioned endpoints
     const a = new THREE.Object3D(); a.name = 'endpointA'; a.position.set(0, 0, -len/2);
-    const b = new THREE.Object3D(); b.name = 'endpointB'; a.name = 'endpointA'; a.position.set(0, 0, -len/2);
+    const b = new THREE.Object3D(); b.name = 'endpointB'; b.position.set(0, 0, len/2);
     g.add(a,b);
     return g;
   }
@@ -199,9 +205,8 @@ function buildLight(def, M) {
     const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.24, poleH, 18), M('#8a95a2', { rough: 0.6, metal: 0.5 }));
     g.add(pole);
 
-    // **FIX**: Head assembly now sits flush on the pole
     const head = new THREE.Group();
-    head.position.y = poleH / 2 - 0.2; // Lowered to connect with pole
+    head.position.y = poleH / 2 - 0.2;
     g.add(head);
 
     const frameMat = M('#65727d', { rough: 0.5, metal: 0.4 });
@@ -226,9 +231,12 @@ function buildLight(def, M) {
         const lens = new THREE.Mesh(new THREE.PlaneGeometry(0.65, 0.45), lensMat);
         lens.position.z = 0.51;
         light.add(body, lens);
+        
         light.position.copy(pos);
-        // **FIX**: More pronounced angle
-        light.lookAt(0, up ? 50 : -50, 0);
+        // **FIX**: Point lights at a 45-degree angle up or down
+        light.lookAt(0, light.position.y, 0); // Point towards pole
+        light.rotation.x += (up ? -1 : 1) * (Math.PI / 4); // Tilt 45 degrees
+        
         head.add(light);
     }
     return g;
