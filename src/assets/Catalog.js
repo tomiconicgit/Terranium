@@ -15,12 +15,44 @@ export function makeCatalog() {
 
 /* ---------- Mesh builder ---------- */
 export function buildPart(def, options = {}, dynamicEnvMap) {
-  const { tessellation = 1 } = options;
+  const { tessellation = 1, noise = 0 } = options;
   
   const material = new THREE.MeshStandardMaterial({
     envMap: dynamicEnvMap,
     side: THREE.DoubleSide
   });
+
+  // ✅ NEW: Add procedural noise via shader injection
+  if (noise > 0) {
+    material.onBeforeCompile = shader => {
+      shader.uniforms.u_noise = { value: noise };
+      shader.vertexShader = 'varying vec3 vPosition;\n' + shader.vertexShader;
+      shader.vertexShader = shader.vertexShader.replace(
+        '#include <begin_vertex>',
+        '#include <begin_vertex>\nvPosition = position;'
+      );
+      shader.fragmentShader = 'uniform float u_noise;\nvarying vec3 vPosition;\n' + shader.fragmentShader;
+      shader.fragmentShader = shader.fragmentShader.replace(
+        'vec4 diffuseColor = vec4( diffuse, opacity );',
+        `
+        vec4 diffuseColor = vec4( diffuse, opacity );
+        
+        // Simple hash-based random function
+        float rand(vec2 co){
+          return fract(sin(dot(co.xy ,vec2(12.9898,78.233))) * 43758.5453);
+        }
+
+        // Use world position to generate noise
+        float noise = rand(vPosition.xz * 20.0) + rand(vPosition.xy * 20.0);
+
+        // Apply noise by darkening the diffuse color
+        diffuseColor.rgb *= (1.0 - u_noise * noise * 0.5);
+        `
+      );
+      // Make uniforms available for later updates if needed
+      material.userData.shader = shader;
+    };
+  }
 
   let partObject;
   if (def.id === "guard_rail") {
