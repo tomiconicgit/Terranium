@@ -23,7 +23,6 @@ export class Scene extends THREE.Scene {
     const horizonColor = new THREE.Color(0xada8d1); // Purplish haze
     this.background = horizonColor;
 
-    // ✨ Add procedural sky dome
     this.add(createSky(horizonColor));
 
     /* ---------- Lights ---------- */
@@ -36,7 +35,8 @@ export class Scene extends THREE.Scene {
     sun.shadow.mapSize.set(2048, 2048);
     sun.shadow.camera.near = 10;
     sun.shadow.camera.far  = 400;
-    sun.shadow.bias = -0.0001;
+    // ✨ FIX: Increased negative bias to prevent shadow acne (separation lines)
+    sun.shadow.bias = -0.0005;
     this.sun = sun;
     this.add(sun);
     this.add(sun.target);
@@ -45,6 +45,7 @@ export class Scene extends THREE.Scene {
     const size = 100;
     const segments = 128;
     const flatRadius = 35; // 70x70 area
+    const baseHeight = -0.5; // Set the flat area just below y=0
     const geo = new THREE.PlaneGeometry(size * 2, size * 2, segments, segments);
     const pos = geo.attributes.position;
 
@@ -53,18 +54,19 @@ export class Scene extends THREE.Scene {
         const y = pos.getY(i);
         const r = Math.hypot(x, y);
 
-        let height = 0;
+        // ✨ FIX: Start with base height, then add mountains on top
+        let height = baseHeight;
         if (r > flatRadius) {
             const mountainFactor = smoothstep(flatRadius, size * 0.6, r);
-            const baseHeight = fbm(x * 0.03, y * 0.03, 5) * 20.0;
-            const detailHeight = fbm(x * 0.1, y * 0.1, 4) * 4.0;
-            height = (baseHeight + detailHeight) * mountainFactor;
+            const baseMountain = fbm(x * 0.03, y * 0.03, 5) * 25.0; // Taller mountains
+            const detailMountain = fbm(x * 0.1, y * 0.1, 4) * 5.0;
+            // The height is added to the base height
+            height += (baseMountain + detailMountain) * mountainFactor;
         }
         pos.setZ(i, height);
     }
     geo.computeVertexNormals();
     
-    // ✨ Snow Material
     const mat = new THREE.MeshStandardMaterial({
         color: 0xe5e8f0,
         roughness: 0.7,
@@ -101,22 +103,19 @@ export class Scene extends THREE.Scene {
   }
 
   getTerrainHeightAt(wx, wz) {
-    // For now, simplified to return 0 for the flat area.
-    // A more complex implementation could sample the geometry.
-    if (Math.hypot(wx, wz) <= 35) return 0;
-    return 0; // Default to 0 outside the flat area for simplicity
+    if (Math.hypot(wx, wz) <= 35) return -0.5;
+    return -0.5; // Default to base height
   }
 
-  pressSand() { /* Disabled for snow terrain */ }
+  pressSand() { /* Disabled */ }
 }
 
-// ✨ Procedural Sky Shader
 function createSky(horizonColor) {
     const geom = new THREE.SphereGeometry(1000, 32, 16);
     const mat = new THREE.ShaderMaterial({
         side: THREE.BackSide,
         uniforms: {
-            topColor:    { value: new THREE.Color(0xd1e1ff) }, // Light blue zenith
+            topColor:    { value: new THREE.Color(0xd1e1ff) },
             bottomColor: { value: horizonColor },
         },
         vertexShader: `
@@ -133,8 +132,8 @@ function createSky(horizonColor) {
             uniform vec3 bottomColor;
             void main() {
                 float h = normalize(vWorld).y * 0.5 + 0.5;
-                // Use pow for a more gradual blend at the horizon
-                vec3 col = mix(bottomColor, topColor, pow(h, 1.8));
+                // ✨ FIX: Increased power to lower the horizon and show more sky
+                vec3 col = mix(bottomColor, topColor, pow(h, 2.5));
                 gl_FragColor = vec4(col, 1.0);
             }
         `
