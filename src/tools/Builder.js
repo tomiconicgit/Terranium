@@ -1,6 +1,6 @@
 // src/tools/Builder.js — Advanced snapping and global editing
 import * as THREE from 'three';
-import { makeCatalog, buildPart } from '../assets/Catalog.js';
+import { makeCatalog, buildPart } from '../assets/Catalog.js'; // ✨ FIX: Removed MATERIALS from import
 
 function findPartRoot(object, placedObjectsGroup) {
     let current = object;
