@@ -90,13 +90,11 @@ export class Builder {
   handlePitDigger(hit, placePressed) {
     this.preview.visible = false;
     if (hit.object === this.terrain) {
-        // Snap highlight to grid
         const snapTile = (v) => Math.round(v / this.tile) * this.tile;
         const snappedPos = new THREE.Vector3(snapTile(hit.point.x), hit.point.y, snapTile(hit.point.z));
         this.pitHighlight.position.copy(snappedPos).y += 0.02;
         this.pitHighlight.visible = true;
         if (placePressed) {
-            // **FIX**: Call digPit with the snapped position, size, and depth
             this.scene.digPit(snappedPos, this.tile, this.tile);
         }
     } else {
@@ -110,7 +108,6 @@ export class Builder {
     const hitRoot = findPartRoot(hit.object, this.placedObjects);
     const snapTile = (v) => Math.round(v / this.tile) * this.tile;
 
-    // **FIX**: Add logic to snap floors on top of walls and trusses
     if (def.baseType === 'floor' && hitRoot && hitRoot.userData.part?.baseType === 'wall') {
         const wallDef = hitRoot.userData.part;
         pos.copy(hitRoot.position);
@@ -128,7 +125,6 @@ export class Builder {
       if (edgeSnap) return edgeSnap;
     }
     
-    // Default floor snapping
     if (hit.object === this.terrain || (hitRoot && hitRoot.userData.part?.baseType === 'floor')) {
         const y = (hitRoot ? hitRoot.position.y + hitRoot.userData.part.size.y / 2 : 0);
         pos.set(snapTile(hit.point.x), y + def.size.y/2 + Z_FIGHT_OFFSET, snapTile(hit.point.z));
@@ -141,8 +137,10 @@ export class Builder {
     if (!hitRoot) return null;
     const baseDef = hitRoot.userData.part;
     if (!baseDef) return null;
+    
+    // **FIX**: Defined snapTile function locally to prevent ReferenceError.
+    const snapTile = (v) => Math.round(v / this.tile) * this.tile;
 
-    // Stack on top of another wall-like object (wall, truss)
     if (baseDef.baseType === 'wall') {
         return {
             pos: hitRoot.position.clone().setY(hitRoot.position.y + baseDef.size.y/2 + def.size.y/2 + Z_FIGHT_OFFSET),
@@ -150,16 +148,11 @@ export class Builder {
         };
     }
 
-    // Snap to the edge of a floor
     if (baseDef.baseType === 'floor') {
         const basePos = hitRoot.position;
         const baseSize = baseDef.size;
-        
-        const center = new THREE.Vector3(snapTile(hit.point.x), 0, snapTile(hit.point.z));
-        
-        pos.copy(center);
+        const pos = new THREE.Vector3(snapTile(hit.point.x), 0, snapTile(hit.point.z));
         pos.y = basePos.y + baseSize.y/2 + def.size.y/2;
-        
         return { pos, rot: currentRot };
     }
     return null;
@@ -175,7 +168,6 @@ export class Builder {
           const epB = hitRoot.getObjectByName('endpointB')?.getWorldPosition(new THREE.Vector3());
           if (!epA || !epB) return null;
 
-          // **FIX**: Corrected ReferenceError by using epA and epB instead of wA/wB
           const targetPos = hit.point.distanceTo(epA) < hit.point.distanceTo(epB) ? epA : epB;
           const otherPos = targetPos === epA ? epB : epA;
           const dir = targetPos.clone().sub(otherPos).normalize();
