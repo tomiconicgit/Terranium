@@ -12,10 +12,11 @@ function findPartRoot(object, placedObjectsGroup) {
 }
 
 export class Builder {
-  constructor(scene, camera, hotbar){
+  constructor(scene, camera, hotbar, settingsPanel){
     this.scene = scene;
     this.camera = camera;
     this.hotbar = hotbar;
+    this.settingsPanel = settingsPanel;
 
     this.terrain = scene.getObjectByName('terrainPlane');
     this.placedObjects = new THREE.Group();
@@ -54,7 +55,11 @@ export class Builder {
     if (!sugg) { this.preview.visible = false; this._hover = null; return; }
 
     const pos = sugg.pos;
-    const key = `${def.id}|${pos.x.toFixed(1)},${pos.y.toFixed(1)},${pos.z.toFixed(1)}`;
+    const currentSettings = this.settingsPanel.getSettings();
+    const rotationY = currentSettings.rotation;
+
+    // The key now includes rotation to force a preview update when the slider changes
+    const key = `${def.id}|${pos.x.toFixed(1)},${pos.y.toFixed(1)},${pos.z.toFixed(1)}|${rotationY.toFixed(2)}`;
 
     if (key !== this.prevKey){
       this.preview.clear();
@@ -65,8 +70,9 @@ export class Builder {
     }
     
     this.preview.position.copy(pos);
+    this.preview.rotation.y = rotationY; // Apply rotation to the preview
     this.preview.visible = true;
-    this._hover = { pos, def, hit };
+    this._hover = { pos, def, rotationY }; // Store rotation for placement
 
     if (placePressed) this.placeOne();
     if (removePressed) this.removeOne();
@@ -131,9 +137,24 @@ export class Builder {
 
   placeOne(){
     if (!this._hover) return;
-    const { pos, def } = this._hover;
+    const { pos, def, rotationY } = this._hover;
     const part = buildPart(def);
+    
+    const settings = this.settingsPanel.getSettings();
+
+    // Apply material settings from the panel to the new part
+    part.traverse(child => {
+      if (child.isMesh) {
+        // Clone the material to ensure we don't modify the original
+        child.material = child.material.clone();
+        child.material.color.set(settings.color);
+        child.material.roughness = settings.roughness;
+        child.material.metalness = settings.metalness;
+      }
+    });
+
     part.position.copy(pos);
+    part.rotation.y = rotationY; // Apply rotation
     this.placedObjects.add(part);
   }
 
