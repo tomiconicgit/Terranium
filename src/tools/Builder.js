@@ -1,6 +1,6 @@
 // src/tools/Builder.js — Advanced snapping and global editing
 import * as THREE from 'three';
-import { makeCatalog, buildPart, MATERIALS } from '../assets/Catalog.js';
+import { makeCatalog, buildPart } from '../assets/Catalog.js';
 
 function findPartRoot(object, placedObjectsGroup) {
     let current = object;
@@ -16,6 +16,7 @@ export class Builder {
     this.camera = camera;
     this.hotbar = hotbar;
     this.settingsPanel = settingsPanel;
+    this.dynamicEnvMap = scene.dynamicEnvMap;
 
     this.terrain = scene.getObjectByName('terrainPlane');
     this.placedObjects = new THREE.Group();
@@ -61,13 +62,13 @@ export class Builder {
 
     if (key !== this.prevKey){
       this.preview.clear();
-      const ghost = buildPart(def, settings);
+      const ghost = buildPart(def, settings, this.dynamicEnvMap);
       ghost.traverse(o=>{
         if(o.isMesh){
-          o.material = o.material.clone();
-          o.material.transparent = true; 
-          o.material.opacity = 0.6; 
-          o.material.depthWrite = false;
+            this.customizeMaterial(o.material, settings);
+            o.material.transparent = true; 
+            o.material.opacity = 0.6; 
+            o.material.depthWrite = false;
         }
       });
       this.preview.add(ghost);
@@ -93,51 +94,27 @@ export class Builder {
     );
   
     objectsToUpdate.forEach(child => {
-        const needsRebuild = child.userData.settings.tessellation !== settings.tessellation ||
-                             child.userData.settings.shading !== settings.shading;
-
-        if (needsRebuild) {
-            const position = child.position.clone();
-            const rotation = child.rotation.clone();
-            const oldSettings = { ...child.userData.settings };
-            
-            this.placedObjects.remove(child);
-            child.traverse(obj => {
-                if (obj.geometry) obj.geometry.dispose();
-                if (obj.material) obj.material.dispose();
-            });
-
-            const newPart = buildPart(child.userData.part, settings);
-            newPart.position.copy(position);
-            newPart.rotation.copy(rotation);
-            newPart.userData.settings = { ...oldSettings, ...settings };
-            this.placedObjects.add(newPart);
-
-            newPart.traverse(obj => {
-                if (obj.isMesh) {
-                    obj.material = obj.material.clone();
-                    this.customizeMaterial(obj.material, newPart.userData.settings);
-                }
-            });
-
-        } else {
-            child.traverse(obj => {
-                if (obj.isMesh && obj.material) {
-                    this.customizeMaterial(obj.material, settings);
-                }
-            });
-            Object.assign(child.userData.settings, settings);
+      child.traverse(obj => {
+        if (obj.isMesh && obj.material) {
+          this.customizeMaterial(obj.material, settings);
         }
+      });
+      Object.assign(child.userData.settings, settings);
     });
   
     this.prevKey = '';
   }
   
   customizeMaterial(material, settings) {
-    if ('color' in material) material.color.set(settings.color);
-    if ('roughness' in material) material.roughness = settings.roughness;
-    if ('metalness' in material) material.metalness = settings.metalness;
-    if ('envMapIntensity' in material) material.envMapIntensity = settings.reflectivity;
+    material.color.set(settings.color);
+    material.roughness = settings.roughness;
+    material.metalness = settings.metalness;
+    material.envMapIntensity = settings.reflectivity;
+
+    // Update the rust uniform in our custom shader
+    if (material.userData.shader) {
+      material.userData.shader.uniforms.u_rust.value = settings.rust;
+    }
   }
   
   suggestPlacement(def, hit) {
@@ -195,11 +172,10 @@ export class Builder {
   placeOne(){
     if (!this._hover) return;
     const { pos, def, settings } = this._hover;
-    const part = buildPart(def, settings);
+    const part = buildPart(def, settings, this.dynamicEnvMap);
     
     part.traverse(child => {
       if (child.isMesh) {
-        child.material = child.material.clone();
         this.customizeMaterial(child.material, settings);
       }
     });
