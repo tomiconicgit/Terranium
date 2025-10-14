@@ -2,17 +2,17 @@
 import * as THREE from "three";
 
 // --- Material Library ---
-// ✨ FIX: 'reflective' material is now prepared to receive a dynamic envMap.
+// ✨ REVERTED: The static material library is back.
 export const MATERIALS = {
   'wireframe': new THREE.MeshBasicMaterial({ wireframe: true, color: 0x4dd2ff }),
   'flat': new THREE.MeshPhongMaterial({ color: 0xc0c5c9, specular: 0x000000, flatShading: true, side: THREE.DoubleSide }),
   'smooth': new THREE.MeshLambertMaterial({ color: 0xc0c5c9, side: THREE.DoubleSide }),
   'glossy': new THREE.MeshStandardMaterial({ color: 0xc0c5c9, metalness: 0.9, roughness: 0.45, side: THREE.DoubleSide }),
   'reflective': new THREE.MeshStandardMaterial({
-    color: 0xffffff, // White color reflects the environment most accurately
-    metalness: 1.0,  // Full metalness for mirror effect
-    roughness: 0.0,  // Zero roughness for sharp reflections
-    envMap: null,    // This will be replaced by the dynamic reflection probe
+    color: 0xffffff,
+    metalness: 1.0,
+    roughness: 0.0,
+    envMap: null, // This will be replaced by the dynamic reflection probe
     side: THREE.DoubleSide
   }),
 };
@@ -29,6 +29,7 @@ export function makeCatalog() {
 
 /* ---------- Mesh builder ---------- */
 export function buildPart(def, options = {}) {
+  // Use the 'shading' option to pick a base material from the library
   const { shading = 'glossy', tessellation = 1 } = options;
   let partObject;
   const material = MATERIALS[shading] || MATERIALS['glossy'];
