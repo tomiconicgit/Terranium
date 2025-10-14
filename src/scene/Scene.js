@@ -26,11 +26,11 @@ export class Scene extends THREE.Scene {
     this.add(createSky(horizonColor));
 
     /* ---------- Lights ---------- */
-    // ✨ FIX: Changed ambient and hemisphere lights to cooler colors for an arctic feel
-    this.add(new THREE.AmbientLight(0xccdeff, 0.25));
-    this.add(new THREE.HemisphereLight(0xe0e8ff, 0x95abcc, 0.5));
+    // ✨ FIX: Increased intensity for brighter ambient lighting
+    this.add(new THREE.AmbientLight(0xccdeff, 0.4));
+    this.add(new THREE.HemisphereLight(0xe0e8ff, 0xb0c0d9, 0.6));
 
-    const sun = new THREE.DirectionalLight(0xffffff, 1.2); // Pure white sun
+    const sun = new THREE.DirectionalLight(0xffffff, 1.2);
     sun.position.set(80, 100, -70);
     sun.castShadow = true;
     sun.shadow.mapSize.set(2048, 2048);
@@ -40,6 +40,11 @@ export class Scene extends THREE.Scene {
     this.sun = sun;
     this.add(sun);
     this.add(sun.target);
+
+    // ✨ NEW: Add a fill light to illuminate shadowed areas and make metal pop
+    const fillLight = new THREE.DirectionalLight(0xffffff, 0.75);
+    fillLight.position.set(-100, 60, 100);
+    this.add(fillLight);
 
     /* ---------- Terrain ---------- */
     const size = 100;
