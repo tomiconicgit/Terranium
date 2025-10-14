@@ -4,10 +4,13 @@ import { Scene } from './scene/Scene.js';
 import { GamepadFPV } from './controls/GamepadFPV.js';
 import { Hotbar } from './ui/Hotbar.js';
 import { Builder } from './tools/Builder.js';
+import { SettingsPanel } from './ui/SettingsPanel.js';
 
 const mount    = document.getElementById('app');
 const hotbarEl = document.getElementById('hotbar');
 const overlay  = document.getElementById('errorOverlay');
+const settingsBtnEl = document.getElementById('settingsBtn');
+const settingsPanelEl = document.getElementById('settingsPanel');
 
 function die(msg, err){
   overlay.style.display = 'block';
@@ -42,12 +45,13 @@ try {
 }
 
 /* ---------- UI ---------- */
-let hotbar, builder;
+let hotbar, builder, settingsPanel;
 try {
   hotbar = new Hotbar(hotbarEl);
-  builder = new Builder(scene, camera, hotbar);
+  settingsPanel = new SettingsPanel(settingsBtnEl, settingsPanelEl);
+  builder = new Builder(scene, camera, hotbar, settingsPanel);
 } catch (e) {
-  die('UI init (Hotbar/Builder)', e);
+  die('UI init (Hotbar/Builder/Settings)', e);
 }
 
 /* ---------- Resize ---------- */
