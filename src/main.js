@@ -1,4 +1,4 @@
-// src/main.js — ACES Filmic tone mapping for realism
+// src/main.js â ACES Filmic tone mapping for realism
 import * as THREE from 'three';
 import { Scene } from './scene/Scene.js';
 import { GamepadFPV } from './controls/GamepadFPV.js';
@@ -26,8 +26,8 @@ try {
   renderer.setSize(window.innerWidth, window.innerHeight);
 
   renderer.shadowMap.enabled = true;
-  // SHADOW UPGRADE: Switch to VSM for smoother shadows
-  renderer.shadowMap.type = THREE.VSMShadowMap;
+  // Revert to default shadow map for stability during debugging
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
   mount.appendChild(renderer.domElement);
 
@@ -68,8 +68,8 @@ function animate(){
   fpv.update(dt);
   builder.update(dt);
 
-  // SHADOW UPGRADE: Update dynamic shadow camera
-  if (typeof scene.updateShadows === 'function') scene.updateShadows(camera);
+  // SHADOW UPGRADE: Temporarily disabled for debugging
+  // if (typeof scene.updateShadows === 'function') scene.updateShadows(camera);
   
   renderer.render(scene, camera);
 }
