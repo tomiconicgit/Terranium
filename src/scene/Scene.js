@@ -1,11 +1,10 @@
-// Scene.js — flat 70×70 concrete pad (no joint lines) + clean sky & shadows
+// Scene.js — flat 70×70 concrete pad, snap grid, hole digging API
 import * as THREE from 'three';
 
 export class Scene extends THREE.Scene {
   constructor() {
     super();
 
-    // --- Sky / ambient ---
     const skyColor = 0xcfe4ff;
     const groundColor = 0xa0b6d4;
     this.background = new THREE.Color(skyColor);
@@ -32,19 +31,16 @@ export class Scene extends THREE.Scene {
 
     this.add(createSky(hemi));
 
-    // --- Dynamic env map for subtle reflections on metals ---
     const cubeRT = new THREE.WebGLCubeRenderTarget(256, { type: THREE.HalfFloatType });
     this.cubeCamera = new THREE.CubeCamera(1, 1000, cubeRT);
     this.dynamicEnvMap = cubeRT.texture;
 
-    // --- 70×70 flat concrete pad at y=0 (no dark seam lines) ---
+    // --- 70×70 flat concrete pad at y=0
     const PAD_SIZE = 70;
-    const PAD_SEGMENTS = 4; // coarse; we don’t need dense tessellation now
+    const PAD_SEGMENTS = 64; // enough vertices so holes look decent
     const geo = new THREE.PlaneGeometry(PAD_SIZE, PAD_SIZE, PAD_SEGMENTS, PAD_SEGMENTS);
     const mat = new THREE.MeshStandardMaterial({
-      color: 0x9aa2ab,    // concrete
-      roughness: 0.88,
-      metalness: 0.0
+      color: 0x9aa2ab, roughness: 0.88, metalness: 0.0
     });
 
     const pad = new THREE.Mesh(geo, mat);
@@ -54,30 +50,34 @@ export class Scene extends THREE.Scene {
     this.terrain = pad;
     this.add(pad);
 
-    // Camera target cache
+    // Grid size (tile) — used by Builder for snapping/highlight
+    this.userData.tile = 4;
+
     this._cameraTarget = new THREE.Vector3();
   }
 
-  // Keep terrain editor API (used by “hole” floors)
-  digPit(position, size, depth = 2.0, radiusScale = 0.5) {
-    const pos = this.terrain.geometry.attributes.position;
-    if (!pos) return; // flat plane with low segments -> we’ll simply lower the mesh locally
-    const pitRadius = Math.max(size.x, size.z) * radiusScale;
+  // Dig a cylindrical-ish pit by lowering vertices inside radius with soft edge.
+  // depth in world units, radius in world units.
+  digPit(center, depth = 32, radius = 2.0) {
+    const g = this.terrain.geometry;
+    const pos = g.attributes.position;
+    if (!pos) return;
 
-    // Coarse lowering by translating the pad mesh under the placed tile center:
-    // since the pad has low segments, we mimic a pit by dropping nearby vertices.
     for (let i = 0; i < pos.count; i++) {
-      const px = pos.getX(i), pz = pos.getZ(i);
-      const dx = px - position.x, dz = pz - position.z;
+      // Plane vertices are in local X (across) and Z (forward) because we rotate the mesh.
+      const vx = pos.getX(i);
+      const vz = pos.getZ(i);
+      const dx = vx - center.x;
+      const dz = vz - center.z;
       const dist = Math.hypot(dx, dz);
-      if (dist < pitRadius) {
+      if (dist < radius) {
+        const t = 1.0 - Math.min(1.0, dist / radius);
         const y = pos.getY(i);
-        const t = 1.0 - Math.min(1.0, dist / pitRadius);
-        pos.setY(i, y - depth * t);
+        pos.setY(i, y - depth * (t * t)); // smooth falloff
       }
     }
     pos.needsUpdate = true;
-    this.terrain.geometry.computeVertexNormals();
+    g.computeVertexNormals();
   }
 
   updateReflections(renderer, camera) {
