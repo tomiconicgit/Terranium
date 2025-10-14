@@ -1,17 +1,13 @@
 // src/assets/Catalog.js
 import * as THREE from "three";
-// ✨ NEW: Import RoundedBoxGeometry for smoother edges
-import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
+// Note: We are no longer using RoundedBoxGeometry
 
-
-// A procedural material for a metallic floor panel
 const matMetalFloor = new THREE.MeshStandardMaterial({
-  // ✨ FIX: Brighter color for a more reflective look
-  color: 0xe0e5e9, 
-  // ✨ FIX: High metalness for a clear metallic sheen
-  metalness: 0.95,
-  // ✨ FIX: Lower roughness for more distinct reflections and shininess
-  roughness: 0.35,
+  // ✨ FIX: Brighter, more metallic base color
+  color: 0xf0f5fa,
+  // ✨ FIX: Adjusted metalness and roughness to react better to enhanced lighting
+  metalness: 0.9,
+  roughness: 0.45,
 });
 
 // Reusing the same material for the metal beam for consistency
@@ -29,24 +25,47 @@ export function makeCatalog() {
 
 /* ---------- Mesh builder ---------- */
 export function buildPart(def) {
-  let geometry;
-  if (def.id === "metal_beam") {
-    // ✨ FIX: Use RoundedBoxGeometry for the beam with a small radius for smooth corners
-    // The last argument is the radius of the corner.
-    geometry = new RoundedBoxGeometry(def.size.x, def.size.y, def.size.z, 2, 0.1); 
-  } else {
-    // Default to BoxGeometry for other parts
-    geometry = new THREE.BoxGeometry(def.size.x, def.size.y, def.size.z);
-  }
+  const group = new THREE.Group();
+  let mesh;
 
-  const mesh = new THREE.Mesh(
-    geometry,
-    def.material()
-  );
+  if (def.id === "metal_beam") {
+    // ✨ FIX: Use ExtrudeGeometry for beams with rounded vertical edges and flat tops/bottoms.
+    const shape = new THREE.Shape();
+    const w = def.size.x, r = 0.1; // Width and corner radius
+    const hw = w / 2; // half-width
+    shape.moveTo( -hw + r, -hw );
+    shape.lineTo(  hw - r, -hw );
+    shape.quadraticCurveTo( hw, -hw, hw, -hw + r );
+    shape.lineTo(  hw,  hw - r );
+    shape.quadraticCurveTo( hw, hw, hw - r, hw );
+    shape.lineTo( -hw + r, hw );
+    shape.quadraticCurveTo( -hw, hw, -hw, hw - r );
+    shape.lineTo( -hw, -hw + r );
+    shape.quadraticCurveTo( -hw, -hw, -hw + r, -hw );
+    
+    const extrudeSettings = { depth: def.size.y, bevelEnabled: false };
+    const geometry = new THREE.ExtrudeGeometry(shape, extrudeSettings);
+    
+    mesh = new THREE.Mesh(geometry, def.material());
+    // The geometry is extruded along Z, so we rotate it to stand up along Y.
+    mesh.rotation.x = -Math.PI / 2;
+    // We also offset it so its base is at the group's origin.
+    mesh.position.z = -def.size.y / 2;
+
+  } else {
+    // Default to BoxGeometry for other parts like the floor
+    const geometry = new THREE.BoxGeometry(def.size.x, def.size.y, def.size.z);
+    mesh = new THREE.Mesh(geometry, def.material());
+  }
+  
   mesh.castShadow = true;
   mesh.receiveShadow = true;
   
   // Add userData for the builder to identify parts
   mesh.userData.part = def;
-  return mesh;
+  
+  group.add(mesh);
+  // We return the group, which the builder will place.
+  // The mesh inside is already transformed correctly.
+  return group;
 }
