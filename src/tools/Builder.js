@@ -75,7 +75,11 @@ export class Builder {
     if (!sugg) { this.preview.visible = false; this._hover = null; return; }
 
     const pos = sugg.pos;
-    const key = `${def.id}|${pos.x.toFixed(1)},${pos.y.toFixed(1)},${pos.z.toFixed(1)}|${JSON.stringify(settings)}`;
+    const rot = sugg.rot ? sugg.rot : new THREE.Euler(settings.rotationX, settings.rotationY, settings.rotationZ, 'YXZ');
+
+    const rotKey = `${rot.x.toFixed(2)},${rot.y.toFixed(2)},${rot.z.toFixed(2)}`;
+    const posKey = `${pos.x.toFixed(1)},${pos.y.toFixed(1)},${pos.z.toFixed(1)}`;
+    const key = `${def.id}|${posKey}|${rotKey}|${JSON.stringify(settings)}`;
 
     if (key !== this.prevKey){
       this.preview.clear();
@@ -92,10 +96,9 @@ export class Builder {
     }
     
     this.preview.position.copy(pos);
-    // ✅ CHANGED: Set all three rotation values using a specific order ('YXZ')
-    this.preview.rotation.set(settings.rotationX, settings.rotationY, settings.rotationZ, 'YXZ');
+    this.preview.rotation.copy(rot);
     this.preview.visible = true;
-    this._hover = { pos, def, settings };
+    this._hover = { pos, rot, def, settings };
 
     if (placePressed) this.placeOne();
   }
@@ -129,6 +132,47 @@ export class Builder {
         const basePart = hitRoot.userData.part;
         const basePos = hitRoot.position.clone();
         const baseSize = basePart.size;
+        const baseRot = hitRoot.rotation;
+
+        // 1. Placing a WALL on the EDGE of a FLOOR
+        if (def.id === "metal_wall" && basePart.id === "metal_floor" && n.y > 0.9) {
+            const localHit = hitRoot.worldToLocal(hit.point.clone());
+            const halfX = baseSize.x / 2;
+            const halfZ = baseSize.z / 2;
+
+            const distances = [
+                { edge: 'px', dist: Math.abs(localHit.x - halfX) },
+                { edge: 'nx', dist: Math.abs(localHit.x + halfX) },
+                { edge: 'pz', dist: Math.abs(localHit.z - halfZ) },
+                { edge: 'nz', dist: Math.abs(localHit.z + halfZ) },
+            ];
+
+            distances.sort((a, b) => a.dist - b.dist);
+            const closestEdge = distances[0].edge;
+
+            pos.copy(basePos);
+            pos.y += baseSize.y / 2 + def.size.y / 2;
+            const rot = new THREE.Euler(0, 0, 0, 'YXZ');
+
+            switch (closestEdge) {
+                case 'px': pos.x += halfX; rot.y = Math.PI / 2; break;
+                case 'nx': pos.x -= halfX; rot.y = Math.PI / 2; break;
+                case 'pz': pos.z += halfZ; rot.y = 0; break;
+                case 'nz': pos.z -= halfZ; rot.y = 0; break;
+            }
+            return { pos, rot };
+        }
+
+        // 2. Placing a FLOOR on TOP of a WALL
+        if (def.id === "metal_floor" && basePart.id === "metal_wall") {
+            const topOfWall = basePos.y + baseSize.y / 2;
+            if (Math.abs(hit.point.y - topOfWall) < 0.5) {
+                pos.copy(basePos);
+                pos.y = topOfWall + def.size.y / 2;
+                const rot = new THREE.Euler(0, baseRot.y, 0, 'YXZ');
+                return { pos, rot };
+            }
+        }
 
         if (def.id === "metal_floor" && basePart.id === "metal_floor") {
             if (n.y > 0.9) { pos.copy(basePos); pos.y += baseSize.y; return { pos }; }
@@ -161,7 +205,6 @@ export class Builder {
             if (isNearTop) {
                 const y = topOfVerticalBeam + def.size.y / 2;
                 
-                // ✅ CHANGED: Calculate beam direction using Euler rotation for all 3 axes
                 const beamDirection = new THREE.Vector3(1, 0, 0);
                 const euler = new THREE.Euler(settings.rotationX, settings.rotationY, settings.rotationZ, 'YXZ');
                 beamDirection.applyEuler(euler);
@@ -187,7 +230,7 @@ export class Builder {
 
   placeOne(){
     if (!this._hover) return;
-    const { pos, def, settings } = this._hover;
+    const { pos, rot, def, settings } = this._hover;
     const part = buildPart(def, settings, this.dynamicEnvMap);
     
     part.traverse(child => {
@@ -197,8 +240,7 @@ export class Builder {
     });
 
     part.position.copy(pos);
-    // ✅ CHANGED: Set all three rotation values using a specific order ('YXZ')
-    part.rotation.set(settings.rotationX, settings.rotationY, settings.rotationZ, 'YXZ');
+    part.rotation.copy(rot);
     part.userData.settings = { ...settings };
     this.placedObjects.add(part);
   }
