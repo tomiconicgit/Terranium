@@ -20,15 +20,18 @@ export class Scene extends THREE.Scene {
   constructor() {
     super();
 
-    const horizonColor = new THREE.Color(0xaaccff);
-    this.background = horizonColor;
+    // ✨ FIX: Load a cube texture for the skybox to provide detailed reflections.
+    const textureCube = new THREE.CubeTextureLoader()
+      .setPath('https://unpkg.com/three@0.169.0/examples/textures/cube/pisa/')
+      .load(['px.png', 'nx.png', 'py.png', 'ny.png', 'pz.png', 'nz.png']);
+    
+    this.background = textureCube;
 
-    this.add(createSky(horizonColor));
 
     /* ---------- Lights ---------- */
-    // ✨ FIX: Increased ambient and hemisphere light intensity to brighten shadows.
-    this.add(new THREE.AmbientLight(0xccdeff, 0.6)); 
-    this.add(new THREE.HemisphereLight(0xe0e8ff, 0x95abcc, 0.7));
+    // ✨ FIX: Adjusted light colors to be more neutral for the photographic skybox.
+    this.add(new THREE.AmbientLight(0xeeeeee, 0.6)); 
+    this.add(new THREE.HemisphereLight(0xffffff, 0x444444, 0.7));
 
     const sun = new THREE.DirectionalLight(0xffffff, 1.2);
     sun.position.set(80, 100, -70);
@@ -108,32 +111,4 @@ export class Scene extends THREE.Scene {
   pressSand() { /* Disabled */ }
 }
 
-function createSky(horizonColor) {
-    const geom = new THREE.SphereGeometry(1000, 32, 16);
-    const mat = new THREE.ShaderMaterial({
-        side: THREE.BackSide,
-        uniforms: {
-            topColor:    { value: new THREE.Color(0xd1e1ff) },
-            bottomColor: { value: horizonColor },
-        },
-        vertexShader: `
-            varying vec3 vWorld;
-            void main() {
-                vec4 wp = modelMatrix * vec4(position, 1.0);
-                vWorld = wp.xyz;
-                gl_Position = projectionMatrix * viewMatrix * wp;
-            }
-        `,
-        fragmentShader: `
-            varying vec3 vWorld;
-            uniform vec3 topColor;
-            uniform vec3 bottomColor;
-            void main() {
-                float h = normalize(vWorld).y * 0.5 + 0.5;
-                vec3 col = mix(bottomColor, topColor, pow(h, 2.5));
-                gl_FragColor = vec4(col, 1.0);
-            }
-        `
-    });
-    return new THREE.Mesh(geom, mat);
-}
+// The old createSky function is no longer needed and can be removed.
