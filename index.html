@@ -31,14 +31,12 @@
     /* --- Start Screen --- */
     #startScreen {
       position:fixed; inset:0; z-index:99999;
-      background:rgba(0,0,0,0.8); backdrop-filter:blur(10px);
+      background:rgba(0,0,0,0.2); backdrop-filter:blur(8px);
       display:flex; align-items:center; justify-content:center;
       transition: opacity .4s ease-out;
     }
     #startScreen.hidden { opacity:0; pointer-events:none; }
-    #startScreen .card { text-align:center; }
-    #startScreen h1 { font-size:48px; font-weight:700; margin:0 0 16px; letter-spacing:-1px; }
-    #startScreen #startBtn {
+    #startBtn {
       font-size:20px; padding:14px 32px; border-radius:12px;
       background:var(--accent); color: #000; border:none;
       cursor:pointer; font-weight:600;
@@ -50,17 +48,11 @@
       background: rgba(0,0,0,0.95);
       color: #ff6; font: 14px/1.6 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
       padding: 16px; display: none; z-index: 999999;
-      display: none; flex-direction: column;
+      flex-direction: column;
     }
-    #errorOverlay .error-header {
-        font-size: 18px; color: #ff8080; margin-bottom: 12px; font-weight: bold;
-    }
-    #errorOverlay .error-content {
-        flex: 1; overflow: auto; white-space: pre-wrap;
-    }
-    #errorOverlay .error-actions {
-        margin-top: 16px; flex-shrink: 0;
-    }
+    #errorOverlay .error-header { font-size: 18px; color: #ff8080; margin-bottom: 12px; font-weight: bold; }
+    #errorOverlay .error-content { flex: 1; overflow: auto; white-space: pre-wrap; }
+    #errorOverlay .error-actions { margin-top: 16px; flex-shrink: 0; }
     #errorOverlay .copy-btn {
         background: #444; color: #fff; border: 1px solid #666;
         padding: 8px 14px; border-radius: 6px; cursor: pointer;
@@ -68,19 +60,6 @@
     }
     #errorOverlay .copy-btn:hover { background: #555; }
     #errorOverlay .copy-btn:active { background: #333; }
-
-    /* Rotate-to-landscape overlay */
-    #rotateOverlay {
-      position:fixed; inset:0; z-index:999998; background:#000;
-      color:#fff; display:none; align-items:center; justify-content:center; text-align:center; padding:24px;
-    }
-    #rotateOverlay .card {
-      border:1px solid #333; border-radius:16px; padding:24px 28px; max-width:420px;
-      background:linear-gradient(180deg, #0e0e10, #0a0a0a);
-      box-shadow:0 10px 40px rgba(0,0,0,0.6);
-    }
-    #rotateOverlay h2 { margin:0 0 10px; font-weight:600; letter-spacing:.2px; }
-    #rotateOverlay p  { margin:0; opacity:.8; }
 
     /* Center reticle */
     #reticle {
@@ -139,9 +118,7 @@
       font-size: 14px;
       transition: transform .3s ease-out, opacity .3s ease-out;
     }
-    #settingsPanel.hidden {
-      transform: translateX(-20px); opacity: 0; pointer-events: none;
-    }
+    #settingsPanel.hidden { transform: translateX(-20px); opacity: 0; pointer-events: none; }
     #settingsPanel .setting-row {
       display:grid; grid-template-columns: 100px 1fr; align-items:center;
       padding: 8px 12px; border-radius: 4px;
@@ -149,12 +126,13 @@
     #settingsPanel .setting-row:hover { background:rgba(255,255,255,0.05); }
     #settingsPanel label { color:rgba(255,255,255,0.9); }
     #settingsPanel .control-group { display:flex; gap:6px; }
-
-    #settingsPanel select, #settingsPanel input, #settingsPanel button {
+    #settingsPanel input[type="color"] {
+        padding: 0; border: none; width: 100%; height: 24px; background: none; cursor: pointer;
+    }
+    #settingsPanel input, #settingsPanel button {
       background: #333; color: #fff; border: 1px solid #555; border-radius: 4px;
       font-size: 13px; padding: 4px 6px;
     }
-    #settingsPanel select { width:100%; }
     #settingsPanel input[type="range"] { padding: 0; width:100%; }
     #settingsPanel button { cursor:pointer; width:100%; }
     #settingsPanel button:hover { background:#444; }
@@ -163,23 +141,22 @@
 </head>
 <body>
   <div id="startScreen">
-    <div class="card">
-      <h1>Terranium</h1>
-      <button id="startBtn">Start</button>
-    </div>
+    <button id="startBtn">Start</button>
   </div>
 
   <div id="settingsBtn">⚙️</div>
   <div id="settingsPanel" class="hidden">
     <div class="setting-row">
-      <label for="shading">Shading</label>
-      <select id="shading">
-        <option value="glossy">Glossy</option>
-        <option value="smooth">Smooth</option>
-        <option value="flat">Flat</option>
-        <option value="reflective">Reflective</option>
-        <option value="wireframe">Wireframe</option>
-      </select>
+      <label for="color">Color</label>
+      <input type="color" id="color" value="#c0c5c9">
+    </div>
+    <div class="setting-row">
+      <label for="roughness">Roughness</label>
+      <input type="range" id="roughness" min="0" max="1" step="0.01" value="0.45">
+    </div>
+    <div class="setting-row">
+      <label for="metalness">Metalness</label>
+      <input type="range" id="metalness" min="0" max="1" step="0.01" value="0.9">
     </div>
     <div class="setting-row">
       <label>Rotation</label>
@@ -198,13 +175,6 @@
   <div id="reticle"></div>
   <div id="hotbar" aria-label="hotbar"></div>
 
-  <div id="rotateOverlay" aria-live="polite">
-    <div class="card">
-      <h2>Rotate your device</h2>
-      <p>Please use landscape for the best experience.</p>
-    </div>
-  </div>
-
   <div id="errorOverlay">
     <div class="error-header">⚠️ Application Error</div>
     <div class="error-content" id="errorContent"></div>
@@ -220,30 +190,14 @@
     let fullErrorText = '';
 
     function showError(msg, src, line, col, err) {
-      // Build a detailed, readable report
-      const reportParts = [
-        '--- ⚠️ Terranium Error Report ---',
-        `Message: ${msg}`,
-      ];
-      if (src) {
-        reportParts.push(`Source: ${src}${line?':'+line:''}${col?':'+col:''}`);
-      }
-      if (err?.name) {
-        reportParts.push(`Type: ${err.name}`);
-      }
-      if (err?.message && err.message !== msg) {
-        reportParts.push(`Reason: ${err.message}`);
-      }
-      if (err?.stack) {
-        reportParts.push(`\n--- Stack Trace ---\n${err.stack}`);
-      }
-
+      const reportParts = ['--- ⚠️ Terranium Error Report ---', `Message: ${msg}`];
+      if (src) { reportParts.push(`Source: ${src}${line?':'+line:''}${col?':'+col:''}`); }
+      if (err?.name) { reportParts.push(`Type: ${err.name}`); }
+      if (err?.message && err.message !== msg) { reportParts.push(`Reason: ${err.message}`); }
+      if (err?.stack) { reportParts.push(`\n--- Stack Trace ---\n${err.stack}`); }
       fullErrorText = reportParts.join('\n');
-      
-      // Display the report
       errorContent.textContent = fullErrorText;
       errorOverlay.style.display = 'flex';
-      
       console.error('BOOT ERROR:', msg, err);
     }
 
@@ -280,28 +234,9 @@
       }
     })();
   </script>
-
-  <script>
-    const rotateOverlay = document.getElementById('rotateOverlay');
-    function isLandscapeNow() {
-      if (window.matchMedia && window.matchMedia('(orientation: landscape)').matches) return true;
-      if (typeof window.orientation === 'number' && Math.abs(window.orientation) === 90) return true;
-      if (window.innerWidth - window.innerHeight > 60) return true;
-      if (screen.orientation?.type?.startsWith('landscape')) return true;
-      return false;
-    }
-    async function lockLandscape(){ try{ await screen.orientation?.lock?.('landscape'); }catch{} }
-    function updateRotateOverlay(){ rotateOverlay.style.display = isLandscapeNow() ? 'none' : 'flex'; }
-    window.addEventListener('resize', updateRotateOverlay, { passive:true });
-    window.addEventListener('orientationchange', updateRotateOverlay, { passive:true });
-    document.addEventListener('visibilitychange', updateRotateOverlay, { passive:true });
-    if (window.visualViewport) window.visualViewport.addEventListener('resize', updateRotateOverlay, { passive:true });
-    updateRotateOverlay(); lockLandscape();
-  </script>
-
+  
   <script type="module" crossorigin="anonymous">
     const V = Date.now();
-
     const fail = (e, label) => {
       const msg = (label ? label + '\n' : '') + ((e && (e.message || e.toString())) || 'Unknown');
       const src = e && (e.sourceURL || e.filename || e.url);
@@ -312,13 +247,8 @@
 
     async function preflight() {
       const local = [
-        './src/main.js',
-        './src/scene/Scene.js',
-        './src/controls/GamepadFPV.js',
-        './src/ui/Hotbar.js',
-        './src/ui/SettingsPanel.js',
-        './src/tools/Builder.js',
-        './src/assets/Catalog.js'
+        './src/main.js', './src/scene/Scene.js', './src/controls/GamepadFPV.js',
+        './src/ui/Hotbar.js', './src/ui/SettingsPanel.js', './src/tools/Builder.js', './src/assets/Catalog.js'
       ];
       for (const m of local) {
         const url = new URL(m, location.href);
