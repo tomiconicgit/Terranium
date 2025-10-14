@@ -7,7 +7,9 @@ export class SettingsPanel {
     this.rotation = 0; // Stored in radians
 
     // Get DOM elements
-    this.shadingSelect = document.getElementById('shading');
+    this.colorPicker = document.getElementById('color');
+    this.roughnessSlider = document.getElementById('roughness');
+    this.metalnessSlider = document.getElementById('metalness');
     this.tessellationSlider = document.getElementById('tessellation');
     this.rotateLeftBtn = document.getElementById('rotate-left');
     this.rotateRightBtn = document.getElementById('rotate-right');
@@ -16,8 +18,11 @@ export class SettingsPanel {
     this.btn.addEventListener('click', () => this.toggle());
 
     // Add event listeners that trigger a change
-    this.shadingSelect.addEventListener('change', () => this.triggerChange());
-    this.tessellationSlider.addEventListener('input', () => this.triggerChange());
+    const trigger = () => this.triggerChange();
+    this.colorPicker.addEventListener('input', trigger);
+    this.roughnessSlider.addEventListener('input', trigger);
+    this.metalnessSlider.addEventListener('input', trigger);
+    this.tessellationSlider.addEventListener('input', trigger);
     
     this.rotateLeftBtn.addEventListener('click', () => {
       this.rotation -= Math.PI / 2; // -90 degrees
@@ -31,7 +36,6 @@ export class SettingsPanel {
     this.updateVisibility(); 
   }
 
-  // Register a callback function to be called when any setting changes
   onChange(callback) {
     this._changeCallback = callback;
   }
@@ -53,7 +57,9 @@ export class SettingsPanel {
 
   getSettings() {
     return {
-      shading: this.shadingSelect.value,
+      color: this.colorPicker.value,
+      roughness: parseFloat(this.roughnessSlider.value),
+      metalness: parseFloat(this.metalnessSlider.value),
       rotation: this.rotation,
       tessellation: parseInt(this.tessellationSlider.value),
     };
