@@ -26,11 +26,11 @@ export class Scene extends THREE.Scene {
     this.add(createSky(horizonColor));
 
     /* ---------- Lights ---------- */
+    // ✨ FIX: Restored previous lighting and tuned to brighten shadows
     this.add(new THREE.AmbientLight(0xccdeff, 0.35));
     this.add(new THREE.HemisphereLight(0xe0e8ff, 0x95abcc, 0.55));
 
-    // ✨ Slightly increased sun intensity to enhance bloom effect
-    const sun = new THREE.DirectionalLight(0xffffff, 1.4);
+    const sun = new THREE.DirectionalLight(0xffffff, 1.2);
     sun.position.set(80, 100, -70);
     sun.castShadow = true;
     sun.shadow.mapSize.set(2048, 2048);
@@ -41,7 +41,7 @@ export class Scene extends THREE.Scene {
     this.add(sun);
     this.add(sun.target);
 
-    /* ---------- Terrain ---------- */
+    /* ... rest of the file is unchanged ... */
     const size = 100;
     const segments = 128;
     const flatRadius = 35;
