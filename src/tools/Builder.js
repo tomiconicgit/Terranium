@@ -1,4 +1,4 @@
-// src/tools/Builder.js — Simplified to basic grid placement
+// src/tools/Builder.js — Advanced snapping for procedural parts
 import * as THREE from 'three';
 import { makeCatalog, buildPart } from '../assets/Catalog.js';
 
@@ -41,19 +41,12 @@ export class Builder {
     if (!hits.length){ this.preview.visible=false; this._hover=null; return; }
 
     const hit = hits[0];
-    const pos = new THREE.Vector3();
-    
-    // ✨ FIX: Implement robust grid snapping for perfect tile placement.
-    // This calculates the next grid cell based on the face the player is looking at.
-    const placementPoint = hit.point.clone().addScaledVector(hit.face.normal, 0.5);
-    pos.x = Math.floor(placementPoint.x) + 0.5;
-    pos.y = Math.floor(placementPoint.y) + 0.5;
-    pos.z = Math.floor(placementPoint.z) + 0.5;
+    const sugg = this.suggestPlacement(def, hit);
+    if (!sugg) { this.preview.visible = false; this._hover = null; return; }
 
-    // Ensure blocks can't be placed below the base ground level
-    pos.y = Math.max(0.5, pos.y);
-    
-    const key = `${pos.x},${pos.y},${pos.z}`;
+    const pos = sugg.pos;
+    const key = `${pos.x.toFixed(1)},${pos.y.toFixed(1)},${pos.z.toFixed(1)}`;
+
     if (key !== this.prevKey){
       this.preview.clear();
       const ghost = buildPart(def);
@@ -64,10 +57,49 @@ export class Builder {
     
     this.preview.position.copy(pos);
     this.preview.visible = true;
-    this._hover = { pos: pos, def: def, hit: hit };
+    this._hover = { pos, def, hit };
 
     if (placePressed) this.placeOne();
     if (removePressed) this.removeOne();
+  }
+
+  suggestPlacement(def, hit) {
+    const hitObj = hit.object;
+    const n = hit.face.normal;
+    const gridSize = def.size.x; // Assumes square parts
+
+    // Case 1: Hitting the terrain
+    if (hitObj === this.terrain) {
+        const pos = new THREE.Vector3();
+        // Snap to a grid, adjusting for the center of the 4x4 tile
+        pos.x = Math.round(hit.point.x / gridSize) * gridSize;
+        pos.z = Math.round(hit.point.z / gridSize) * gridSize;
+        pos.y = def.size.y / 2; // Place on top of the ground
+        return { pos };
+    }
+
+    // Case 2: Hitting another placed part
+    if (hitObj.userData.part) {
+        const basePos = hitObj.position.clone();
+        const partSize = hitObj.userData.part.size;
+        let pos;
+
+        // On top of the part
+        if (n.y > 0.9) {
+            pos = basePos.clone();
+            pos.y += partSize.y;
+        }
+        // On the side of the part
+        else if (Math.abs(n.y) < 0.1) {
+            const dir = new THREE.Vector3(Math.round(n.x), 0, Math.round(n.z));
+            pos = basePos.clone().addScaledVector(dir, gridSize);
+        } else {
+            return null; // Don't place on bottom faces
+        }
+        return { pos };
+    }
+
+    return null;
   }
 
   placeOne(){
