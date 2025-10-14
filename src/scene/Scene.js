@@ -18,12 +18,15 @@ export class Scene extends THREE.Scene {
     sun.shadow.camera.far  = 600;
 
     // SHADOW UPGRADE: VSM parameters for soft, artifact-free shadows
-    sun.shadow.radius = 4; // Controls softness for VSM
+    sun.shadow.radius = 4;
     sun.shadow.blurSamples = 16;
-    sun.shadow.bias = -0.00001; // Very small bias needed for VSM
+    sun.shadow.bias = -0.00001;
 
     this.sun = sun;
     this.add(sun);
+    // *** CRITICAL FIX: The light's target must be added to the scene to be movable ***
+    this.add(sun.target);
+
     this.add(new THREE.DirectionalLight(0xffffff, 0.25).position.set(-80, 120, 80));
     this.add(new THREE.HemisphereLight(0xdfeaff, 0x9a7c55, 0.5).position.set(0, 120, 0));
 
@@ -50,24 +53,21 @@ export class Scene extends THREE.Scene {
 
     this._v3a = new THREE.Vector3();
     this._cameraTarget = new THREE.Vector3();
-    this._shadowCamPos = new THREE.Vector3();
   }
   
   updateShadows(camera) {
     const shadowCam = this.sun.shadow.camera;
     const distance = 100;
 
+    // Calculate a point in front of the camera to aim the light at
     camera.getWorldDirection(this._cameraTarget);
     this._cameraTarget.multiplyScalar(distance / 4);
     this._cameraTarget.add(camera.position);
     
-    this._shadowCamPos.copy(this._cameraTarget).add(this.sun.position);
+    // Move the light's target to this point
     this.sun.target.position.copy(this._cameraTarget);
-    this.sun.target.updateMatrixWorld();
     
-    shadowCam.position.copy(this._shadowCamPos);
-    shadowCam.lookAt(this._cameraTarget);
-    
+    // Tightly fit the shadow frustum to the visible area
     const frustumSize = 80;
     shadowCam.left = -frustumSize;
     shadowCam.right = frustumSize;
