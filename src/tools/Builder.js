@@ -92,7 +92,6 @@ export class Builder {
     }
     
     this.preview.position.copy(pos);
-    // ✅ CHANGED: Set all three rotation values using a specific order ('YXZ')
     this.preview.rotation.set(settings.rotationX, settings.rotationY, settings.rotationZ, 'YXZ');
     this.preview.visible = true;
     this._hover = { pos, def, settings };
@@ -149,27 +148,35 @@ export class Builder {
             pos.y = basePos.y + baseSize.y / 2 + def.size.y / 2;
             return { pos };
         }
+        // ✅ FIXED: Correct logic for stacking vertical beams
         else if (verticalBeamIds.includes(def.id) && verticalBeamIds.includes(basePart.id) && n.y > 0.9) {
             pos.copy(basePos);
-            pos.y += baseSize.y;
+            pos.y += baseSize.y / 2 + def.size.y / 2;
             return { pos };
         }
+        // ✅ FIXED: Robust snapping for horizontal beams on vertical supports
         else if (def.id === "steel_beam_h" && verticalBeamIds.includes(basePart.id)) {
-            const topOfVerticalBeam = basePos.y + baseSize.y / 2;
-            const isNearTop = Math.abs(hit.point.y - topOfVerticalBeam) < 0.5;
+            const v_rotation = new THREE.Quaternion();
+            hitRoot.getWorldQuaternion(v_rotation);
+            
+            const v_up = new THREE.Vector3(0, 1, 0).applyQuaternion(v_rotation);
+            const v_top_center = basePos.clone().add(v_up.clone().multiplyScalar(baseSize.y / 2));
+
+            const vecFromCenterToHit = hit.point.clone().sub(basePos);
+            const distAlongUp = vecFromCenterToHit.dot(v_up);
+            const isNearTop = Math.abs(distAlongUp - (baseSize.y / 2)) < 1.0; // Increased tolerance
 
             if (isNearTop) {
-                const y = topOfVerticalBeam + def.size.y / 2;
+                const h_rotation = new THREE.Euler(settings.rotationX, settings.rotationY, settings.rotationZ, 'YXZ');
+                const h_up = new THREE.Vector3(0, 1, 0).applyEuler(h_rotation);
+                const h_right = new THREE.Vector3(1, 0, 0).applyEuler(h_rotation);
                 
-                // ✅ CHANGED: Calculate beam direction using Euler rotation for all 3 axes
-                const beamDirection = new THREE.Vector3(1, 0, 0);
-                const euler = new THREE.Euler(settings.rotationX, settings.rotationY, settings.rotationZ, 'YXZ');
-                beamDirection.applyEuler(euler);
-
-                const edgeOffset = beamDirection.clone().multiplyScalar(def.size.x / 2);
+                const h_vertical_offset = h_up.multiplyScalar(def.size.y / 2);
+                const h_horizontal_offset = h_right.multiplyScalar(def.size.x / 2);
                 
-                const snapPosition1 = basePos.clone().add(edgeOffset);
-                const snapPosition2 = basePos.clone().sub(edgeOffset);
+                const snap_center_base = v_top_center.clone().add(h_vertical_offset);
+                const snapPosition1 = snap_center_base.clone().add(h_horizontal_offset);
+                const snapPosition2 = snap_center_base.clone().sub(h_horizontal_offset);
 
                 if (hit.point.distanceTo(snapPosition1) < hit.point.distanceTo(snapPosition2)) {
                     pos.copy(snapPosition1);
@@ -177,7 +184,6 @@ export class Builder {
                     pos.copy(snapPosition2);
                 }
                 
-                pos.y = y;
                 return { pos };
             }
         }
@@ -197,7 +203,6 @@ export class Builder {
     });
 
     part.position.copy(pos);
-    // ✅ CHANGED: Set all three rotation values using a specific order ('YXZ')
     part.rotation.set(settings.rotationX, settings.rotationY, settings.rotationZ, 'YXZ');
     part.userData.settings = { ...settings };
     this.placedObjects.add(part);
