@@ -1,149 +1,144 @@
-// src/tools/Builder.js — Advanced snapping for procedural parts
+// Scene.js — procedural snow terrain with mountains and custom sky
 import * as THREE from 'three';
-import { makeCatalog, buildPart } from '../assets/Catalog.js';
 
-export class Builder {
-  constructor(scene, camera, hotbar){
-    this.scene = scene;
-    this.camera = camera;
-    this.hotbar = hotbar;
+// --- Noise functions for terrain generation ---
+const lerp = (a, b, t) => a + (b - a) * t;
+const fade = (t) => t*t*t*(t*(t*6-15)+10);
+function hash(x, y) { let n=x*374761393+y*668265263; n=(n^(n>>13))*1274126177; return ((n^(n>>16))>>>0)/4294967295; }
+function valueNoise(x, y) {
+  const xi=Math.floor(x), yi=Math.floor(y), xf=x-xi, yf=y-yi;
+  const s=hash(xi,yi), t=hash(xi+1,yi), u=hash(xi,yi+1), v=hash(xi+1,yi+1);
+  const sx=fade(xf), sy=fade(yf); return lerp(lerp(s,t,sx), lerp(u,v,sx), sy) * 2.0 - 1.0;
+}
+function fbm(x, y, octaves) {
+  let sum=0, amp=0.5, freq=1;
+  for (let i=0; i<octaves; i++) { sum += amp * valueNoise(x*freq, y*freq); amp*=0.5; freq*=2; } return sum;
+}
+function smoothstep(a, b, x) { const t=Math.min(1,Math.max(0,(x-a)/(b-a))); return t*t*(3-2*t); }
 
-    this.terrain = scene.getObjectByName('terrainPlane');
-    this.placedObjects = new THREE.Group();
-    this.scene.add(this.placedObjects);
+export class Scene extends THREE.Scene {
+  constructor() {
+    super();
+
+    const horizonColor = new THREE.Color(0xaaccff);
+    this.background = horizonColor;
+
+    this.add(createSky(horizonColor));
+
+    /* ---------- Lights ---------- */
+    // ✨ FIX: Increased intensity for brighter ambient lighting
+    this.add(new THREE.AmbientLight(0xccdeff, 0.4));
+    this.add(new THREE.HemisphereLight(0xe0e8ff, 0xb0c0d9, 0.6));
+
+    const sun = new THREE.DirectionalLight(0xffffff, 1.2);
+    sun.position.set(80, 100, -70);
+    sun.castShadow = true;
+    sun.shadow.mapSize.set(2048, 2048);
+    sun.shadow.camera.near = 10;
+    sun.shadow.camera.far  = 400;
+    sun.shadow.bias = -0.0005;
+    this.sun = sun;
+    this.add(sun);
+    this.add(sun.target);
+
+    // ✨ NEW: Add a fill light to illuminate shadowed areas and make metal pop
+    const fillLight = new THREE.DirectionalLight(0xffffff, 0.75);
+    fillLight.position.set(-100, 60, 100);
+    this.add(fillLight);
+
+    /* ---------- Terrain ---------- */
+    const size = 100;
+    const segments = 128;
+    const flatRadius = 35;
+    const baseHeight = 0.0;
+    const geo = new THREE.PlaneGeometry(size * 2, size * 2, segments, segments);
+    const pos = geo.attributes.position;
+
+    for (let i = 0; i < pos.count; i++) {
+        const x = pos.getX(i);
+        const y = pos.getY(i);
+        const r = Math.hypot(x, y);
+
+        let height = baseHeight;
+        if (r > flatRadius) {
+            const mountainFactor = smoothstep(flatRadius, size * 0.6, r);
+            const baseMountain = (fbm(x * 0.03, y * 0.03, 5) + 0.5) * 20.0;
+            const detailMountain = fbm(x * 0.1, y * 0.1, 4) * 5.0;
+            height += (baseMountain + detailMountain) * mountainFactor;
+        }
+        pos.setZ(i, height);
+    }
+    geo.computeVertexNormals();
     
-    this.catalog = makeCatalog();
-    this.hotbar.setCatalog(this.catalog);
+    const mat = new THREE.MeshStandardMaterial({
+        color: 0xf5f9fc,
+        roughness: 0.65,
+        metalness: 0.0,
+    });
 
-    this.ray = new THREE.Raycaster();
-    this.preview = new THREE.Group();
-    this.preview.name = 'ghost';
-    this.scene.add(this.preview);
+    const terrain = new THREE.Mesh(geo, mat);
+    terrain.rotation.x = -Math.PI / 2;
+    terrain.name = 'terrainPlane';
+    terrain.receiveShadow = true;
+    this.terrain = terrain;
+    this.add(terrain);
 
-    this.prevKey = '';
-    this._lastButtons = [];
-    this._hover = null;
+    this._cameraTarget = new THREE.Vector3();
   }
+  
+  updateShadows(camera) {
+    const shadowCam = this.sun.shadow.camera;
+    const distance = 80;
 
-  pad(){ const a=navigator.getGamepads?.()||[]; for(const p of a) if(p&&p.connected) return p; return null; }
-  pressed(i){ const p=this.pad(); if(!p) return false; const n=!!p.buttons[i]?.pressed,b=!!this._lastButtons[i]; this._lastButtons[i]=n; return n&&!b; }
-
-  update(){
-    const def = this.catalog[this.hotbar.index];
-    if (!def) return;
-
-    const placePressed = this.pressed(7);
-    const removePressed = this.pressed(6);
-
-    this.ray.setFromCamera(new THREE.Vector2(0,0), this.camera);
-    const hits = this.ray.intersectObjects([this.terrain, ...this.placedObjects.children], false);
+    camera.getWorldDirection(this._cameraTarget);
+    this._cameraTarget.multiplyScalar(distance / 4);
+    this._cameraTarget.add(camera.position);
     
-    if (!hits.length){ this.preview.visible=false; this._hover=null; return; }
-
-    const hit = hits[0];
-    const sugg = this.suggestPlacement(def, hit);
-    if (!sugg) { this.preview.visible = false; this._hover = null; return; }
-
-    const pos = sugg.pos;
-    const key = `${def.id}|${pos.x.toFixed(1)},${pos.y.toFixed(1)},${pos.z.toFixed(1)}`;
-
-    if (key !== this.prevKey){
-      this.preview.clear();
-      const ghost = buildPart(def);
-      ghost.traverse(o=>{if(o.isMesh){const m=o.material.clone();m.transparent=true;m.opacity=0.45;m.depthWrite=false;o.material=m;}});
-      this.preview.add(ghost);
-      this.prevKey = key;
-    }
+    this.sun.target.position.copy(this._cameraTarget);
     
-    this.preview.position.copy(pos);
-    this.preview.visible = true;
-    this._hover = { pos, def, hit };
-
-    if (placePressed) this.placeOne();
-    if (removePressed) this.removeOne();
+    const frustumSize = 50;
+    shadowCam.left = -frustumSize;
+    shadowCam.right = frustumSize;
+    shadowCam.top = frustumSize;
+    shadowCam.bottom = -frustumSize;
+    
+    shadowCam.updateProjectionMatrix();
   }
 
-  suggestPlacement(def, hit) {
-    const hitObj = hit.object;
-    const n = hit.face.normal;
-    const pos = new THREE.Vector3();
-
-    // Case 1: Hitting the terrain (for Metal Floor)
-    if (hitObj === this.terrain && def.id === "metal_floor") {
-        const gridSize = def.size.x; // 4 for metal floor
-        pos.x = Math.round(hit.point.x / gridSize) * gridSize;
-        pos.z = Math.round(hit.point.z / gridSize) * gridSize;
-        pos.y = def.size.y / 2;
-        return { pos };
-    }
-
-    // Case 2: Hitting another placed part
-    if (hitObj.userData.part) {
-        const basePart = hitObj.userData.part;
-        const basePos = hitObj.position.clone();
-        const baseSize = basePart.size;
-
-        // Placing Metal Floor on top of another Metal Floor
-        if (def.id === "metal_floor" && basePart.id === "metal_floor" && n.y > 0.9) {
-            pos.copy(basePos);
-            pos.y += baseSize.y;
-            return { pos };
-        }
-        // Placing Metal Floor next to another Metal Floor
-        else if (def.id === "metal_floor" && basePart.id === "metal_floor" && Math.abs(n.y) < 0.1) {
-            const dir = new THREE.Vector3(Math.round(n.x), 0, Math.round(n.z));
-            pos.copy(basePos).addScaledVector(dir, baseSize.x);
-            return { pos };
-        }
-        // ✨ NEW LOGIC: Placing Metal Beam on top of Metal Floor
-        else if (def.id === "metal_beam" && basePart.id === "metal_floor" && n.y > 0.9) {
-            // Calculate world position based on hit point
-            const worldHitPoint = hit.point;
-            
-            // Convert world hit point to local coordinates of the floor object
-            const localHitPoint = hitObj.worldToLocal(worldHitPoint.clone());
-            
-            // Normalize local hit point from -baseSize/2 to +baseSize/2 range
-            // to a 0-1 range across the face of the block
-            const uvX = (localHitPoint.x + baseSize.x / 2) / baseSize.x;
-            const uvZ = (localHitPoint.z + baseSize.z / 2) / baseSize.z;
-
-            // Determine which 1x1 sub-tile was hit on the 4x4 floor
-            const subTileX = Math.floor(uvX * baseSize.x); // 0, 1, 2, 3
-            const subTileZ = Math.floor(uvZ * baseSize.z); // 0, 1, 2, 3
-
-            // Calculate the world position for the center of this 1x1 sub-tile
-            // and add the beam's height
-            pos.x = basePos.x - baseSize.x / 2 + subTileX + 0.5;
-            pos.z = basePos.z - baseSize.z / 2 + subTileZ + 0.5;
-            pos.y = basePos.y + baseSize.y / 2 + def.size.y / 2; // Beam sits on top
-
-            return { pos };
-        }
-        // Placing Metal Beam on top of another Metal Beam
-        else if (def.id === "metal_beam" && basePart.id === "metal_beam" && n.y > 0.9) {
-            pos.copy(basePos);
-            pos.y += baseSize.y;
-            return { pos };
-        }
-    }
-
-    return null; // No valid placement suggested
+  getTerrainHeightAt(wx, wz) {
+    if (Math.hypot(wx, wz) <= 35) return 0.0;
+    return 0.0;
   }
 
-  placeOne(){
-    if (!this._hover) return;
-    const { pos, def } = this._hover;
-    const mesh = buildPart(def);
-    mesh.position.copy(pos);
-    this.placedObjects.add(mesh);
-  }
+  pressSand() { /* Disabled */ }
+}
 
-  removeOne(){
-    if (!this._hover?.hit) return;
-    const obj = this._hover.hit.object;
-    if (obj !== this.terrain) {
-      obj.parent.remove(obj);
-    }
-  }
+function createSky(horizonColor) {
+    const geom = new THREE.SphereGeometry(1000, 32, 16);
+    const mat = new THREE.ShaderMaterial({
+        side: THREE.BackSide,
+        uniforms: {
+            topColor:    { value: new THREE.Color(0xd1e1ff) },
+            bottomColor: { value: horizonColor },
+        },
+        vertexShader: `
+            varying vec3 vWorld;
+            void main() {
+                vec4 wp = modelMatrix * vec4(position, 1.0);
+                vWorld = wp.xyz;
+                gl_Position = projectionMatrix * viewMatrix * wp;
+            }
+        `,
+        fragmentShader: `
+            varying vec3 vWorld;
+            uniform vec3 topColor;
+            uniform vec3 bottomColor;
+            void main() {
+                float h = normalize(vWorld).y * 0.5 + 0.5;
+                vec3 col = mix(bottomColor, topColor, pow(h, 2.5));
+                gl_FragColor = vec4(col, 1.0);
+            }
+        `
+    });
+    return new THREE.Mesh(geom, mat);
 }
