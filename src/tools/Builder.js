@@ -136,7 +136,7 @@ export class Builder {
         const baseSize = basePart.size;
         const baseRot = hitRoot.rotation;
 
-        // 1. Placing a WALL or RAILING on the EDGE of a FLOOR
+        // ✅ FIX: Placing a WALL or RAILING on the EDGE of a FLOOR
         if ((def.id === "guard_rail" || def.id === "metal_wall") && basePart.id === "metal_floor" && n.y > 0.9) {
             const localHit = hitRoot.worldToLocal(hit.point.clone());
             const halfX = baseSize.x / 2;
@@ -150,23 +150,20 @@ export class Builder {
             ];
             distances.sort((a, b) => a.dist - b.dist);
             const closestEdge = distances[0];
+            const wallThickness = def.size.z;
 
             pos.copy(basePos);
             pos.y = basePos.y + baseSize.y / 2 + def.size.y / 2 + Z_FIGHT_OFFSET;
             const rot = new THREE.Euler(0, 0, 0, 'YXZ');
-
-            // Adjust position so the wall/railing outer face is flush with the floor edge
-            // The wall/railing depth is def.size.z
-            if (closestEdge.edge === 'px' || closestEdge.edge === 'nx') {
-                pos.x = basePos.x + closestEdge.val;
-                pos.z = Math.round(localHit.z / def.size.x) * def.size.x + basePos.z; // snap to grid along Z
-                pos.x += Math.sign(closestEdge.val) * (def.size.z / 2); // Move outwards by half its thickness
-                rot.y = Math.PI / 2;
-            } else { // 'pz' or 'nz'
-                pos.z = basePos.z + closestEdge.val;
-                pos.x = Math.round(localHit.x / def.size.x) * def.size.x + basePos.x; // snap to grid along X
-                pos.z += Math.sign(closestEdge.val) * (def.size.z / 2); // Move outwards by half its thickness
+            
+            if (closestEdge.edge.includes('x')) { // Edge is along Z axis
                 rot.y = 0;
+                pos.x = basePos.x + closestEdge.val - (Math.sign(closestEdge.val) * wallThickness / 2);
+                pos.z = hit.point.z;
+            } else { // Edge is along X axis
+                rot.y = Math.PI / 2;
+                pos.z = basePos.z + closestEdge.val - (Math.sign(closestEdge.val) * wallThickness / 2);
+                pos.x = hit.point.x;
             }
             return { pos, rot };
         }
@@ -175,45 +172,21 @@ export class Builder {
         if (def.id === "metal_floor" && basePart.id === "metal_wall" && n.y > 0.9) {
             const topOfWall = basePos.y + baseSize.y / 2;
             const rot = new THREE.Euler(0, baseRot.y, 0, 'YXZ');
+            const wallThickness = baseSize.z;
+            const floorThickness = def.size.z;
 
-            // Find which edge of the wall top is closer
+            // Determine which face of the wall was hit (in local space)
             const localHit = hitRoot.worldToLocal(hit.point.clone());
-            // Wall's thin axis is Z (def.size.z), its length is X (def.size.x)
-            // Hit point z is relative to wall's local center.
-            const wallLocalZ = localHit.z; 
-
+            const side = Math.sign(baseRot.y < Math.PI/4 ? localHit.z : localHit.x);
+            
             pos.copy(basePos);
             pos.y = topOfWall + def.size.y / 2 + Z_FIGHT_OFFSET;
             
-            // Wall has thickness baseSize.z. Floor has thickness def.size.z
-            // Wall is positioned at basePos. The floor needs to snap its *edge* to the wall's *edge*.
-            // Assume wall is oriented along X (rotation.y = 0 or PI), so its Z is thin dimension.
-            // If wall is rotated by PI/2, its X is thin dimension.
-            const wallThinDim = basePart.size.z; // This is the depth of the wall
-            const floorThinDim = def.size.z;     // This is the depth of the floor
+            // Get wall's normal vector in world space
+            const wallNormal = new THREE.Vector3(0,0,1).applyEuler(baseRot);
+            const offset = (floorThickness / 2) - (wallThickness / 2);
+            pos.addScaledVector(wallNormal, side * offset);
             
-            // The floor's edge should align with the wall's outer face.
-            // The floor's center will be offset from the wall's center by (floorThinDim / 2 - wallThinDim / 2)
-            
-            // Calculate direction vector from wall center to hit point, in wall's local XZ plane.
-            const localHitDir = new THREE.Vector3(localHit.x, 0, localHit.z).normalize();
-            
-            // Transform the wall's local Z direction (which is its thin dimension) into world space
-            const wallNormalWorld = new THREE.Vector3(0, 0, 1).applyEuler(baseRot); // Default: wall is along X, thin along Z
-            
-            // If the wall was rotated by 90 degrees, its local X would be the thin dimension.
-            // We need to check baseRot.y to know if the wall's 'Z' dimension is aligned with world X or Z.
-            let wallFaceNormal = new THREE.Vector3();
-            if (Math.abs(baseRot.y) < 0.1) { // Wall is mostly along world X (thin along world Z)
-                wallFaceNormal.set(0, 0, Math.sign(wallLocalZ)); // Face along world Z
-            } else { // Wall is mostly along world Z (thin along world X)
-                wallFaceNormal.set(Math.sign(localHit.x), 0, 0); // Face along world X
-            }
-            wallFaceNormal.applyEuler(baseRot);
-            
-            const offsetAmount = (floorThinDim / 2) - (wallThinDim / 2);
-            pos.addScaledVector(wallFaceNormal, offsetAmount);
-
             return { pos, rot };
         }
 
@@ -229,15 +202,11 @@ export class Builder {
         // 4. Placing a vertical beam on a floor (corner snapping)
         else if (verticalBeamIds.includes(def.id) && basePart.id === "metal_floor" && n.y > 0.9) {
             const localHitPoint = hitRoot.worldToLocal(hit.point.clone());
-            const uvX = (localHitPoint.x + baseSize.x / 2) / baseSize.x;
-            const uvZ = (localHitPoint.z + baseSize.z / 2) / baseSize.z;
-            
-            // Snap to the nearest 1x1 grid corner, not the center of a tile
-            const cornerX = Math.round(uvX * baseSize.x);
-            const cornerZ = Math.round(uvZ * baseSize.z);
+            const halfSizeX = baseSize.x / 2;
+            const halfSizeZ = baseSize.z / 2;
 
-            pos.x = basePos.x - baseSize.x / 2 + cornerX;
-            pos.z = basePos.z - baseSize.z / 2 + cornerZ;
+            pos.x = basePos.x + Math.round(localHitPoint.x / halfSizeX) * halfSizeX;
+            pos.z = basePos.z + Math.round(localHitPoint.z / halfSizeZ) * halfSizeZ;
             pos.y = basePos.y + baseSize.y / 2 + def.size.y / 2 + Z_FIGHT_OFFSET;
             return { pos };
         }
@@ -247,40 +216,11 @@ export class Builder {
             pos.y += baseSize.y + Z_FIGHT_OFFSET;
             return { pos };
         }
-        // 6. Placing a horizontal beam on a vertical one (flush snapping)
-        else if (def.id === "steel_beam_h" && verticalBeamIds.includes(basePart.id)) {
-            const rot = new THREE.Euler(settings.rotationX, settings.rotationY, settings.rotationZ, 'YXZ');
-            const topOfVerticalBeam = basePos.y + baseSize.y / 2;
-            
-            // Project hit.point onto the face of the vertical beam it hit
-            const localHitPoint = hitRoot.worldToLocal(hit.point.clone());
-            const faceNormal = hit.face.normal.clone().applyQuaternion(hitRoot.quaternion.clone().invert());
-            
-            // Determine if the hit is on a side face (not top/bottom)
-            if (Math.abs(faceNormal.y) < 0.1) { // Hit on a side face of the vertical beam
-                pos.y = topOfVerticalBeam; // Align to the top of the vertical beam
-                
-                // Position the horizontal beam such that its center is aligned with the vertical beam's face
-                // and its own end is flush with that face.
-                const horizontalBeamThickness = def.size.z; // Assuming Z is the thin axis of horizontal beam
-                const verticalBeamFaceNormal = hit.face.normal.clone();
-                
-                pos.copy(hit.point);
-                pos.addScaledVector(verticalBeamFaceNormal, horizontalBeamThickness / 2);
-                
-                // Align the horizontal beam's Y rotation with the vertical beam's face normal
-                // (this ensures it sits flat against the face)
-                if (Math.abs(verticalBeamFaceNormal.x) > Math.abs(verticalBeamFaceNormal.z)) {
-                    rot.y = verticalBeamFaceNormal.x > 0 ? Math.PI / 2 : -Math.PI / 2;
-                } else {
-                    rot.y = verticalBeamFaceNormal.z > 0 ? 0 : Math.PI;
-                }
-                
-                // Ensure no Z-fighting for height
-                pos.y += Z_FIGHT_OFFSET;
-
-                return { pos, rot };
-            }
+        // ✅ FIX: Placing a horizontal beam on a vertical one (restored simple top-snapping)
+        else if (def.id === "steel_beam_h" && verticalBeamIds.includes(basePart.id) && n.y > 0.9) {
+            pos.copy(basePos);
+            pos.y += baseSize.y / 2 + def.size.y / 2 + Z_FIGHT_OFFSET;
+            return { pos }; // Use rotation from settings panel
         }
     }
     return null;
