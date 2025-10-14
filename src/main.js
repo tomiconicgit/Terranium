@@ -1,19 +1,24 @@
-// src/main.js — Main application loop with reflection probe updates
+// src/main.js — Main application loop with Asset Library
 import * as THREE from 'three';
 import { Scene } from './scene/Scene.js';
 import { GamepadFPV } from './controls/GamepadFPV.js';
-import { Hotbar } from './ui/Hotbar.js';
 import { Builder } from './tools/Builder.js';
 import { SettingsPanel } from './ui/SettingsPanel.js';
-// ✨ FIX: Removed the obsolete import for MATERIALS
+import { AssetLibrary } from './ui/AssetLibrary.js'; // New import
 
-const mount    = document.getElementById('app');
-const hotbarEl = document.getElementById('hotbar');
-const overlay  = document.getElementById('errorOverlay');
+const mount = document.getElementById('app');
+const overlay = document.getElementById('errorOverlay');
 const settingsBtnEl = document.getElementById('settingsBtn');
 const settingsPanelEl = document.getElementById('settingsPanel');
 const startScreenEl = document.getElementById('startScreen');
 const startBtnEl = document.getElementById('startBtn');
+
+// Asset Library elements
+const libraryBtnEl = document.getElementById('libraryBtn');
+const assetLibraryEl = document.getElementById('assetLibrary');
+const closeLibraryBtnEl = document.getElementById('closeLibraryBtn');
+const categoriesContainerEl = document.getElementById('categoriesContainer');
+const assetsGridContainerEl = document.getElementById('assetsGridContainer');
 
 function die(msg, err){
   overlay.style.display = 'block';
@@ -35,9 +40,7 @@ try {
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
   mount.appendChild(renderer.domElement);
-
   scene = new Scene();
-
   camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 1500);
   fpv = new GamepadFPV(camera);
   fpv.position.set(0, 3, 10);
@@ -48,13 +51,21 @@ try {
 }
 
 /* ---------- UI ---------- */
-let hotbar, builder, settingsPanel;
+let builder, settingsPanel, assetLibrary;
 try {
-  hotbar = new Hotbar(hotbarEl);
   settingsPanel = new SettingsPanel(settingsBtnEl, settingsPanelEl);
-  builder = new Builder(scene, camera, hotbar, settingsPanel);
+  assetLibrary = new AssetLibrary(
+    libraryBtnEl, assetLibraryEl, closeLibraryBtnEl,
+    categoriesContainerEl, assetsGridContainerEl
+  );
+  builder = new Builder(scene, camera, settingsPanel, assetLibrary);
+
+  assetLibrary.onSelect(assetDef => {
+    builder.setActiveAsset(assetDef);
+  });
+
 } catch (e) {
-  die('UI init (Hotbar/Builder/Settings)', e);
+  die('UI init (Builder/Settings/Library)', e);
 }
 
 /* ---------- Resize ---------- */
@@ -81,7 +92,6 @@ function animate(){
   builder.update(dt);
 
   if (typeof scene.updateShadows === 'function') scene.updateShadows(camera);
-  // ✅ UPDATED LINE
   if (typeof scene.updateReflections === 'function') scene.updateReflections(renderer, camera);
 
   renderer.render(scene, camera);
@@ -94,3 +104,4 @@ startBtnEl.addEventListener('click', () => {
   startScreenEl.classList.add('hidden');
   animate();
 }, { once: true });
+
