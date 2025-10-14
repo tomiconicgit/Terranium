@@ -1,10 +1,19 @@
+// src/tools/Builder.js
 // Builder — advanced tools, snapping for new parts, and pit building logic
 import * as THREE from 'three';
 import { makeCatalog, buildPart } from '../assets/Catalog.js';
 
 const Z_FIGHT_OFFSET = 0.001;
 
-function findPartRoot(object, placedGroup) { /* ... */ }
+// Helper function to find the top-level part in the scene graph
+function findPartRoot(object, placedGroup) {
+  if (!object || object === placedGroup) return null;
+  let current = object;
+  while (current.parent && current.parent !== placedGroup) {
+    current = current.parent;
+  }
+  return (current.parent === placedGroup) ? current : null;
+}
 
 export class Builder {
   constructor(scene, camera, settingsPanel, assetLibrary){
@@ -33,22 +42,45 @@ export class Builder {
     this.prevKey = '';
     this._lastButtons = [];
     this._hover = null;
-    this.settingsPanel.onChange(() => this.applyGlobalSettings());
+    // FIX: Changed the onChange handler to invalidate the preview cache,
+    // which prevents a crash from the missing `applyGlobalSettings` method.
+    this.settingsPanel.onChange(() => { this.prevKey = ''; });
   }
 
   setActiveAsset(def) { this.activeAssetDef = def; this.prevKey = ''; }
 
-  pad(){ /* ... */ }
-  pressed(i){ /* ... */ }
+  // FIX: Added missing gamepad utility methods
+  getGamepad() {
+    const gamepads = navigator.getGamepads?.() || [];
+    for (const gp of gamepads) {
+        if (gp && gp.connected) return gp;
+    }
+    return null;
+  }
+
+  pressed(i) {
+    const gp = this.getGamepad();
+    const isPressed = gp ? (gp.buttons[i] && gp.buttons[i].pressed) : false;
+    const wasPressed = this._lastButtons[i] || false;
+    if (gp) {
+      this._lastButtons = gp.buttons.map(b => b.pressed);
+    } else if (this._lastButtons.length > 0) {
+      this._lastButtons = [];
+    }
+    return isPressed && !wasPressed;
+  }
 
   update(dt){
     const def = this.activeAssetDef;
     if (!def) { this.preview.visible = false; this.pitHighlight.visible = false; return; }
-    const placePressed = this.pressed(7);
-    const removePressed = this.pressed(6);
-    if (removePressed) { this.removeAimedObject(); return; }
+    const placePressed = this.pressed(7); // Right Trigger
+    const removePressed = this.pressed(6); // Left Trigger
+    
     this.ray.setFromCamera(new THREE.Vector2(0,0), this.camera);
     const hits = this.ray.intersectObjects([this.terrain, ...this.placedObjects.children], true);
+
+    if (removePressed) { this.removeAimedObject(hits); return; }
+    
     if (!hits.length){
         this.preview.visible = false; this._hover = null; this.pitHighlight.visible = false;
         return;
@@ -144,18 +176,18 @@ export class Builder {
     const hitRoot = findPartRoot(hit.object, this.placedObjects);
     const snapTile = (v) => Math.round(v / this.tile) * this.tile;
 
-    // **NEW**: Snapping for light bars
+    // Snapping for light bars
     if (def.baseType === 'light') {
         pos.copy(hit.point).addScaledVector(hit.face.normal, def.size.y/2);
-        // Align rotation with the surface normal
         const quat = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0,1,0), hit.face.normal);
         rot.setFromQuaternion(quat);
-        rot.y += settings.rotationY; // Allow user rotation around the aligned axis
+        rot.y += settings.rotationY;
         return { pos, rot };
     }
     
-    if (hitRoot) { /* ... priority snapping rules from previous version ... */ }
+    if (hitRoot) { /* ... priority snapping rules can be added here ... */ }
 
+    // Default placement on terrain or floors
     if (hit.object === this.terrain || hitRoot?.userData.part?.baseType === 'floor' || hitRoot?.userData.part?.baseType === 'ramp') {
         pos.set(snapTile(hit.point.x), hit.point.y + def.size.y / 2 + Z_FIGHT_OFFSET, snapTile(hit.point.z));
         return { pos, rot };
@@ -163,5 +195,72 @@ export class Builder {
     return null;
   }
   
-  // ... other methods like getEdgeSnap, getPipeSnap, updatePreview, placeOne, removeAimedObject (omitted for brevity)
+  // FIX: Added the missing updatePreview method. This resolves the TypeError.
+  updatePreview(def, pos, rot, settings) {
+    const key = `${def.id}_${JSON.stringify(settings)}`;
+    if (this.prevKey !== key) {
+        this.prevKey = key;
+        this.preview.clear();
+        const part = buildPart(def, settings, this.dynamicEnvMap);
+        if (!part) return;
+
+        part.traverse(child => {
+            if (child.isMesh) {
+                child.material = child.material.clone();
+                child.material.transparent = true;
+                child.material.opacity = 0.6;
+                child.castShadow = false;
+            }
+        });
+        this.preview.add(part);
+    }
+    
+    if (this.preview.children.length > 0) {
+        this.preview.position.copy(pos);
+        this.preview.rotation.copy(rot);
+        this.preview.visible = true;
+    } else {
+        this.preview.visible = false;
+    }
+  }
+
+  // FIX: Added the missing placeOne method
+  placeOne() {
+    if (!this.preview.visible || !this.activeAssetDef) return;
+    const settings = this.settingsPanel.getSettings();
+    const part = buildPart(this.activeAssetDef, settings, this.dynamicEnvMap);
+
+    part.position.copy(this.preview.position);
+    part.rotation.copy(this.preview.rotation);
+
+    if (part.userData.update) {
+        this.animatedObjects.push(part);
+    }
+    this.placedObjects.add(part);
+  }
+  
+  // FIX: Added the missing removeAimedObject method
+  removeAimedObject(hits) {
+    this.preview.visible = false;
+    this.pitHighlight.visible = false;
+    if (!hits || !hits.length) return;
+
+    const hitRoot = findPartRoot(hits[0].object, this.placedObjects);
+    if (hitRoot) {
+        const animIndex = this.animatedObjects.indexOf(hitRoot);
+        if (animIndex > -1) this.animatedObjects.splice(animIndex, 1);
+
+        hitRoot.traverse(obj => {
+            if (obj.isMesh) {
+                obj.geometry.dispose();
+                if (Array.isArray(obj.material)) {
+                    obj.material.forEach(m => m.dispose());
+                } else if (obj.material) {
+                    obj.material.dispose();
+                }
+            }
+        });
+        this.placedObjects.remove(hitRoot);
+    }
+  }
 }
