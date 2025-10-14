@@ -7,6 +7,7 @@ export class SettingsPanel {
     this.rotation = 0; // Stored in radians
 
     // Get DOM elements
+    this.shadingSelect = document.getElementById('shading');
     this.colorPicker = document.getElementById('color');
     this.roughnessSlider = document.getElementById('roughness');
     this.metalnessSlider = document.getElementById('metalness');
@@ -19,6 +20,7 @@ export class SettingsPanel {
 
     // Add event listeners that trigger a change
     const trigger = () => this.triggerChange();
+    this.shadingSelect.addEventListener('change', trigger);
     this.colorPicker.addEventListener('input', trigger);
     this.roughnessSlider.addEventListener('input', trigger);
     this.metalnessSlider.addEventListener('input', trigger);
@@ -57,6 +59,7 @@ export class SettingsPanel {
 
   getSettings() {
     return {
+      shading: this.shadingSelect.value,
       color: this.colorPicker.value,
       roughness: parseFloat(this.roughnessSlider.value),
       metalness: parseFloat(this.metalnessSlider.value),
