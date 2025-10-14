@@ -4,7 +4,7 @@ import { Scene } from './scene/Scene.js';
 import { GamepadFPV } from './controls/GamepadFPV.js';
 import { Builder } from './tools/Builder.js';
 import { SettingsPanel } from './ui/SettingsPanel.js';
-import { AssetLibrary } from './ui/AssetLibrary.js'; // New import
+import { AssetLibrary } from './ui/AssetLibrary.js';
 
 const mount = document.getElementById('app');
 const overlay = document.getElementById('errorOverlay');
@@ -21,7 +21,7 @@ const categoriesContainerEl = document.getElementById('categoriesContainer');
 const assetsGridContainerEl = document.getElementById('assetsGridContainer');
 
 function die(msg, err){
-  overlay.style.display = 'block';
+  overlay.style.display = 'flex';
   overlay.textContent = 'Boot failed: ' + msg + (err && err.stack ? '\n\n' + err.stack : '');
   throw err || new Error(msg);
 }
@@ -32,8 +32,8 @@ try {
   renderer = new THREE.WebGLRenderer({ antialias: true });
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  // **FIX**: Increased exposure for a brighter scene
-  renderer.toneMappingExposure = 1.0;
+  // **FIX**: Increased exposure for a brighter overall scene
+  renderer.toneMappingExposure = 1.1;
   renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
   renderer.setSize(window.innerWidth, window.innerHeight);
 
