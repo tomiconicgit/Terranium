@@ -65,8 +65,7 @@
       user-select:none; transition: background .2s;
     }
     .ui-button:hover { background:rgba(0,0,0,0.7); }
-
-    /* FIX #1: Increased z-index from 30 to 45 */
+    
     #settingsBtn { position:fixed; top:16px; left:16px; z-index:45; }
     #libraryBtn { position:fixed; top:16px; right:16px; z-index:45; }
 
@@ -119,20 +118,36 @@
     /* -------- Touch controls -------- */
     .touch-hide { display:none; }
     @media (pointer: coarse) {
-      #touchLeft, #touchRight, #touchButtons { display:block; }
+      /* CHANGE: Show the joystick elements on touch devices */
+      #touchLeft, #touchRight, #touchButtons, #joyBase, #joyKnob { display:block; }
     }
-    #touchLeft, #touchRight {
+    
+    /* CHANGE: Make touch zone smaller and fixed */
+    #touchLeft {
+      position: fixed; z-index: 40;
+      bottom: 20px; left: 20px;
+      width: 150px; height: 150px;
+      border-radius: 50%;
+      touch-action: none;
+    }
+    #touchRight {
       position: fixed; z-index: 40; bottom: 0; top: 0; width: 50vw; touch-action: none;
+      right: 0;
     }
-    #touchLeft { left: 0; }
-    #touchRight { right: 0; }
 
-    /* Joystick UI */
+    /* CHANGE: Joystick UI is now fixed */
     #joyBase, #joyKnob {
-      position: fixed; z-index: 41; border-radius: 50%; pointer-events: none; opacity: 0; transition: opacity .15s;
+      position: fixed; z-index: 41; border-radius: 50%; pointer-events: none;
+      transition: transform 0.1s; /* Added for smooth knob return */
     }
-    #joyBase { width: 140px; height: 140px; border: 2px solid rgba(255,255,255,.25); background: rgba(0,0,0,.25); }
-    #joyKnob { width: 72px; height: 72px; border: 2px solid rgba(255,255,255,.6); background: rgba(255,255,255,.1); }
+    #joyBase {
+      bottom: 25px; left: 25px; /* Fixed position */
+      width: 140px; height: 140px; border: 2px solid rgba(255,255,255,.25); background: rgba(0,0,0,.25);
+    }
+    #joyKnob {
+      bottom: 59px; left: 59px; /* Fixed position */
+      width: 72px; height: 72px; border: 2px solid rgba(255,255,255,.6); background: rgba(255,255,255,.1);
+    }
 
     /* Right button cluster */
     #touchButtons {
@@ -178,7 +193,6 @@
       <label for="reflectivity">Reflectivity</label>
       <input type="range" id="reflectivity" min="0" max="1" step="0.01" value="0.5">
     </div>
-
     <h3>Placement</h3>
     <div class="setting-row">
       <label>Rotation</label>
@@ -187,18 +201,7 @@
         <button id="rotate-right">↷</button>
       </div>
     </div>
-
-    <input type="color" id="floorColor1" style="display:none;">
-    <input type="color" id="floorColor2" style="display:none;">
-    <input type="color" id="floorColor3" style="display:none;">
-    <input type="color" id="floorColor4" style="display:none;">
-    <input type="color" id="floorColor5" style="display:none;">
-    <input type="color" id="wallColor1" style="display:none;">
-    <input type="color" id="wallColor2" style="display:none;">
-    <input type="color" id="wallColor3" style="display:none;">
-    <input type="color" id="wallColor4" style="display:none;">
-    <input type="color" id="wallColor5" style="display:none;">
-    <input type="range" id="tessellation" style="display:none;">
+    <input type="color" id="floorColor1" style="display:none;"><input type="color" id="floorColor2" style="display:none;"><input type="color" id="floorColor3" style="display:none;"><input type="color" id="floorColor4" style="display:none;"><input type="color" id="floorColor5" style="display:none;"><input type="color" id="wallColor1" style="display:none;"><input type="color" id="wallColor2" style="display:none;"><input type="color" id="wallColor3" style="display:none;"><input type="color" id="wallColor4" style="display:none;"><input type="color" id="wallColor5" style="display:none;"><input type="range" id="tessellation" style="display:none;">
   </div>
   
   <div id="assetLibrary" class="panel hidden">
@@ -207,10 +210,8 @@
       <div id="closeLibraryBtn" class="close-btn">&times;</div>
     </div>
     <div class="content">
-      <div id="categoriesContainer" class="categories">
-        </div>
-      <div id="assetsGridContainer" class="assets-grid">
-        </div>
+      <div id="categoriesContainer" class="categories"></div>
+      <div id="assetsGridContainer" class="assets-grid"></div>
     </div>
   </div>
 
@@ -219,8 +220,8 @@
 
   <div id="touchLeft" class="touch-hide"></div>
   <div id="touchRight" class="touch-hide"></div>
-  <div id="joyBase"></div>
-  <div id="joyKnob"></div>
+  <div id="joyBase" class="touch-hide"></div>
+  <div id="joyKnob" class="touch-hide"></div>
   <div id="touchButtons" class="touch-hide">
     <div id="btnCluster">
       <div id="btnY" class="btn">Y</div>
