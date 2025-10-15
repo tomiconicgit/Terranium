@@ -159,13 +159,63 @@
   <div id="settingsBtn" class="ui-button">⚙️</div>
   <button id="libraryBtn" class="ui-button">📦</button>
 
-  <div id="settingsPanel" class="panel hidden"> <!-- unchanged content --> </div>
-  <div id="assetLibrary" class="panel hidden">  <!-- unchanged content --> </div>
+  <div id="settingsPanel" class="panel hidden">
+    <h3>Material</h3>
+    <div class="setting-row">
+      <label for="primaryColor">Primary Color</label>
+      <input type="color" id="primaryColor" value="#9EAAB9">
+    </div>
+    <div class="setting-row">
+      <label for="roughness">Roughness</label>
+      <input type="range" id="roughness" min="0" max="1" step="0.01" value="0.7">
+    </div>
+    <div class="setting-row">
+      <label for="metalness">Metalness</label>
+      <input type="range" id="metalness" min="0" max="1" step="0.01" value="0.0">
+    </div>
+    <div class="setting-row">
+      <label for="reflectivity">Reflectivity</label>
+      <input type="range" id="reflectivity" min="0" max="1" step="0.01" value="0.5">
+    </div>
+
+    <h3>Placement</h3>
+    <div class="setting-row">
+      <label>Rotation</label>
+      <div class="control-group">
+        <button id="rotate-left">↶</button>
+        <button id="rotate-right">↷</button>
+      </div>
+    </div>
+
+    <input type="color" id="floorColor1" style="display:none;">
+    <input type="color" id="floorColor2" style="display:none;">
+    <input type="color" id="floorColor3" style="display:none;">
+    <input type="color" id="floorColor4" style="display:none;">
+    <input type="color" id="floorColor5" style="display:none;">
+    <input type="color" id="wallColor1" style="display:none;">
+    <input type="color" id="wallColor2" style="display:none;">
+    <input type="color" id="wallColor3" style="display:none;">
+    <input type="color" id="wallColor4" style="display:none;">
+    <input type="color" id="wallColor5" style="display:none;">
+    <input type="range" id="tessellation" style="display:none;">
+  </div>
+  
+  <div id="assetLibrary" class="panel">
+    <div class="header">
+      <h2>Asset Library</h2>
+      <div id="closeLibraryBtn" class="close-btn">&times;</div>
+    </div>
+    <div class="content">
+      <div id="categoriesContainer" class="categories">
+        </div>
+      <div id="assetsGridContainer" class="assets-grid">
+        </div>
+    </div>
+  </div>
 
   <div id="app"></div>
   <div id="reticle"></div>
 
-  <!-- Touch zones & UI -->
   <div id="touchLeft" class="touch-hide"></div>
   <div id="touchRight" class="touch-hide"></div>
   <div id="joyBase"></div>
