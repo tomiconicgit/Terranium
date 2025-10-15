@@ -53,7 +53,6 @@ try {
   scene = new Scene();
   camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 1500);
 
-  // Your original gamepad rig
   rig = new GamepadFPV(camera);
   rig.position.set(0, 3, 10);
   scene.add(rig);
@@ -98,12 +97,13 @@ renderer.domElement.addEventListener('mousedown', (e) => {
   if (e.button === 2) builder.queueRemoveClick();
 });
 
+
 /* ---------- Touch controls implementation ---------- */
-// Movement joystick state
+// CHANGE: Movement joystick state updated for fixed position
 const joy = {
   active: false,
-  originX: 0,
-  originY: 0,
+  centerX: 0, // Will be set on start
+  centerY: 0, // Will be set on start
   lx: 0, // [-1..1]
   ly: 0, // [-1..1]
   radius: 70
@@ -117,51 +117,45 @@ const lookTouch = {
   dy: 0
 };
 
-// Helpers
-function show(el, x, y){ el.style.opacity = '1'; el.style.transform = `translate(${x}px, ${y}px)`; }
-function hide(el){ el.style.opacity = '0'; }
-
+// CHANGE: show() and hide() helpers are no longer needed for the joystick
 function clamp(v, min, max){ return Math.max(min, Math.min(max, v)); }
 
-// Left joystick handlers
+// CHANGE: Left joystick handlers simplified for a fixed joystick
 function leftStart(e){
-  const t = e.changedTouches[0];
   joy.active = true;
-  joy.originX = t.clientX;
-  joy.originY = t.clientY;
-  // place base/knob centered
-  show(joyBase, joy.originX - 70, joy.originY - 70);
-  show(joyKnob, joy.originX - 36, joy.originY - 36);
   e.preventDefault();
 }
 function leftMove(e){
   if (!joy.active) return;
   const t = e.changedTouches[0];
-  const dx = t.clientX - joy.originX;
-  const dy = t.clientY - joy.originY;
+  const dx = t.clientX - joy.centerX;
+  const dy = t.clientY - joy.centerY;
   const dist = Math.hypot(dx, dy);
   const clamped = Math.min(dist, joy.radius);
   const ang = Math.atan2(dy, dx);
   const nx = Math.cos(ang) * clamped;
   const ny = Math.sin(ang) * clamped;
-  // Visual knob
-  show(joyKnob, joy.originX - 36 + nx, joy.originY - 36 + ny);
+  
+  // Visual knob: translate relative to its static CSS position
+  joyKnob.style.transform = `translate(${nx}px, ${ny}px)`;
+
   // Normalized axes
-  joy.lx = clamp(nx / joy.radius, -1, 1);   // right is +X
-  joy.ly = clamp(ny / joy.radius, -1, 1);   // down is +Y
+  joy.lx = clamp(nx / joy.radius, -1, 1);
+  joy.ly = clamp(ny / joy.radius, -1, 1);
   e.preventDefault();
 }
 function leftEnd(e){
   joy.active = false;
   joy.lx = 0; joy.ly = 0;
-  hide(joyBase); hide(joyKnob);
+  // Reset the knob's visual position
+  joyKnob.style.transform = 'translate(0, 0)';
   e.preventDefault();
 }
 
 touchLeft.addEventListener('touchstart', leftStart, { passive: false });
 touchLeft.addEventListener('touchmove', leftMove,   { passive: false });
 touchLeft.addEventListener('touchend',  leftEnd,    { passive: false });
-touchLeft.addEventListener('touchcancel', leftEnd,  { passive: false });
+touchLeft.addEventListener('touchcancel', leftEnd,  { passive:false });
 
 // Right swipe-look handlers
 function rightStart(e){
@@ -201,44 +195,41 @@ bindTap(btnX, () => builder.queuePlaceClick());
 bindTap(btnB, () => builder.queueRemoveClick());
 bindTap(btnY, () => { settingsPanel.rotationY += Math.PI/2; settingsPanel.triggerChange?.(); });
 
-// Show buttons on touch devices only
+// Show buttons on touch devices only (this is handled by CSS now)
 if (window.matchMedia && window.matchMedia('(pointer: coarse)').matches) {
   touchButtons.style.display = 'block';
 }
 
 /* ---------- Loop ---------- */
 const clock = new THREE.Clock();
-// Touch sensitivities
-const TOUCH_LOOK_SENS = 0.0020;   // radians per pixel
-const TOUCH_MOVE_SPEED = 6.5;     // m/s for full deflection
+const TOUCH_LOOK_SENS = 0.0020;
+const TOUCH_MOVE_SPEED = 6.5;
 
 function animate(){
   requestAnimationFrame(animate);
   const dt = Math.min(0.05, clock.getDelta());
 
-  // 1) Apply touch-look to rig by directly tweaking the rig’s internal yaw/pitch
+  // 1) Apply touch-look
   if (lookTouch.dx !== 0 || lookTouch.dy !== 0) {
-    // GamepadFPV stores yaw/pitch in _yaw/_pitch
     rig._yaw   -= lookTouch.dx * TOUCH_LOOK_SENS;
     rig._pitch -= lookTouch.dy * TOUCH_LOOK_SENS;
     const maxPitch = Math.PI/2 - 0.01;
     rig._pitch = Math.max(-maxPitch, Math.min(maxPitch, rig._pitch));
     rig.rotation.set(rig._pitch, rig._yaw, 0, 'YXZ');
-    // decay/consume frame delta
     lookTouch.dx = 0; lookTouch.dy = 0;
   }
 
-  // 2) Let the original gamepad rig update (real controller input)
+  // 2) Update gamepad rig
   rig.update(dt);
 
-  // 3) Add touch-joystick movement on top (so it works without a controller)
+  // 3) Add touch-joystick movement
   if (joy.lx !== 0 || joy.ly !== 0) {
     const dirF = new THREE.Vector3(0,0,-1).applyQuaternion(rig.quaternion);
     const dirR = new THREE.Vector3(1,0,0).applyQuaternion(rig.quaternion);
     dirF.y = 0; dirR.y = 0; dirF.normalize(); dirR.normalize();
     const vel = new THREE.Vector3();
     vel.addScaledVector(dirR, joy.lx * TOUCH_MOVE_SPEED);
-    vel.addScaledVector(dirF, -joy.ly * TOUCH_MOVE_SPEED); // up on stick = forward
+    vel.addScaledVector(dirF, -joy.ly * TOUCH_MOVE_SPEED);
     rig.position.addScaledVector(vel, dt);
   }
 
@@ -255,5 +246,13 @@ renderer.render(scene, camera);
 // Start: hide splash and run
 startBtnEl.addEventListener('click', () => {
   startScreenEl.classList.add('hidden');
+
+  // CHANGE: Calculate the joystick's fixed center position once after the UI is visible
+  if (window.matchMedia('(pointer: coarse)').matches) {
+    const joyRect = joyBase.getBoundingClientRect();
+    joy.centerX = joyRect.left + joyRect.width / 2;
+    joy.centerY = joyRect.top + joyRect.height / 2;
+  }
+  
   animate();
 }, { once: true });
