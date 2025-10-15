@@ -66,8 +66,9 @@
     }
     .ui-button:hover { background:rgba(0,0,0,0.7); }
 
-    #settingsBtn { position:fixed; top:16px; left:16px; z-index:30; }
-    #libraryBtn { position:fixed; top:16px; right:16px; z-index:30; }
+    /* FIX #1: Increased z-index from 30 to 45 */
+    #settingsBtn { position:fixed; top:16px; left:16px; z-index:45; }
+    #libraryBtn { position:fixed; top:16px; right:16px; z-index:45; }
 
     .panel {
       position:fixed;
@@ -200,7 +201,7 @@
     <input type="range" id="tessellation" style="display:none;">
   </div>
   
-  <div id="assetLibrary" class="panel">
+  <div id="assetLibrary" class="panel hidden">
     <div class="header">
       <h2>Asset Library</h2>
       <div id="closeLibraryBtn" class="close-btn">&times;</div>
