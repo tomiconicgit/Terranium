@@ -1,8 +1,17 @@
 // src/ui/EnginePanel.js
-// Scrollable panel; controls ONLY the editable plume (Plume B).
-// Ranges extended massively for placement.
+// Floating, scrollable panel to control the EDITABLE plume.
+// (The baked plume turns on/off with the same Ignite switch but is not editable.)
 
 export class EnginePanelUI {
+  /**
+   * @param {{
+   *   get:()=>any,
+   *   set:(patch:any)=>void,
+   *   setIgnition:(on:boolean)=>void,
+   *   getIgnition:()=>boolean
+   * }} api
+   * @param {Debugger} dbg
+   */
   constructor(api, dbg) {
     this.api = api;
     this.debugger = dbg;
@@ -10,6 +19,7 @@ export class EnginePanelUI {
     this._build();
   }
 
+  /** Call once the SuperHeavy FX has been created so the panel can drive it. */
   setReady(ready = true) {
     this.isReady = ready;
     this._refreshButtons();
@@ -23,6 +33,7 @@ export class EnginePanelUI {
       return;
     }
 
+    // Toggle button (top-left with other UI)
     const openBtn = document.createElement('button');
     openBtn.id = 'engine-panel-btn';
     openBtn.textContent = 'Engines';
@@ -33,76 +44,70 @@ export class EnginePanelUI {
     };
     container.appendChild(openBtn);
 
+    // The floating/scrollable panel (inline styles so no CSS dependency)
     const panel = document.createElement('div');
     panel.id = 'engine-panel';
+    panel.classList.add('no-look'); // hint for TouchPad to ignore camera look
     panel.style.cssText = `
       position:fixed; top:80px; left:20px; z-index:10;
-      background:rgba(30,30,36,0.9); backdrop-filter:blur(8px);
+      background:rgba(30,30,36,0.90); color:#fff;
       border:1px solid rgba(255,255,255,0.2); border-radius:8px;
-      width:360px; max-height:86vh; overflow:auto; padding:16px; display:none;
-      box-shadow:0 5px 15px rgba(0,0,0,0.35); color:#fff;
-      touch-action: pan-y; -webkit-overflow-scrolling: touch; overscroll-behavior: contain;
+      width:340px; max-height:76vh; overflow:auto; padding:16px; display:none;
+      box-shadow:0 5px 15px rgba(0,0,0,0.35);
+      backdrop-filter:blur(8px);
+      -webkit-overflow-scrolling: touch;
+      touch-action:none;
     `;
 
+    // Helper: one slider row
+    const row = (id, label, min, max, step, val) => `
+      <div class="slider-group" style="margin-bottom:12px;">
+        <label style="display:flex;justify-content:space-between;margin-bottom:6px;">
+          ${label} <span id="${id}-val">${val}</span>
+        </label>
+        <input type="range" id="${id}" min="${min}" max="${max}" step="${step}" value="${val}"
+               style="width:100%;accent-color:#4f8ff7;">
+      </div>`;
+
+    // Panel content
     panel.innerHTML = `
-      <h4 style="margin:0 0 4px;">Engine Controls</h4>
-      <div style="opacity:0.85; font-size:12px; margin-bottom:10px;">
-        Plume A = <b>baked</b> (locked). You are editing <b>Plume B</b>.
+      <h4 style="margin:0 0 12px;border-bottom:1px solid rgba(255,255,255,0.12);padding-bottom:8px;">
+        Engine Controls (Editable Plume)
+      </h4>
+
+      <div style="display:flex; gap:10px; margin-bottom:14px;">
+        <button id="ignite-btn"  style="flex:1;">Ignite</button>
+        <button id="cutoff-btn"  style="flex:1;">Cutoff</button>
       </div>
 
-      <div style="display:flex; gap:10px; margin-bottom:12px;">
-        <button id="ignite-btn">Ignite</button>
-        <button id="cutoff-btn">Cutoff</button>
-      </div>
+      ${row('fw','Flame Width ×','0.01','80','0.01','1.00')}
+      ${row('fh','Flame Height ×','0.01','120','0.01','1.00')}
+      ${row('fy','Flame Y Offset (m)','-600','1200','0.1','0.00')}
 
-      <div class="slider-group"><label>Flame Width × <span id="fw-val">1.00</span></label>
-        <input type="range" id="fw" min="0.01" max="300" step="0.01" value="1.0"></div>
+      ${row('in','Intensity ×','0','5','0.01','1.00')}
+      ${row('tp','Taper (0=wide,1=thin)','0','1','0.01','0.55')}
+      ${row('bg','Bulge (mid-body)','0','1','0.01','0.00')}
+      ${row('td','TearDrop (base pinch)','0','1','0.01','0.50')}
+      ${row('tb','Turbulence','0','1','0.01','0.35')}
+      ${row('ns','Noise Speed','0','5','0.01','1.60')}
+      ${row('ds','Mach Diamonds Strength','0','2','0.01','0.35')}
+      ${row('df','Mach Diamonds Frequency','2','40','0.1','14.0')}
 
-      <div class="slider-group"><label>Flame Height × <span id="fh-val">1.00</span></label>
-        <input type="range" id="fh" min="0.01" max="500" step="0.01" value="1.0"></div>
+      <hr style="border-color:rgba(255,255,255,0.12);margin:10px 0;">
+      ${row('rs','Rim Strength (halo)','0','1','0.01','0.25')}
+      ${row('rp','Rim Speed','0','6','0.01','2.50')}
 
-      <div class="slider-group"><label>Flame Y Offset (m): <span id="fy-val">0.00</span></label>
-        <input type="range" id="fy" min="-2000" max="2000" step="0.1" value="0"></div>
+      <hr style="border-color:rgba(255,255,255,0.12);margin:10px 0;">
+      ${row('cb','Color Mix – Blue','0','3','0.01','1.00')}
+      ${row('co','Color Mix – Orange','0','3','0.01','1.00')}
+      ${row('cw','Color Mix – White','0','3','0.01','1.00')}
 
-      <div class="slider-group"><label>Intensity × <span id="in-val">1.00</span></label>
-        <input type="range" id="in" min="0.0" max="5.0" step="0.01" value="1.0"></div>
+      <hr style="border-color:rgba(255,255,255,0.12);margin:10px 0;">
+      ${row('gx','FX Offset X (m)','-400','400','0.1','0.00')}
+      ${row('gy','FX Offset Y (m)','-1200','1200','0.1','0.00')}
+      ${row('gz','FX Offset Z (m)','-400','400','0.1','0.00')}
 
-      <div class="slider-group"><label>Taper (0=wide,1=thin): <span id="tp-val">0.55</span></label>
-        <input type="range" id="tp" min="0.0" max="1.0" step="0.01" value="0.55"></div>
-
-      <div class="slider-group"><label>Turbulence: <span id="tb-val">0.35</span></label>
-        <input type="range" id="tb" min="0.0" max="1.0" step="0.01" value="0.35"></div>
-
-      <div class="slider-group"><label>Noise Speed: <span id="ns-val">1.60</span></label>
-        <input type="range" id="ns" min="0.0" max="5.0" step="0.01" value="1.6"></div>
-
-      <div class="slider-group"><label>Mach Diamonds Strength: <span id="ds-val">0.00</span></label>
-        <input type="range" id="ds" min="0.0" max="2.0" step="0.01" value="0.35"></div>
-
-      <div class="slider-group"><label>Mach Diamonds Frequency: <span id="df-val">14.0</span></label>
-        <input type="range" id="df" min="2.0" max="40.0" step="0.1" value="14.0"></div>
-
-      <div class="slider-group"><label>Bulge (mid-plume): <span id="bg-val">0.00</span></label>
-        <input type="range" id="bg" min="0.0" max="2.0" step="0.01" value="0.0"></div>
-
-      <hr style="border-color: rgba(255,255,255,0.1); margin:12px 0;">
-
-      <div class="slider-group"><label>Blue Mix: <span id="cb-val">1.00</span></label>
-        <input type="range" id="cb" min="0.0" max="3.0" step="0.01" value="1.0"></div>
-      <div class="slider-group"><label>Orange Mix: <span id="co-val">1.00</span></label>
-        <input type="range" id="co" min="0.0" max="3.0" step="0.01" value="1.0"></div>
-      <div class="slider-group"><label>White Mix: <span id="cw-val">1.00</span></label>
-        <input type="range" id="cw" min="0.0" max="3.0" step="0.01" value="1.0"></div>
-
-      <hr style="border-color: rgba(255,255,255,0.1); margin:12px 0;">
-      <div class="slider-group"><label>FX Offset X (m): <span id="gx-val">0.00</span></label>
-        <input type="range" id="gx" min="-2000" max="2000" step="0.1" value="0"></div>
-      <div class="slider-group"><label>FX Offset Y (m): <span id="gy-val">0.00</span></label>
-        <input type="range" id="gy" min="-3000" max="3000" step="0.1" value="0"></div>
-      <div class="slider-group"><label>FX Offset Z (m): <span id="gz-val">0.00</span></label>
-        <input type="range" id="gz" min="-2000" max="2000" step="0.1" value="0"></div>
-
-      <button id="copy-engine-config" style="margin-top:10px; width:100%;">Copy Config</button>
+      <button id="copy-engine-config" style="margin-top:8px;width:100%;">Copy Current Config</button>
     `;
     document.body.appendChild(panel);
     this.panel = panel;
@@ -113,24 +118,39 @@ export class EnginePanelUI {
     ignite.onclick = () => { if (!this.isReady) return this._notReady(); this.api.setIgnition(true);  this._refreshButtons(); };
     cutoff.onclick = () => { if (!this.isReady) return this._notReady(); this.api.setIgnition(false); this._refreshButtons(); };
 
-    // Sliders -> apply to EDITABLE plume only
-    const ids = ['fw','fh','fy','in','tp','tb','ns','ds','df','bg','cb','co','cw','gx','gy','gz'];
+    // Collect slider IDs
+    const ids = [
+      'fw','fh','fy',
+      'in','tp','bg','td','tb','ns','ds','df',
+      'rs','rp',
+      'cb','co','cw',
+      'gx','gy','gz'
+    ];
+
+    // Apply to EngineFX on input
     const apply = () => {
       if (!this.isReady) return;
       this.api.set({
         flameWidthFactor:  parseFloat(panel.querySelector('#fw').value),
         flameHeightFactor: parseFloat(panel.querySelector('#fh').value),
         flameYOffset:      parseFloat(panel.querySelector('#fy').value),
+
         intensity:         parseFloat(panel.querySelector('#in').value),
         taper:             parseFloat(panel.querySelector('#tp').value),
+        bulge:             parseFloat(panel.querySelector('#bg').value),
+        tear:              parseFloat(panel.querySelector('#td').value),
         turbulence:        parseFloat(panel.querySelector('#tb').value),
         noiseSpeed:        parseFloat(panel.querySelector('#ns').value),
         diamondsStrength:  parseFloat(panel.querySelector('#ds').value),
         diamondsFreq:      parseFloat(panel.querySelector('#df').value),
-        bulge:             parseFloat(panel.querySelector('#bg').value),
+
+        rimStrength:       parseFloat(panel.querySelector('#rs').value),
+        rimSpeed:          parseFloat(panel.querySelector('#rp').value),
+
         colorBlue:         parseFloat(panel.querySelector('#cb').value),
         colorOrange:       parseFloat(panel.querySelector('#co').value),
         colorWhite:        parseFloat(panel.querySelector('#cw').value),
+
         groupOffsetX:      parseFloat(panel.querySelector('#gx').value),
         groupOffsetY:      parseFloat(panel.querySelector('#gy').value),
         groupOffsetZ:      parseFloat(panel.querySelector('#gz').value),
@@ -139,6 +159,7 @@ export class EnginePanelUI {
     };
     ids.forEach(id => panel.querySelector('#'+id).oninput = apply);
 
+    // Copy button
     panel.querySelector('#copy-engine-config').onclick = () => {
       const cfg = this.api.get();
       navigator.clipboard.writeText(JSON.stringify(cfg, null, 2))
@@ -146,6 +167,7 @@ export class EnginePanelUI {
         .catch(err => this.debugger?.handleError(err, 'Clipboard'));
     };
 
+    // First sync
     this._refreshButtons();
     this._syncLabels();
   }
@@ -161,7 +183,7 @@ export class EnginePanelUI {
   }
 
   _syncLabels() {
-    const c = this.api.get();
+    const c = this.api.get?.() ?? {};
     const set = (id, v) => { const el = this.panel.querySelector(id); if (el) el.textContent = v; };
 
     set('#fw-val', (c.flameWidthFactor ?? 1).toFixed(2));
@@ -170,12 +192,15 @@ export class EnginePanelUI {
 
     set('#in-val', (c.intensity ?? 1).toFixed(2));
     set('#tp-val', (c.taper ?? 0.55).toFixed(2));
+    set('#bg-val', (c.bulge ?? 0).toFixed(2));
+    set('#td-val', (c.tear ?? 0.5).toFixed(2));
     set('#tb-val', (c.turbulence ?? 0.35).toFixed(2));
     set('#ns-val', (c.noiseSpeed ?? 1.6).toFixed(2));
     set('#ds-val', (c.diamondsStrength ?? 0).toFixed(2));
     set('#df-val', (c.diamondsFreq ?? 14).toFixed(1));
 
-    set('#bg-val', (c.bulge ?? 0).toFixed(2));
+    set('#rs-val', (c.rimStrength ?? 0.25).toFixed(2));
+    set('#rp-val', (c.rimSpeed ?? 2.5).toFixed(2));
 
     set('#cb-val', (c.colorBlue ?? 1).toFixed(2));
     set('#co-val', (c.colorOrange ?? 1).toFixed(2));
