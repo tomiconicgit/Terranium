@@ -62,7 +62,7 @@ export class Main {
         // Controls
         this.controls = new TouchPad();
         this.playerVelocity = new THREE.Vector3();
-        this.lookSpeed = 0.002;
+        this.lookSpeed = 0.004; // ADJUSTED: Increased look sensitivity
         this.playerHeight = 2.0; // Eye-level height above the ground
 
         // Raycaster for terrain collision
@@ -99,16 +99,10 @@ export class Main {
 
         // --- 1. Update Camera Rotation (Look) ---
         if (lookVector.length() > 0) {
-            // Horizontal rotation (turning left/right)
             this.camera.rotation.y -= lookVector.x * this.lookSpeed;
-            
-            // Vertical rotation (looking up/down)
             this.camera.rotation.x -= lookVector.y * this.lookSpeed;
-            
-            // Clamp vertical rotation to prevent flipping over
             this.camera.rotation.x = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, this.camera.rotation.x));
-            
-            this.controls.lookVector.set(0, 0); // Reset after applying
+            this.controls.lookVector.set(0, 0);
         }
 
         // --- 2. Update Camera Position (Move) ---
@@ -122,12 +116,10 @@ export class Main {
         const rayOrigin = new THREE.Vector3(this.camera.position.x, 50, this.camera.position.z);
         this.raycaster.set(rayOrigin, this.rayDirection);
         
-        // Find intersections with named terrain objects
         const terrainMeshes = this.terrain.children.filter(c => c.name === "sand_terrain" || c.geometry.type === "PlaneGeometry");
         const intersects = this.raycaster.intersectObjects(terrainMeshes);
 
         if (intersects.length > 0) {
-            // Set the camera's height to be the intersection point plus the player's height
             this.camera.position.y = intersects[0].point.y + this.playerHeight;
         }
     }
@@ -136,7 +128,6 @@ export class Main {
         requestAnimationFrame(() => this.animate());
         const deltaTime = this.clock.getDelta();
         
-        // Only update if there is time elapsed to prevent errors
         if (deltaTime > 0) {
             this.updatePlayer(deltaTime);
         }
