@@ -161,4 +161,3 @@ class GameLoader {
 
 // Instantiate the loader to kick everything off.
 new GameLoader();
-
