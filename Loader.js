@@ -14,54 +14,10 @@ class Loader {
         this.loaderContainer = document.getElementById('loader-container');
         this.debuggerMessageArea = document.getElementById('debugger-message-area');
 
-        // Target the container for the logo
-        this.logoContainer = document.querySelector('.loader-image-side');
-        this.createProceduralLogo(); 
-
         // Initial setup for the debugger message area
         this.debuggerMessageArea.style.display = 'none';
 
         this.loadManifest();
-    }
-
-    createProceduralLogo() {
-        // ▼▼▼ FIX IS HERE ▼▼▼
-        // First, check if the logo container element actually exists before using it.
-        if (!this.logoContainer) {
-            console.warn('Loader: Could not find logo container (.loader-image-side). The SVG logo will not be displayed.');
-            return; // Exit the function to prevent the error.
-        }
-        // ▲▲▲ FIX IS HERE ▲▲▲
-
-        const svgNS = "http://www.w3.org/2000/svg";
-        const svg = document.createElementNS(svgNS, "svg");
-        svg.setAttribute("viewBox", "0 0 100 100");
-        svg.id = "loader-logo";
-
-        const colors = ["#4f8ff7", "#8A2BE2", "#41E0D0"];
-        for (let i = 0; i < 3; i++) {
-            const rect = document.createElementNS(svgNS, "rect");
-            rect.setAttribute("x", "25");
-            rect.setAttribute("y", "25");
-            rect.setAttribute("width", "50");
-            rect.setAttribute("height", "50");
-            rect.setAttribute("fill", "none");
-            rect.setAttribute("stroke", colors[i]);
-            rect.setAttribute("stroke-width", "3");
-            
-            const animate = document.createElementNS(svgNS, "animateTransform");
-            animate.setAttribute("attributeName", "transform");
-            animate.setAttribute("type", "rotate");
-            animate.setAttribute("from", `${i * 30} 50 50`);
-            animate.setAttribute("to", `${360 + i * 30} 50 50`);
-            animate.setAttribute("dur", `${8 + i * 2}s`);
-            animate.setAttribute("repeatCount", "indefinite");
-            
-            rect.appendChild(animate);
-            svg.appendChild(rect);
-        }
-        // This line will now only run if this.logoContainer is valid
-        this.logoContainer.appendChild(svg);
     }
 
     async loadManifest() {
