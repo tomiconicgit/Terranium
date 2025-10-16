@@ -1,5 +1,6 @@
 // src/ui/EnginePanel.js
 // Floating panel: ignite/cutoff + single-plume controls with huge ranges.
+// Now scrollable on mobile, with Bulge and Color Mix (Blue/Orange/White) sliders.
 
 export class EnginePanelUI {
   /**
@@ -37,15 +38,16 @@ export class EnginePanelUI {
     };
     container.appendChild(openBtn);
 
-    // Panel (no CSS dependency for .hidden)
+    // Panel — make it scrollable and allow vertical panning on touch
     const panel = document.createElement('div');
     panel.id = 'engine-panel';
     panel.style.cssText = `
       position:fixed; top:80px; left:20px; z-index:10;
-      background:rgba(30,30,36,0.85); backdrop-filter:blur(8px);
+      background:rgba(30,30,36,0.9); backdrop-filter:blur(8px);
       border:1px solid rgba(255,255,255,0.2); border-radius:8px;
-      width:320px; max-height:74vh; overflow:auto; padding:16px; display:none;
-      box-shadow:0 5px 15px rgba(0,0,0,0.3); color:#fff;
+      width:340px; max-height:86vh; overflow:auto; padding:16px; display:none;
+      box-shadow:0 5px 15px rgba(0,0,0,0.35); color:#fff;
+      touch-action: pan-y; -webkit-overflow-scrolling: touch; overscroll-behavior: contain;
     `;
 
     panel.innerHTML = `
@@ -77,11 +79,23 @@ export class EnginePanelUI {
       <div class="slider-group"><label>Noise Speed: <span id="ns-val">1.60</span></label>
         <input type="range" id="ns" min="0.0" max="5.0" step="0.01" value="1.6"></div>
 
-      <div class="slider-group"><label>Diamonds Strength: <span id="ds-val">0.35</span></label>
+      <div class="slider-group"><label>Mach Diamonds Strength: <span id="ds-val">0.35</span></label>
         <input type="range" id="ds" min="0.0" max="2.0" step="0.01" value="0.35"></div>
 
-      <div class="slider-group"><label>Diamonds Frequency: <span id="df-val">14.0</span></label>
+      <div class="slider-group"><label>Mach Diamonds Frequency: <span id="df-val">14.0</span></label>
         <input type="range" id="df" min="2.0" max="40.0" step="0.1" value="14.0"></div>
+
+      <div class="slider-group"><label>Bulge (mid-plume): <span id="bg-val">0.00</span></label>
+        <input type="range" id="bg" min="0.0" max="2.0" step="0.01" value="0.0"></div>
+
+      <hr style="border-color: rgba(255,255,255,0.1); margin:12px 0;">
+
+      <div class="slider-group"><label>Blue Mix: <span id="cb-val">1.00</span></label>
+        <input type="range" id="cb" min="0.0" max="3.0" step="0.01" value="1.0"></div>
+      <div class="slider-group"><label>Orange Mix: <span id="co-val">1.00</span></label>
+        <input type="range" id="co" min="0.0" max="3.0" step="0.01" value="1.0"></div>
+      <div class="slider-group"><label>White Mix: <span id="cw-val">1.00</span></label>
+        <input type="range" id="cw" min="0.0" max="3.0" step="0.01" value="1.0"></div>
 
       <hr style="border-color: rgba(255,255,255,0.1); margin:12px 0;">
       <div class="slider-group"><label>FX Offset X (m): <span id="gx-val">0.00</span></label>
@@ -103,19 +117,27 @@ export class EnginePanelUI {
     cutoff.onclick = () => { if (!this.isReady) return this._notReady(); this.api.setIgnition(false); this._refreshButtons(); };
 
     // Sliders
-    const ids = ['fw','fh','fy','in','tp','tb','ns','ds','df','gx','gy','gz'];
+    const ids = ['fw','fh','fy','in','tp','tb','ns','ds','df','bg','cb','co','cw','gx','gy','gz'];
     const apply = () => {
       if (!this.isReady) return;
       this.api.set({
         flameWidthFactor:  parseFloat(panel.querySelector('#fw').value),
         flameHeightFactor: parseFloat(panel.querySelector('#fh').value),
         flameYOffset:      parseFloat(panel.querySelector('#fy').value),
+
         intensity:         parseFloat(panel.querySelector('#in').value),
         taper:             parseFloat(panel.querySelector('#tp').value),
         turbulence:        parseFloat(panel.querySelector('#tb').value),
         noiseSpeed:        parseFloat(panel.querySelector('#ns').value),
         diamondsStrength:  parseFloat(panel.querySelector('#ds').value),
         diamondsFreq:      parseFloat(panel.querySelector('#df').value),
+
+        bulge:             parseFloat(panel.querySelector('#bg').value),
+
+        colorBlue:         parseFloat(panel.querySelector('#cb').value),
+        colorOrange:       parseFloat(panel.querySelector('#co').value),
+        colorWhite:        parseFloat(panel.querySelector('#cw').value),
+
         groupOffsetX:      parseFloat(panel.querySelector('#gx').value),
         groupOffsetY:      parseFloat(panel.querySelector('#gy').value),
         groupOffsetZ:      parseFloat(panel.querySelector('#gz').value),
@@ -160,6 +182,12 @@ export class EnginePanelUI {
     set('#ns-val', (c.noiseSpeed ?? 1.6).toFixed(2));
     set('#ds-val', (c.diamondsStrength ?? 0).toFixed(2));
     set('#df-val', (c.diamondsFreq ?? 14).toFixed(1));
+
+    set('#bg-val', (c.bulge ?? 0).toFixed(2));
+
+    set('#cb-val', (c.colorBlue ?? 1).toFixed(2));
+    set('#co-val', (c.colorOrange ?? 1).toFixed(2));
+    set('#cw-val', (c.colorWhite ?? 1).toFixed(2));
 
     set('#gx-val', (c.groupOffsetX ?? 0).toFixed(2));
     set('#gy-val', (c.groupOffsetY ?? 0).toFixed(2));
