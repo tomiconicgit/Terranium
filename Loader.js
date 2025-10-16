@@ -8,15 +8,14 @@ class Loader {
         
         // DOM Elements for the new UI
         this.progressBar = document.getElementById('progress-bar');
-        this.percentageText = document.getElementById('progress-percentage-text'); // Changed ID
-        this.statusText = document.getElementById('loader-status-text'); // Changed ID
+        this.percentageText = document.getElementById('progress-percentage-text');
+        this.statusText = document.getElementById('loader-status-text');
         this.enterButton = document.getElementById('enter-button');
         this.loaderContainer = document.getElementById('loader-container');
-        this.debuggerMessageArea = document.getElementById('debugger-message-area'); // New element
-        
-        // You can decide if the logo goes on the image side or is removed here
-        // For now, I'll keep the procedural logo and add it to the image side as an example
-        this.logoContainer = document.querySelector('.loader-image-side'); // Place logo on image side
+        this.debuggerMessageArea = document.getElementById('debugger-message-area');
+
+        // Target the container for the logo
+        this.logoContainer = document.querySelector('.loader-image-side');
         this.createProceduralLogo(); 
 
         // Initial setup for the debugger message area
@@ -26,11 +25,18 @@ class Loader {
     }
 
     createProceduralLogo() {
-        // Simple procedural SVG: A rotating, multi-layered crystal/planet shape
+        // ▼▼▼ FIX IS HERE ▼▼▼
+        // First, check if the logo container element actually exists before using it.
+        if (!this.logoContainer) {
+            console.warn('Loader: Could not find logo container (.loader-image-side). The SVG logo will not be displayed.');
+            return; // Exit the function to prevent the error.
+        }
+        // ▲▲▲ FIX IS HERE ▲▲▲
+
         const svgNS = "http://www.w3.org/2000/svg";
         const svg = document.createElementNS(svgNS, "svg");
         svg.setAttribute("viewBox", "0 0 100 100");
-        svg.id = "loader-logo"; // Add ID for CSS positioning if desired
+        svg.id = "loader-logo";
 
         const colors = ["#4f8ff7", "#8A2BE2", "#41E0D0"];
         for (let i = 0; i < 3; i++) {
@@ -54,6 +60,7 @@ class Loader {
             rect.appendChild(animate);
             svg.appendChild(rect);
         }
+        // This line will now only run if this.logoContainer is valid
         this.logoContainer.appendChild(svg);
     }
 
@@ -64,7 +71,7 @@ class Loader {
             
             for (let i = 0; i < totalItems; i++) {
                 const item = manifest[i];
-                this.updateStatus(`Installing ${item.name}...`); // Changed text to match reference
+                this.updateStatus(`Installing ${item.name}...`);
                 
                 await new Promise(resolve => setTimeout(resolve, 150)); 
                 
@@ -97,10 +104,10 @@ class Loader {
     }
 
     loadingFailed(error) {
-        // Display error directly in the loader's debugger message area
         this.debuggerMessageArea.style.display = 'block';
+        const safeErrorMessage = error.message.replace(/'/g, "\\'").replace(/"/g, '&quot;');
         this.debuggerMessageArea.innerHTML = `<h4>🛑 Error Detected:</h4><p>${error.message}</p>
-            <button onclick="navigator.clipboard.writeText('${error.message.replace(/'/g, "\\'")}')
+            <button onclick="navigator.clipboard.writeText('${safeErrorMessage}')
             .then(() => alert('Error copied!'))
             .catch(err => console.error('Failed to copy error: ', err))">Copy Error</button>`;
         this.progressBar.style.backgroundColor = '#d43b3b';
@@ -118,7 +125,6 @@ class Loader {
     }
 }
 
-// Initialize the loader and register the service worker when the page is ready
 window.onload = () => {
     if ('serviceWorker' in navigator) {
         navigator.serviceWorker.register('/sw.js')
