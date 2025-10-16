@@ -38,6 +38,9 @@ export class EnginePanelUI {
     const panel = document.createElement('div');
     panel.id = 'engine-panel';
     panel.classList.add('floating-panel', 'hidden');
+    panel.style.maxHeight = '70vh';
+    panel.style.overflow = 'auto';
+
     panel.innerHTML = `
       <h4>Engine Controls</h4>
 
@@ -46,26 +49,42 @@ export class EnginePanelUI {
         <button id="cutoff-btn">Cutoff</button>
       </div>
 
+      <h5 style="margin:12px 0 6px;">Flames</h5>
       <div class="slider-group">
         <label>Flame Width × <span id="fw-val">1.00</span></label>
-        <input type="range" id="fw" min="0.1" max="4.0" step="0.01" value="1.0">
+        <input type="range" id="fw" min="0.01" max="50.0" step="0.01" value="1.0">
       </div>
       <div class="slider-group">
         <label>Flame Height × <span id="fh-val">1.00</span></label>
-        <input type="range" id="fh" min="0.1" max="4.0" step="0.01" value="1.0">
+        <input type="range" id="fh" min="0.01" max="80.0" step="0.01" value="1.0">
       </div>
       <div class="slider-group">
         <label>Flame Y Offset (m): <span id="fy-val">0.00</span></label>
-        <input type="range" id="fy" min="-5" max="5" step="0.01" value="0">
+        <input type="range" id="fy" min="-200" max="200" step="0.1" value="0">
       </div>
 
+      <h5 style="margin:12px 0 6px;">Smoke</h5>
       <div class="slider-group">
         <label>Smoke Size × <span id="ss-val">1.00</span></label>
-        <input type="range" id="ss" min="0.1" max="4.0" step="0.01" value="1.0">
+        <input type="range" id="ss" min="0.10" max="50.0" step="0.01" value="1.0">
       </div>
       <div class="slider-group">
         <label>Smoke Y Offset (m): <span id="sy-val">0.00</span></label>
-        <input type="range" id="sy" min="-3" max="6" step="0.01" value="0">
+        <input type="range" id="sy" min="-200" max="400" step="0.1" value="0">
+      </div>
+
+      <h5 style="margin:12px 0 6px;">Whole FX Block Offset</h5>
+      <div class="slider-group">
+        <label>FX Offset X (m): <span id="gx-val">0.00</span></label>
+        <input type="range" id="gx" min="-50" max="50" step="0.1" value="0">
+      </div>
+      <div class="slider-group">
+        <label>FX Offset Y (m): <span id="gy-val">0.00</span></label>
+        <input type="range" id="gy" min="-200" max="400" step="0.1" value="0">
+      </div>
+      <div class="slider-group">
+        <label>FX Offset Z (m): <span id="gz-val">0.00</span></label>
+        <input type="range" id="gz" min="-50" max="50" step="0.1" value="0">
       </div>
 
       <button id="copy-engine-config">Copy Config</button>
@@ -95,6 +114,9 @@ export class EnginePanelUI {
     const fy = panel.querySelector('#fy');
     const ss = panel.querySelector('#ss');
     const sy = panel.querySelector('#sy');
+    const gx = panel.querySelector('#gx');
+    const gy = panel.querySelector('#gy');
+    const gz = panel.querySelector('#gz');
 
     const onSlide = () => {
       if (!this.isReady) return; // ignore tweaks until FX is present
@@ -104,11 +126,14 @@ export class EnginePanelUI {
         flameYOffset:      parseFloat(fy.value),
         smokeSizeFactor:   parseFloat(ss.value),
         smokeYOffset:      parseFloat(sy.value),
+        groupOffsetX:      parseFloat(gx.value),
+        groupOffsetY:      parseFloat(gy.value),
+        groupOffsetZ:      parseFloat(gz.value),
       });
       this._updateLabels();
     };
 
-    fw.oninput = fh.oninput = fy.oninput = ss.oninput = sy.oninput = onSlide;
+    fw.oninput = fh.oninput = fy.oninput = ss.oninput = sy.oninput = gx.oninput = gy.oninput = gz.oninput = onSlide;
 
     // Copy config
     panel.querySelector('#copy-engine-config').onclick = () => {
@@ -140,5 +165,12 @@ export class EnginePanelUI {
     this.panel.querySelector('#fy-val').textContent = cfg.flameYOffset.toFixed(2);
     this.panel.querySelector('#ss-val').textContent = cfg.smokeSizeFactor.toFixed(2);
     this.panel.querySelector('#sy-val').textContent = cfg.smokeYOffset.toFixed(2);
+
+    // If offsets exist in cfg (older builds won't until FX is ready)
+    if ('groupOffsetX' in cfg) {
+      this.panel.querySelector('#gx-val').textContent = cfg.groupOffsetX.toFixed(2);
+      this.panel.querySelector('#gy-val').textContent = cfg.groupOffsetY.toFixed(2);
+      this.panel.querySelector('#gz-val').textContent = cfg.groupOffsetZ.toFixed(2);
+    }
   }
 }
