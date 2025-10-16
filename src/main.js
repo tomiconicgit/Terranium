@@ -53,7 +53,7 @@ try {
   camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 2000);
   
   rig = new GamepadFPV(camera);
-  rig.position.set(0, 15, 20);
+  rig.position.set(0, 15, 40); // Start further back to see the rocket
   scene.add(rig);
 } catch (e) {
   die('Renderer/scene init', e);
@@ -81,8 +81,8 @@ function loadModel(file) {
                 }
             });
 
-            // Raycast to place model on the terrain surface
-            raycaster.set(new THREE.Vector3(0, 100, 0), new THREE.Vector3(0, -1, 0));
+            // Raycast to place model on the terrain surface, away from the center
+            raycaster.set(new THREE.Vector3(30, 100, 30), new THREE.Vector3(0, -1, 0));
             const terrain = scene.getObjectByName('terrain');
             if (terrain) {
                 const intersects = raycaster.intersectObject(terrain);
@@ -90,7 +90,7 @@ function loadModel(file) {
                     model.position.copy(intersects[0].point);
                 }
             } else {
-                 model.position.set(0, 10, 0); // Fallback
+                 model.position.set(30, 10, 30); // Fallback
             }
 
             scene.add(model);
@@ -152,7 +152,7 @@ copyDataBtn.addEventListener('click', () => {
     });
 });
 
-/* ---------- Core App Logic (Resize, Controls, Loop) - Unchanged ---------- */
+/* ---------- Core App Logic (Resize, Controls, Loop) ---------- */
 window.addEventListener('resize', () => {
   const w = window.innerWidth;
   const h = window.innerHeight;
