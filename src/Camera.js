@@ -9,7 +9,8 @@ export class CameraRig extends THREE.Object3D {
     this._pitch = 0;
     this._yaw = 0;
 
-    this.camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 2000);
+    // Increased far plane to 3000 to see the larger skydome
+    this.camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 3000);
     this.camera.position.set(0, 1.6, 0); // Eye-level height
     this.add(this.camera);
 
