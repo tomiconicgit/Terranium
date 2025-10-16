@@ -9,7 +9,14 @@ export class EnginePanelUI {
   constructor(api, dbg) {
     this.api = api;
     this.debugger = dbg;
+    this.isReady = false; // becomes true when Main creates EngineFX
     this._build();
+  }
+
+  // Allow Main to enable the panel once FX exists
+  setReady(ready = true) {
+    this.isReady = ready;
+    this._refreshButtons();
   }
 
   _build() {
@@ -30,7 +37,7 @@ export class EnginePanelUI {
     // Panel
     const panel = document.createElement('div');
     panel.id = 'engine-panel';
-    panel.classList.add('hidden'); // reuse same hidden animation as transform panel
+    panel.classList.add('floating-panel', 'hidden');
     panel.innerHTML = `
       <h4>Engine Controls</h4>
 
@@ -67,23 +74,30 @@ export class EnginePanelUI {
     document.body.appendChild(panel);
     this.panel = panel;
 
-    // Hook up controls
-    panel.querySelector('#ignite-btn').onclick = () => {
+    // Buttons
+    const igniteBtn = panel.querySelector('#ignite-btn');
+    const cutoffBtn = panel.querySelector('#cutoff-btn');
+
+    igniteBtn.onclick = () => {
+      if (!this.isReady) return this.debugger?.warn('Engines not ready yet (model still loading).', 'Engines');
       this.api.setIgnition(true);
       this._refreshButtons();
     };
-    panel.querySelector('#cutoff-btn').onclick = () => {
+    cutoffBtn.onclick = () => {
+      if (!this.isReady) return this.debugger?.warn('Engines not ready yet (model still loading).', 'Engines');
       this.api.setIgnition(false);
       this._refreshButtons();
     };
 
+    // Sliders
     const fw = panel.querySelector('#fw');
     const fh = panel.querySelector('#fh');
     const fy = panel.querySelector('#fy');
     const ss = panel.querySelector('#ss');
     const sy = panel.querySelector('#sy');
 
-    fw.oninput = fh.oninput = fy.oninput = ss.oninput = sy.oninput = () => {
+    const onSlide = () => {
+      if (!this.isReady) return; // ignore tweaks until FX is present
       this.api.set({
         flameWidthFactor:  parseFloat(fw.value),
         flameHeightFactor: parseFloat(fh.value),
@@ -94,6 +108,9 @@ export class EnginePanelUI {
       this._updateLabels();
     };
 
+    fw.oninput = fh.oninput = fy.oninput = ss.oninput = sy.oninput = onSlide;
+
+    // Copy config
     panel.querySelector('#copy-engine-config').onclick = () => {
       const cfg = this.api.get();
       const json = JSON.stringify(cfg, null, 2);
@@ -111,8 +128,9 @@ export class EnginePanelUI {
     const on = this.api.getIgnition();
     const ignite = this.panel.querySelector('#ignite-btn');
     const cutoff = this.panel.querySelector('#cutoff-btn');
-    ignite.disabled = on;
-    cutoff.disabled = !on;
+
+    ignite.disabled = !this.isReady || on;
+    cutoff.disabled = !this.isReady || !on;
   }
 
   _updateLabels() {
