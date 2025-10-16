@@ -6,6 +6,15 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1.0, user-scalable=no" />
   <meta name="theme-color" content="#0a0a0a" />
   <link rel="manifest" href="./manifest.webmanifest" />
+  <!-- Import map for Three.js and add-ons -->
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://unpkg.com/three@0.169.0/build/three.module.js",
+      "three/addons/": "https://unpkg.com/three@0.169.0/examples/jsm/"
+    }
+  }
+  </script>
   <style>
     :root { --accent: #4dd2ff; }
     html, body { height: 100%; margin: 0; background: #05070b; font-family: system-ui, sans-serif; }
