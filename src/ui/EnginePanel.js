@@ -1,19 +1,19 @@
 // src/ui/EnginePanel.js
-// --- CORRECTED VERSION ---
-// Updated to reflect new single-flame defaults and renamed color parameter.
+// Sliders now step by 0.50 and each value has a number box for precise typing.
 
 export class EnginePanelUI {
   constructor(api, dbg) {
     this.api = api;
     this.debugger = dbg;
     this.isReady = false;
+    this.inputs = {};   // map of {id: {slider, box, min, max}}
     this._build();
   }
 
   setReady(ready = true) {
     this.isReady = ready;
     this._refreshButtons();
-    this._syncLabels();
+    this._syncValuesFromAPI();
   }
 
   _build() {
@@ -38,93 +38,144 @@ export class EnginePanelUI {
     panel.style.cssText = `
       position:fixed; top:80px; left:20px; z-index:10; background:rgba(30,30,36,0.90);
       color:#fff; border:1px solid rgba(255,255,255,0.2); border-radius:8px;
-      width:340px; max-height:76vh; overflow:auto; padding:16px; display:none;
+      width:360px; max-height:76vh; overflow:auto; padding:16px; display:none;
       box-shadow:0 5px 15px rgba(0,0,0,0.35); backdrop-filter:blur(8px);
       -webkit-overflow-scrolling: touch; touch-action: pan-y;`;
 
-    const row = (id, label, min, max, step, val) => `
-      <div class="slider-group" style="margin-bottom:12px;">
-        <label style="display:flex;justify-content:space-between;margin-bottom:6px;">
-          ${label} <span id="${id}-val">${val}</span></label>
-        <input type="range" id="${id}" min="${min}" max="${max}" step="${step}" value="${val}"
-               style="width:100%;accent-color:#4f8ff7;">
-      </div>`;
-
-    // --- REVISED: Default values updated to match new EngineFX.js defaults ---
-    panel.innerHTML = `
-      <h4 style="margin:0 0 12px;border-bottom:1px solid #444;padding-bottom:8px;">Engine Controls</h4>
-      <div style="display:flex; gap:10px; margin-bottom:14px;">
-        <button id="ignite-btn" style="flex:1;">Ignite</button>
-        <button id="cutoff-btn" style="flex:1;">Cutoff</button>
-      </div>
-      ${row('fw','Flame Width ×','0.01','80','0.01','1.00')}
-      ${row('fh','Flame Height ×','0.01','120','0.01','1.00')}
-      ${row('fy','Flame Y Offset (m)','-1200','2400','0.1','0.00')}
-      <hr style="border-color:#444;margin:10px 0;">
-      ${row('in','Intensity ×','0','5','0.01','1.20')}
-      ${row('tp','Taper (0=wide,1=thin)','0','1','0.01','0.40')}
-      ${row('bg','Bulge (mid-body)','0','1','0.01','0.10')}
-      ${row('td','TearDrop (pinch)','0','1','0.01','0.85')}
-      ${row('tb','Turbulence','0','1','0.01','0.20')}
-      ${row('ns','Noise Speed','0','5','0.01','1.80')}
-      ${row('ds','Mach Diamonds Strength','0','2','0.01','0.40')}
-      ${row('df','Mach Diamonds Freq.','2','40','0.1','12.0')}
-      <hr style="border-color:#444;margin:10px 0;">
-      ${row('rs','Rim Strength (halo)','0','1','0.01','0.30')}
-      ${row('rp','Rim Speed','0','6','0.01','2.80')}
-      <hr style="border-color:#444;margin:10px 0;">
-      ${row('cb','Color: Cyan','0','3','0.01','1.00')}
-      ${row('co','Color: Orange','0','3','0.01','1.00')}
-      ${row('cw','Color: White Core','0','3','0.01','1.20')}
-      <hr style="border-color:#444;margin:10px 0;">
-      ${row('gx','FX Offset X (m)','-800','800','0.1','0.00')}
-      ${row('gy','FX Offset Y (m)','-2400','2400','0.1','0.00')}
-      ${row('gz','FX Offset Z (m)','-800','800','0.1','0.00')}
-      <button id="copy-engine-config" style="margin-top:8px;width:100%;">Copy Current Config</button>`;
-    document.body.appendChild(panel);
-    this.panel = panel;
-
-    panel.querySelector('#ignite-btn').onclick = () => { this.api.setIgnition(true); this._refreshButtons(); };
-    panel.querySelector('#cutoff-btn').onclick = () => { this.api.setIgnition(false); this._refreshButtons(); };
-
-    const apply = () => {
-      if (!this.isReady) return;
-      this.api.set({
-        flameWidthFactor:  parseFloat(panel.querySelector('#fw').value),
-        flameHeightFactor: parseFloat(panel.querySelector('#fh').value),
-        flameYOffset:      parseFloat(panel.querySelector('#fy').value),
-        intensity:         parseFloat(panel.querySelector('#in').value),
-        taper:             parseFloat(panel.querySelector('#tp').value),
-        bulge:             parseFloat(panel.querySelector('#bg').value),
-        tear:              parseFloat(panel.querySelector('#td').value),
-        turbulence:        parseFloat(panel.querySelector('#tb').value),
-        noiseSpeed:        parseFloat(panel.querySelector('#ns').value),
-        diamondsStrength:  parseFloat(panel.querySelector('#ds').value),
-        diamondsFreq:      parseFloat(panel.querySelector('#df').value),
-        rimStrength:       parseFloat(panel.querySelector('#rs').value),
-        rimSpeed:          parseFloat(panel.querySelector('#rp').value),
-        colorCyan:         parseFloat(panel.querySelector('#cb').value), // Changed from colorBlue
-        colorOrange:       parseFloat(panel.querySelector('#co').value),
-        colorWhite:        parseFloat(panel.querySelector('#cw').value),
-        groupOffsetX:      parseFloat(panel.querySelector('#gx').value),
-        groupOffsetY:      parseFloat(panel.querySelector('#gy').value),
-        groupOffsetZ:      parseFloat(panel.querySelector('#gz').value),
-      });
-      this._syncLabels();
+    // Helper to make a row with slider + numeric input
+    const row = (id, label, min, max, value) => {
+      const wrap = document.createElement('div');
+      wrap.className = 'slider-group';
+      wrap.style.marginBottom = '12px';
+      wrap.innerHTML = `
+        <label style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;gap:8px;">
+          <span>${label}</span>
+          <input type="number" id="${id}-box" step="0.5" min="${min}" max="${max}" value="${value}" style="width:100px;padding:4px 6px;background:#1f1f28;border:1px solid #444;color:#fff;border-radius:4px;">
+        </label>
+        <input type="range" id="${id}" min="${min}" max="${max}" step="0.5" value="${value}" style="width:100%;accent-color:#4f8ff7;">
+      `;
+      panel.appendChild(wrap);
+      // Store refs after appended
+      const slider = wrap.querySelector(`#${id}`);
+      const box    = wrap.querySelector(`#${id}-box`);
+      this.inputs[id] = { slider, box, min, max };
+      // Two-way binding
+      slider.oninput = () => { box.value = slider.value; this._applyFromUI(); };
+      box.onchange   = () => {
+        let v = parseFloat(box.value);
+        if (isNaN(v)) v = parseFloat(slider.value);
+        v = Math.max(min, Math.min(max, v));
+        // quantize to 0.5 step
+        v = Math.round(v / 0.5) * 0.5;
+        box.value = v.toString();
+        slider.value = v.toString();
+        this._applyFromUI();
+      };
     };
-    panel.querySelectorAll('input[type=range]').forEach(input => input.oninput = apply);
 
-    panel.querySelector('#copy-engine-config').onclick = () => {
+    // Pull current (or default stub) values to seed UI
+    const c = this.api.get?.() ?? {};
+
+    const make = (id, label, min, max, key) =>
+      row(id, label, min, max, (c[key] ?? 0));
+
+    const header = document.createElement('h4');
+    header.textContent = 'Engine Controls';
+    header.style.cssText = 'margin:0 0 12px;border-bottom:1px solid #444;padding-bottom:8px;';
+    panel.appendChild(header);
+
+    const btnRow = document.createElement('div');
+    btnRow.style.cssText = 'display:flex; gap:10px; margin-bottom:14px;';
+    btnRow.innerHTML = `
+      <button id="ignite-btn" style="flex:1;">Ignite</button>
+      <button id="cutoff-btn" style="flex:1;">Cutoff</button>`;
+    panel.appendChild(btnRow);
+
+    make('fw','Flame Width ×',            0.01,  80.0,  'flameWidthFactor');
+    make('fh','Flame Height ×',           0.01, 120.0,  'flameHeightFactor');
+    make('fy','Flame Y Offset (m)',    -1200.0, 2400.0, 'flameYOffset');
+
+    this._hr(panel);
+
+    make('in','Intensity ×',               0.0,    5.0, 'intensity');
+    make('tp','Taper (0=wide,1=thin)',     0.0,    1.0, 'taper');
+    make('bg','Bulge (mid-body)',          0.0,    1.0, 'bulge');
+    make('td','TearDrop (pinch)',          0.0,    1.0, 'tear');
+    make('tb','Turbulence',                0.0,    1.0, 'turbulence');
+    make('ns','Noise Speed',               0.0,    5.0, 'noiseSpeed');
+    make('ds','Mach Diamonds Strength',    0.0,    2.0, 'diamondsStrength');
+    make('df','Mach Diamonds Freq.',       0.0,   40.0, 'diamondsFreq');
+
+    this._hr(panel);
+
+    make('rs','Rim Strength (halo)',       0.0,    1.0, 'rimStrength');
+    make('rp','Rim Speed',                 0.0,    6.0, 'rimSpeed');
+
+    this._hr(panel);
+
+    make('cb','Color: Cyan',               0.0,    3.0, 'colorCyan');
+    make('co','Color: Orange',             0.0,    3.0, 'colorOrange');
+    make('cw','Color: White Core',         0.0,    3.0, 'colorWhite');
+
+    this._hr(panel);
+
+    make('gx','FX Offset X (m)',         -800.0, 800.0, 'groupOffsetX');
+    make('gy','FX Offset Y (m)',        -2400.0,2400.0, 'groupOffsetY');
+    make('gz','FX Offset Z (m)',         -800.0, 800.0, 'groupOffsetZ');
+
+    const copyBtn = document.createElement('button');
+    copyBtn.id = 'copy-engine-config';
+    copyBtn.textContent = 'Copy Current Config';
+    copyBtn.style.cssText = 'margin-top:8px;width:100%;';
+    copyBtn.onclick = () => {
       navigator.clipboard.writeText(JSON.stringify(this.api.get(), null, 2))
         .then(() => this.debugger?.log('Engine config copied.'))
         .catch(err => this.debugger?.handleError(err, 'Clipboard'));
     };
+    panel.appendChild(copyBtn);
 
+    document.body.appendChild(panel);
+    this.panel = panel;
+
+    panel.querySelector('#ignite-btn').onclick = () => { this.api.setIgnition(true);  this._refreshButtons(); };
+    panel.querySelector('#cutoff-btn').onclick = () => { this.api.setIgnition(false); this._refreshButtons(); };
+
+    // Seed UI boxes/sliders from API (defaults) on build
+    this._syncValuesFromAPI();
     this._refreshButtons();
-    this._syncLabels();
   }
 
-  _notReady(){ this.debugger?.warn('Engines not ready.','Engines'); }
+  _hr(panel){
+    const hr = document.createElement('hr');
+    hr.style.cssText = 'border-color:#444;margin:10px 0;';
+    panel.appendChild(hr);
+  }
+
+  _applyFromUI() {
+    if (!this.isReady) return;
+    const v = (id) => parseFloat(this.inputs[id].slider.value);
+    this.api.set({
+      flameWidthFactor:  v('fw'),
+      flameHeightFactor: v('fh'),
+      flameYOffset:      v('fy'),
+      intensity:         v('in'),
+      taper:             v('tp'),
+      bulge:             v('bg'),
+      tear:              v('td'),
+      turbulence:        v('tb'),
+      noiseSpeed:        v('ns'),
+      diamondsStrength:  v('ds'),
+      diamondsFreq:      v('df'),
+      rimStrength:       v('rs'),
+      rimSpeed:          v('rp'),
+      colorCyan:         v('cb'),
+      colorOrange:       v('co'),
+      colorWhite:        v('cw'),
+      groupOffsetX:      v('gx'),
+      groupOffsetY:      v('gy'),
+      groupOffsetZ:      v('gz'),
+    });
+  }
 
   _refreshButtons() {
     const on = this.api.getIgnition();
@@ -132,18 +183,42 @@ export class EnginePanelUI {
     this.panel.querySelector('#cutoff-btn').disabled = !this.isReady || !on;
   }
 
-  _syncLabels() {
+  _syncValuesFromAPI() {
     const c = this.api.get?.() ?? {};
-    const set = (id, v, digits=2) => {
-      const el = this.panel.querySelector(id);
-      if (el) el.textContent = (v ?? 0).toFixed(digits);
+    const set = (id, val) => {
+      if (!this.inputs[id]) return;
+      const { slider, box, min, max } = this.inputs[id];
+      let v = parseFloat(val);
+      if (isNaN(v)) return;
+      // clamp + quantize to 0.5
+      v = Math.max(min, Math.min(max, v));
+      v = Math.round(v / 0.5) * 0.5;
+      slider.value = v.toString();
+      box.value = v.toString();
     };
-    set('#fw-val', c.flameWidthFactor); set('#fh-val', c.flameHeightFactor); set('#fy-val', c.flameYOffset);
-    set('#in-val', c.intensity); set('#tp-val', c.taper); set('#bg-val', c.bulge);
-    set('#td-val', c.tear); set('#tb-val', c.turbulence); set('#ns-val', c.noiseSpeed);
-    set('#ds-val', c.diamondsStrength); set('#df-val', c.diamondsFreq, 1);
-    set('#rs-val', c.rimStrength); set('#rp-val', c.rimSpeed);
-    set('#cb-val', c.colorCyan); set('#co-val', c.colorOrange); set('#cw-val', c.colorWhite);
-    set('#gx-val', c.groupOffsetX); set('#gy-val', c.groupOffsetY); set('#gz-val', c.groupOffsetZ);
+
+    set('fw', c.flameWidthFactor);
+    set('fh', c.flameHeightFactor);
+    set('fy', c.flameYOffset);
+
+    set('in', c.intensity);
+    set('tp', c.taper);
+    set('bg', c.bulge);
+    set('td', c.tear);
+    set('tb', c.turbulence);
+    set('ns', c.noiseSpeed);
+    set('ds', c.diamondsStrength);
+    set('df', c.diamondsFreq);
+
+    set('rs', c.rimStrength);
+    set('rp', c.rimSpeed);
+
+    set('cb', c.colorCyan);
+    set('co', c.colorOrange);
+    set('cw', c.colorWhite);
+
+    set('gx', c.groupOffsetX);
+    set('gy', c.groupOffsetY);
+    set('gz', c.groupOffsetZ);
   }
 }
