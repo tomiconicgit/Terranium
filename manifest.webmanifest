@@ -2,7 +2,7 @@
   "name": "Terranium",
   "short_name": "Terranium",
   "description": "An open-world space exploration game.",
-  "start_url": "/",
+  "start_url": ".",
   "display": "standalone",
   "orientation": "landscape",
   "background_color": "#121828",
