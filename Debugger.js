@@ -1,52 +1,71 @@
-// Debugger.js
-
-export const Debugger = {
-  loader: null,
-
-  init(loaderInstance) {
-    this.loader = loaderInstance;
-    
-    // --- Global JavaScript Error Catcher ---
-    window.addEventListener('error', event => {
-      this.report(event.error, 'Unhandled Script Error');
-    });
-
-    // --- Unhandled Promise Rejection Catcher ---
-    window.addEventListener('unhandledrejection', event => {
-      this.report(event.reason, 'Unhandled Promise Rejection');
-    });
-    
-    // --- WebGL Error Catcher ---
-    const appElement = document.getElementById('app');
-    if (appElement) {
-        const originalGetContext = HTMLCanvasElement.prototype.getContext;
-        HTMLCanvasElement.prototype.getContext = function(...args) {
-            const context = originalGetContext.apply(this, args);
-            if (context && context.hasOwnProperty('getExtension')) {
-                const debugExt = context.getExtension('WEBGL_debug_renderer_info');
-                if (debugExt) {
-                    const renderer = context.getParameter(debugExt.UNMASKED_RENDERER_WEBGL);
-                    console.log(`GPU Renderer: ${renderer}`);
-                }
-            }
-            return context;
+export class Debugger {
+    constructor() {
+        this.notificationContainer = document.getElementById('debugger-notifications');
+        
+        // Global error handlers
+        window.onerror = (message, source, lineno, colno, error) => {
+            this.handleError(error, 'Global');
+            return true; // Prevents the default browser console error
         };
-    }
-  },
+        
+        window.onunhandledrejection = (event) => {
+            this.handleError(event.reason, 'Promise');
+        };
 
-  report(error, context = 'Runtime Error') {
-    let message = `Context: ${context}\n`;
-    if (error instanceof Error) {
-      message += `Type: ${error.name}\nMessage: ${error.message}\n\nStack Trace:\n${error.stack}`;
-    } else if (typeof error === 'string') {
-      message += `Details: ${error}`;
-    } else {
-      message += `Details: ${JSON.stringify(error, null, 2)}`;
+        console.log("Debugger initialized.");
     }
 
-    console.error(`[Debugger] ${context}:`, error);
-    if (this.loader) {
-      this.loader.showError(message);
+    log(message) {
+        // In a real scenario, you could send this to a logging service
+        console.log(`[DEBUG] ${message}`);
     }
-  }
-};
+
+    // This method is called by the loader or other parts of the game
+    handleError(error, context = 'General') {
+        console.error(`[${context} ERROR]`, error);
+        
+        const message = error.message || 'An unknown error occurred.';
+        this.showNotification(`[${context}] ${message}`, 'error');
+    }
+
+    // Use this for non-critical warnings like performance dips
+    warn(message, context = 'Warning') {
+        console.warn(`[${context} WARNING] ${message}`);
+        this.showNotification(`[${context}] ${message}`, 'warning');
+    }
+    
+    // Creates and displays the notification card UI
+    showNotification(message, type = 'error') {
+        const card = document.createElement('div');
+        card.className = `debugger-card ${type}`;
+        
+        const title = document.createElement('h4');
+        title.textContent = type === 'error' ? '🛑 Error Detected' : '⚠️ System Warning';
+        
+        const description = document.createElement('p');
+        description.textContent = message;
+        
+        const copyButton = document.createElement('button');
+        copyButton.textContent = 'Copy to Clipboard';
+        copyButton.onclick = () => {
+            navigator.clipboard.writeText(message)
+                .then(() => {
+                    copyButton.textContent = 'Copied!';
+                    setTimeout(() => copyButton.textContent = 'Copy to Clipboard', 2000);
+                })
+                .catch(err => console.error('Failed to copy error: ', err));
+        };
+        
+        card.appendChild(title);
+        card.appendChild(description);
+        card.appendChild(copyButton);
+        
+        this.notificationContainer.appendChild(card);
+        
+        // Auto-remove the notification after some time
+        setTimeout(() => {
+            card.style.opacity = '0';
+            setTimeout(() => card.remove(), 500);
+        }, 10000);
+    }
+}
