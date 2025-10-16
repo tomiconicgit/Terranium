@@ -112,5 +112,19 @@ class Loader {
     }
 }
 
-// Initialize the loader when the script is executed
-window.onload = () => new Loader();
+// Initialize the loader and register the service worker when the page is ready
+window.onload = () => {
+    // Register the service worker
+    if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.register('/sw.js')
+            .then((registration) => {
+                console.log('Service Worker registered with scope:', registration.scope);
+            })
+            .catch((error) => {
+                console.error('Service Worker registration failed:', error);
+            });
+    }
+    
+    // Start the game loader
+    new Loader();
+};
