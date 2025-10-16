@@ -34,48 +34,37 @@ export class Scene extends THREE.Scene {
     
     this._createProceduralTerrain();
     
-    this._loadBakedModels(manager);
+    // The line below is now commented out to prevent the model from loading.
+    // this._loadBakedModels(manager); 
   }
 
-  // --- THIS METHOD HAS BEEN COMPLETELY REWRITTEN ---
   _createProceduralTerrain() {
-    const plateauSize = 50; // The central flat area (50x50)
-    const worldSize = 250;  // The total world size (250x250)
-    const slopeHeight = 20; // How far the slopes drop
+    const plateauSize = 50;
+    const worldSize = 250;
+    const slopeHeight = 20;
 
     const geometry = new THREE.PlaneGeometry(worldSize, worldSize, 100, 100);
     const positionAttribute = geometry.getAttribute('position');
 
-    // Manipulate vertices to create the plateau and slopes
     for (let i = 0; i < positionAttribute.count; i++) {
         const x = positionAttribute.getX(i);
         const z = positionAttribute.getZ(i);
-
-        // Check if the vertex is outside the central plateau
         const isOutsidePlateau = Math.abs(x) > plateauSize / 2 || Math.abs(z) > plateauSize / 2;
 
         if (isOutsidePlateau) {
-            // Calculate distance from the plateau edge
             const distX = Math.max(0, Math.abs(x) - plateauSize / 2);
             const distZ = Math.max(0, Math.abs(z) - plateauSize / 2);
             const distance = Math.sqrt(distX * distX + distZ * distZ);
-
-            // Calculate the total distance of the slope
             const slopeRun = (worldSize - plateauSize) / 2;
-            
-            // Create a smooth, curved slope instead of a linear one
             const progress = Math.min(distance / slopeRun, 1.0);
-            const smoothedProgress = progress * progress; // Ease-in curve
-
-            // Set the vertex height (y-coordinate)
+            const smoothedProgress = progress * progress;
             positionAttribute.setY(i, -smoothedProgress * slopeHeight);
         }
     }
-    geometry.computeVertexNormals(); // Recalculate normals for correct lighting
+    geometry.computeVertexNormals();
 
-    // A single, simple material for the entire terrain
     const material = new THREE.MeshStandardMaterial({
-        color: 0x6a6a6a, // Concrete grey
+        color: 0x6a6a6a,
         roughness: 0.9,
     });
 
@@ -86,7 +75,6 @@ export class Scene extends THREE.Scene {
     this.add(terrain);
   }
 
-  // --- THIS METHOD HAS BEEN UPDATED ---
   _loadBakedModels(manager) {
     const gltfLoader = new GLTFLoader(manager);
     const dracoLoader = new DRACOLoader(manager);
@@ -94,7 +82,6 @@ export class Scene extends THREE.Scene {
     gltfLoader.setDRACOLoader(dracoLoader);
 
     const modelPath = './assets/SuperHeavy.glb'; 
-    // Using the exact JSON data you provided
     const modelData = {
       scale: 0.13,
       position: { x: 0, y: 5, z: 0 }
@@ -103,14 +90,13 @@ export class Scene extends THREE.Scene {
     gltfLoader.load(modelPath, (gltf) => {
       const model = gltf.scene;
       
-      // Apply scale and position precisely from the data
       model.scale.setScalar(modelData.scale);
       model.position.set(modelData.position.x, modelData.position.y, modelData.position.z);
 
       model.traverse(node => {
         if (node.isMesh) {
           node.castShadow = true;
-          node.receiveShadow = true; // Models should also receive shadows from other parts
+          node.receiveShadow = true;
         }
       });
       this.add(model);
