@@ -1,4 +1,293 @@
-/* Append this to your existing style.css file */
+/* General Body and HTML styles */
+html, body {
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background-color: #000;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    color: #fff;
+}
+
+/* Game Canvas */
+#game-canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+    position: fixed;
+    top: 0;
+    left: 0;
+    z-index: 1;
+}
+
+/* Loader Styles */
+#loader-container {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    /* Darker, blurred background using your image */
+    background: linear-gradient(rgba(0, 0, 0, 0.6), rgba(0, 0, 0, 0.6)), url('src/assets/IMG_0022.jpeg') center center / cover no-repeat;
+    backdrop-filter: blur(8px);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 100;
+    transition: opacity 0.5s ease-out;
+    padding: 20px;
+    box-sizing: border-box;
+}
+
+.loader-card {
+    display: flex;
+    width: 100%;
+    max-width: 800px;
+    height: 90%;
+    max-height: 450px; /* Constrain height to prevent touching screen edges */
+    background: #1e1e24; /* Dark grey/black card color */
+    border-radius: 8px;
+    overflow: hidden;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+}
+
+.loader-image-side {
+    flex: 0 0 45%; /* Image takes up a bit less than half */
+    background-color: #000;
+    overflow: hidden;
+}
+
+.loader-image-side img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.loader-content-side {
+    flex: 1;
+    padding: 30px 40px;
+    display: flex;
+    flex-direction: column;
+    color: #eee;
+}
+
+.loader-content-side h2 {
+    margin-top: 0;
+    font-size: 1.8em;
+    font-weight: 600; /* Bolder font */
+    letter-spacing: 1px;
+    color: #fff;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    padding-bottom: 15px;
+    margin-bottom: auto; /* Pushes content down */
+}
+
+.loader-status-line {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    font-size: 1em;
+    margin-bottom: 10px;
+}
+
+#loader-status-text {
+    margin: 0;
+    color: #ccc;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    flex-grow: 1;
+    padding-right: 10px;
+}
+
+#progress-percentage-text {
+    font-weight: bold;
+    color: #fff;
+    min-width: 40px;
+    text-align: right;
+}
+
+.progress-bar-container {
+    width: 100%;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 3px;
+    height: 8px;
+    overflow: hidden;
+    margin-bottom: 20px;
+}
+
+#progress-bar {
+    width: 0%;
+    height: 100%;
+    background: linear-gradient(90deg, #4f8ff7, #6e4ff7);
+    transition: width 0.3s ease-in-out, background-color 0.3s ease;
+}
+
+/* Button Group Styling */
+.button-group {
+    display: flex;
+    justify-content: flex-end; /* Align buttons to the right */
+    align-items: center;
+    gap: 10px; /* Space between buttons */
+    margin-top: 10px;
+}
+
+/* Enter Button (Restyled) */
+#enter-button {
+    padding: 10px 25px; /* Smaller padding */
+    border: none;
+    border-radius: 4px;
+    font-size: 1em; /* Smaller font */
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s;
+    background-color: #3b3b4d;
+    color: #888;
+}
+
+#enter-button:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+#enter-button:not(:disabled) {
+    background-color: #4f8ff7; /* Matched to progress bar */
+    color: #fff;
+}
+
+#enter-button:not(:disabled):hover {
+    background-color: #6e4ff7;
+    box-shadow: 0 2px 10px rgba(79, 143, 247, 0.4);
+}
+
+/* Reload Button Styling */
+#reload-button {
+    width: 40px;
+    height: 40px; /* Square button */
+    border: 1px solid #555;
+    background: transparent;
+    color: #ccc;
+    border-radius: 4px;
+    font-size: 1.5em; /* Make icon larger */
+    cursor: pointer;
+    transition: all 0.3s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+#reload-button:hover {
+    background: #555;
+    color: #fff;
+}
+
+
+/* Debugger Message Area for Loader */
+#debugger-message-area {
+    min-height: 50px;
+    color: #d43b3b;
+    font-size: 0.85em;
+    background: rgba(212, 59, 59, 0.1);
+    border-left: 3px solid #d43b3b;
+    padding: 10px;
+    margin-bottom: 15px;
+    border-radius: 4px;
+    display: none;
+    overflow: auto;
+    max-height: 100px;
+}
+
+/* In-Game Debugger Notification Card Styles */
+#debugger-notifications {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    z-index: 200;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.debugger-card {
+    padding: 15px;
+    border-radius: 8px;
+    background: rgba(212, 59, 59, 0.85);
+    backdrop-filter: blur(5px);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    color: #fff;
+    width: 320px;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+    animation: slide-in 0.5s forwards;
+}
+
+@keyframes slide-in {
+    from {
+        transform: translateX(110%);
+        opacity: 0;
+    }
+    to {
+        transform: translateX(0);
+        opacity: 1;
+    }
+}
+
+/* TouchPad Controls Styles */
+.touch-controls {
+    position: fixed;
+    bottom: 20px;
+    left: 20px;
+    z-index: 10;
+    width: 120px;
+    height: 120px;
+}
+
+#joystick-base {
+    position: absolute;
+    width: 100%;
+    height: 100%;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 50%;
+    border: 2px solid rgba(255, 255, 255, 0.2);
+}
+
+#joystick-nub {
+    position: absolute;
+    width: 60px;
+    height: 60px;
+    background: rgba(255, 255, 255, 0.3);
+    border-radius: 50%;
+    top: 30px;
+    left: 30px;
+    pointer-events: none;
+}
+
+/* Responsive Adjustments */
+@media (max-width: 768px) and (orientation: landscape) {
+    .loader-card {
+        max-height: 350px;
+    }
+    .loader-image-side {
+        flex: 0 0 40%;
+    }
+    .loader-content-side {
+        padding: 15px 20px;
+    }
+    .loader-content-side h2 {
+        font-size: 1.3em;
+    }
+}
+@media (max-width: 600px) and (orientation: portrait) {
+    .loader-card {
+        flex-direction: column;
+        max-height: 90%;
+        height: auto;
+    }
+    .loader-image-side {
+        height: 180px;
+        flex-basis: auto;
+    }
+}
 
 /* --- UI Container for top-left buttons --- */
 #ui-container {
