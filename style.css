@@ -1,0 +1,215 @@
+/* General Body and HTML styles */
+html, body {
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background-color: #000;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    color: #fff;
+}
+
+/* Game Canvas */
+#game-canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+    position: fixed;
+    top: 0;
+    left: 0;
+    z-index: 1;
+}
+
+/* Loader Styles */
+#loader-container {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(45deg, #121828, #2a2a45);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 100;
+    transition: opacity 0.5s ease-out;
+}
+
+.loader-center-ui {
+    width: 90%;
+    max-width: 400px;
+    text-align: center;
+    padding: 20px;
+    background: rgba(0, 0, 0, 0.2);
+    border-radius: 10px;
+    backdrop-filter: blur(10px);
+}
+
+.loader-center-ui h1 {
+    margin: 10px 0;
+    color: #eee;
+    font-weight: 300;
+    letter-spacing: 4px;
+    text-transform: uppercase;
+}
+
+/* Procedural SVG Logo Animation */
+#loader-logo {
+    width: 80px;
+    height: 80px;
+    margin: 0 auto;
+    animation: float-logo 6s ease-in-out infinite;
+}
+
+@keyframes float-logo {
+    0% { transform: translateY(0px); }
+    50% { transform: translateY(-15px); }
+    100% { transform: translateY(0px); }
+}
+
+/* Progress Bar */
+.progress-bar-container {
+    width: 100%;
+    background: rgba(0, 0, 0, 0.3);
+    border-radius: 5px;
+    padding: 4px;
+    margin: 20px 0;
+}
+
+#progress-bar {
+    width: 0%;
+    height: 25px;
+    background: linear-gradient(90deg, #4f8ff7, #6e4ff7);
+    border-radius: 3px;
+    transition: width 0.3s ease-in-out, background-color 0.3s ease;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    color: #fff;
+    font-weight: bold;
+}
+
+#loader-status {
+    margin-top: 10px;
+    font-size: 0.9em;
+    color: #ccc;
+    height: 20px;
+}
+
+/* Enter Button */
+#enter-button {
+    width: 100%;
+    padding: 15px;
+    margin-top: 20px;
+    border: none;
+    border-radius: 5px;
+    font-size: 1.2em;
+    font-weight: bold;
+    cursor: pointer;
+    transition: background-color 0.3s, color 0.3s;
+}
+
+#enter-button:disabled {
+    background-color: #444;
+    color: #888;
+    cursor: not-allowed;
+}
+
+#enter-button:not(:disabled) {
+    background-color: #4f8ff7;
+    color: #fff;
+}
+
+#enter-button:not(:disabled):hover {
+    background-color: #6e4ff7;
+}
+
+/* Debugger Notification Card Styles */
+#debugger-notifications {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    z-index: 200;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.debugger-card {
+    padding: 15px;
+    border-radius: 8px;
+    background: rgba(212, 59, 59, 0.85);
+    backdrop-filter: blur(5px);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    color: #fff;
+    width: 320px;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+    animation: slide-in 0.5s forwards;
+}
+
+.debugger-card.warning {
+    background: rgba(224, 178, 48, 0.85);
+}
+
+.debugger-card h4 {
+    margin: 0 0 10px 0;
+    font-size: 1.1em;
+}
+
+.debugger-card p {
+    margin: 0 0 15px 0;
+    font-family: 'Courier New', Courier, monospace;
+    font-size: 0.9em;
+    word-wrap: break-word;
+}
+
+.debugger-card button {
+    background: rgba(0,0,0,0.3);
+    color: #fff;
+    border: 1px solid #fff;
+    padding: 5px 10px;
+    border-radius: 5px;
+    cursor: pointer;
+}
+
+@keyframes slide-in {
+    from {
+        transform: translateX(110%);
+        opacity: 0;
+    }
+    to {
+        transform: translateX(0);
+        opacity: 1;
+    }
+}
+
+/* TouchPad Controls Styles */
+.touch-controls {
+    position: fixed;
+    bottom: 20px;
+    left: 20px;
+    z-index: 10;
+    width: 120px;
+    height: 120px;
+}
+
+#joystick-base {
+    position: absolute;
+    width: 100%;
+    height: 100%;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 50%;
+    border: 2px solid rgba(255, 255, 255, 0.2);
+}
+
+#joystick-nub {
+    position: absolute;
+    width: 60px;
+    height: 60px;
+    background: rgba(255, 255, 255, 0.3);
+    border-radius: 50%;
+    top: 30px;
+    left: 30px;
+    pointer-events: none; /* Allows touches to pass through to the base */
+}
