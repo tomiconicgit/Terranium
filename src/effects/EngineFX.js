@@ -1,5 +1,6 @@
 // src/effects/EngineFX.js
 // Jet-like single plume, no smoke. Lightweight and scalable for giant rockets.
+// Adds mid-plume bulge and color mixing (blue/orange/white) uniforms.
 
 import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.163.0/build/three.module.js';
 
@@ -26,32 +27,38 @@ export class EngineFX {
     this.flameWidthBase  = clusterRadius * 1.4;   // meters of billboard width
     this.flameHeightBase = clusterRadius * 7.0;   // meters of billboard height
 
-    // Public, UI-tweakable params (very wide ranges)
+    // Public, UI-tweakable params
     this.params = {
       enginesOn: false,
 
-      flameWidthFactor:  1.0,   // 0.01–80
-      flameHeightFactor: 1.0,   // 0.01–120
-      flameYOffset:      0.0,   // -300–600 (meters local to rocket)
+      flameWidthFactor:  1.0,
+      flameHeightFactor: 1.0,
+      flameYOffset:      0.0,
 
-      intensity:         1.0,   // 0–5 (emissive/alpha multiplier)
-      taper:             0.55,  // 0–1 (how much narrows with height)
-      turbulence:        0.35,  // 0–1 (wobble)
-      noiseSpeed:        1.6,   // 0–5 (temporal noise speed)
+      intensity:         1.0,
+      taper:             0.55,
+      turbulence:        0.35,
+      noiseSpeed:        1.6,
 
-      diamondsStrength:  0.35,  // 0–2 (Mach diamonds contrast)
-      diamondsFreq:      14.0,  // 2–40 (how many bands)
+      diamondsStrength:  0.35,
+      diamondsFreq:      14.0,
 
-      groupOffsetX: 0.0,  // -80–80
-      groupOffsetY: 0.0,  // -300–600
-      groupOffsetZ: 0.0   // -80–80
+      bulge:             0.0,   // NEW: mid-plume bulge amount (0..2)
+
+      colorBlue:         1.0,   // NEW: color mix weights
+      colorOrange:       1.0,
+      colorWhite:        1.0,
+
+      groupOffsetX: 0.0,
+      groupOffsetY: 0.0,
+      groupOffsetZ: 0.0
     };
 
-    // --- FX group parented to the rocket, so it moves with it later ---
+    // Group parented to rocket
     this.group = new THREE.Group();
     rocketRoot.add(this.group);
 
-    // --- Flame billboard (single quad) ---
+    // Flame billboard (single quad)
     const geo = new THREE.PlaneGeometry(1, 1, 1, 1);
     const mat = this._makeFlameMaterial();
     this.flame = new THREE.Mesh(geo, mat);
@@ -66,8 +73,9 @@ export class EngineFX {
       this.flame.rotation.set(0, yaw, 0);
     };
 
-    // Initial transform/visibility
+    // Initial states
     this._applyTransforms();
+    this._applyUniforms();
     this._applyVisibility();
   }
 
@@ -103,10 +111,8 @@ export class EngineFX {
   }
 
   _applyTransforms() {
-    // Move whole FX relative to rocket
     this.group.position.set(this.params.groupOffsetX, this.params.groupOffsetY, this.params.groupOffsetZ);
 
-    // Scale and place plume quad
     const w = this.flameWidthBase  * this.params.flameWidthFactor;
     const h = this.flameHeightBase * this.params.flameHeightFactor;
     this.flame.scale.set(w, h, 1);
@@ -121,6 +127,12 @@ export class EngineFX {
     u.uNoiseSpeed.value = this.params.noiseSpeed;
     u.uDiamondsStrength.value = this.params.diamondsStrength;
     u.uDiamondsFreq.value     = this.params.diamondsFreq;
+
+    u.uBulge.value = this.params.bulge;
+
+    u.uMixBlue.value   = this.params.colorBlue;
+    u.uMixOrange.value = this.params.colorOrange;
+    u.uMixWhite.value  = this.params.colorWhite;
   }
 
   _makeFlameMaterial() {
@@ -137,10 +149,16 @@ export class EngineFX {
         uDiamondsStrength: { value: 0.35 },
         uDiamondsFreq:     { value: 14.0 },
 
-        // color ramp
-        uCore:  { value: new THREE.Color(0xfff9e6) }, // white-hot
-        uMid:   { value: new THREE.Color(0xffa53a) }, // orange
-        uTail:  { value: new THREE.Color(0x6d3a00) }  // deep
+        uBulge: { value: 0.0 },        // NEW
+
+        uMixBlue:   { value: 1.0 },    // NEW
+        uMixOrange: { value: 1.0 },
+        uMixWhite:  { value: 1.0 },
+
+        // base swatches for mix
+        uBlueColor:   { value: new THREE.Color(0x66aaff) },
+        uOrangeColor: { value: new THREE.Color(0xffa53a) },
+        uWhiteColor:  { value: new THREE.Color(0xfff9e6) }
       },
       vertexShader: /* glsl */`
         varying vec2 vUv;
@@ -160,7 +178,15 @@ export class EngineFX {
         uniform float uNoiseSpeed;
         uniform float uDiamondsStrength;
         uniform float uDiamondsFreq;
-        uniform vec3  uCore, uMid, uTail;
+
+        uniform float uBulge;
+
+        uniform float uMixBlue;
+        uniform float uMixOrange;
+        uniform float uMixWhite;
+        uniform vec3  uBlueColor;
+        uniform vec3  uOrangeColor;
+        uniform vec3  uWhiteColor;
 
         // ultra-cheap pseudo noise (no texture)
         float n2(vec2 p){
@@ -180,27 +206,34 @@ export class EngineFX {
         void main() {
           float y = clamp(vUv.y, 0.0, 1.0);
 
-          // Width profile along the plume (narrow with height)
+          // Width profile: base taper...
           float width = mix(0.48, 0.08, clamp(uTaper, 0.0, 1.0));
           width = mix(width, 0.12, smoothstep(0.6, 1.0, y));
+
+          // ...plus optional mid-plume bulge (gaussian around y≈0.3)
+          float bulge = uBulge * 0.25 * exp(-pow((y - 0.30) / 0.18, 2.0));
+          width += bulge;
 
           // Lateral wobble (turbulence)
           float wob = (fbm(vec2(vUv.y*6.0, uTime*uNoiseSpeed)) - 0.5) * (0.25*uTurbulence);
           float x = abs(vUv.x - 0.5 + wob);
 
-          // Basic flame mask
+          // Mask
           float body = smoothstep(width, width - 0.12, x);
           float head = smoothstep(0.0, 0.10, y);
           float tail = 1.0 - smoothstep(0.88, 1.0, y);
 
-          // Mach diamonds: sinusoidal bands in y that fade out toward tip
-          float bands = sin(y * uDiamondsFreq * 6.283) * 0.5 + 0.5; // 0..1
+          // Mach diamonds: bands that fade out near the tip
+          float bands = sin(y * uDiamondsFreq * 6.283) * 0.5 + 0.5;
           float diamonds = mix(1.0, bands, clamp(uDiamondsStrength,0.0,2.0));
-          diamonds = mix(diamonds, 1.0, smoothstep(0.65, 1.0, y)); // fade out near end
+          diamonds = mix(diamonds, 1.0, smoothstep(0.65, 1.0, y));
 
-          // Color ramp
-          vec3 col = mix(uMid, uCore, smoothstep(0.0, 0.25, y));
-          col = mix(uTail, col, smoothstep(0.25, 0.9, y));
+          // Color mix (normalize weights)
+          float wSum = max(uMixBlue + uMixOrange + uMixWhite, 0.0001);
+          vec3 mixCol = (uBlueColor*uMixBlue + uOrangeColor*uMixOrange + uWhiteColor*uMixWhite) / wSum;
+
+          // Subtle gradient along plume to keep physical feel
+          vec3 col = mix(mixCol * 0.8, mixCol, smoothstep(0.0, 0.25, y));
 
           float alpha = body * head * tail * diamonds * clamp(uIntensity, 0.0, 5.0);
           if (alpha < 0.01) discard;
