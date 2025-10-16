@@ -16,7 +16,7 @@ import { ImportModelUI } from './ui/ImportModel.js';
 import { ModelSlidersUI } from './ui/ModelSliders.js';
 import { EnginePanelUI } from './ui/EnginePanel.js';
 
-// Effects
+// Effects (single-jet)
 import { EngineFX } from './effects/EngineFX.js';
 
 export class Main {
@@ -24,10 +24,8 @@ export class Main {
     this.debugger = debuggerInstance;
     this.canvas = document.getElementById('game-canvas');
     this.clock = new THREE.Clock();
-
     this.effects = [];
-    this.fx = null; // reference to SuperHeavy FX
-
+    this.fx = null;
     this.init();
   }
 
@@ -35,14 +33,13 @@ export class Main {
     return [
       { name: 'Debugger Systems', path: './Debugger.js' },
       { name: 'Core Engine (Three.js)', path: 'three.module.js' },
-      { name: 'GLTF & Draco Loaders', path: 'three.js examples' },
       { name: 'UI Systems', path: './ui/' },
       { name: 'World Terrain', path: './scene/Terrain.js' },
       { name: 'Atmosphere & Sky', path: './scene/SkyDome.js' },
       { name: 'Lighting Engine', path: './scene/Lighting.js' },
       { name: 'Player Camera', path: './scene/Camera.js' },
       { name: 'Control Systems', path: './controls/TouchPad.js' },
-      { name: 'Engine FX', path: './effects/EngineFX.js' },
+      { name: 'Engine FX (Jet)', path: './effects/EngineFX.js' },
       { name: 'Engine Panel', path: './ui/EnginePanel.js' },
       { name: 'Finalizing...', path: '...' },
     ];
@@ -80,19 +77,18 @@ export class Main {
   }
 
   initModelSystems() {
-    // Make sure UI container exists
     this.importModelUI = new ImportModelUI(this.scene, (model) => {
       this.modelSliders.setActiveModel(model);
     }, this.debugger);
 
     this.modelSliders = new ModelSlidersUI(this.debugger);
 
-    // Engine Panel (uses live API into EngineFX once available)
     this.enginePanel = new EnginePanelUI({
       get: () => (this.fx ? this.fx.getParams() : {
-        enginesOn: false,
-        flameWidthFactor: 1, flameHeightFactor: 1,
-        flameYOffset: 0, smokeSizeFactor: 1, smokeYOffset: 0
+        enginesOn:false, flameWidthFactor:1, flameHeightFactor:1, flameYOffset:0,
+        intensity:1, taper:0.55, turbulence:0.35, noiseSpeed:1.6,
+        diamondsStrength:0.35, diamondsFreq:14,
+        groupOffsetX:0, groupOffsetY:0, groupOffsetZ:0
       }),
       set: (patch) => { if (this.fx) this.fx.setParams(patch); },
       setIgnition: (on) => { if (this.fx) this.fx.setIgnition(on); },
@@ -113,13 +109,9 @@ export class Main {
           this.debugger.log(`Loaded static model: ${obj.name}`);
 
           if (obj.name === 'SuperHeavy') {
-            this.fx = new EngineFX(model, this.scene, this.camera, { rings: '33' });
+            this.fx = new EngineFX(model, this.scene, this.camera);
             this.effects.push(this.fx);
-
-            // Enable panel controls now that FX exists
-            if (this.enginePanel && this.enginePanel.setReady) {
-              this.enginePanel.setReady(true);
-            }
+            this.enginePanel.setReady(true); // NOW the panel can control FX
           }
         },
         (error) => {
@@ -165,12 +157,10 @@ export class Main {
 
   animate() {
     requestAnimationFrame(() => this.animate());
-    const deltaTime = this.clock.getDelta();
-    const elapsed = this.clock.elapsedTime;
-
-    if (deltaTime > 0) this.updatePlayer(deltaTime);
-    for (const fx of this.effects) fx.update(deltaTime, elapsed);
-
+    const dt = this.clock.getDelta();
+    const t  = this.clock.elapsedTime;
+    if (dt > 0) this.updatePlayer(dt);
+    for (const fx of this.effects) fx.update(dt, t);
     this.renderer.render(this.scene, this.camera);
     this.frameCount++;
   }
