@@ -26,6 +26,14 @@ export class Main {
     this.clock = new THREE.Clock();
     this.effects = [];
     this.fx = null;
+
+    // player/camera state
+    this.playerVelocity = new THREE.Vector3();
+    this.lookSpeed = 0.004;
+    this.playerHeight = 2.0;
+    this.raycaster = new THREE.Raycaster();
+    this.rayDirection = new THREE.Vector3(0, -1, 0);
+
     this.init();
   }
 
@@ -46,53 +54,80 @@ export class Main {
   }
 
   init() {
+    // Scene & renderer
     this.scene = new THREE.Scene();
     this.renderer = new THREE.WebGLRenderer({ canvas: this.canvas, antialias: true });
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.renderer.shadowMap.enabled = true;
 
+    // Camera
     this.camera = createCamera();
     this.camera.rotation.order = 'YXZ';
     this.scene.add(this.camera);
 
+    // Lighting
     const { ambientLight, sunLight } = createLighting();
     this.scene.add(ambientLight, sunLight, sunLight.target);
 
+    // Terrain + sky
     this.terrain = createTerrain();
     this.scene.add(this.terrain, createSkyDome());
 
+    // Controls
     this.controls = new TouchPad();
-    this.playerVelocity = new THREE.Vector3();
-    this.lookSpeed = 0.004;
-    this.playerHeight = 2.0;
-    this.raycaster = new THREE.Raycaster();
-    this.rayDirection = new THREE.Vector3(0, -1, 0);
 
+    // UI systems
     this.initModelSystems();
+
+    // Static (baked) models
     this.loadStaticModels();
 
+    // Listeners
     window.addEventListener('resize', () => this.onWindowResize(), false);
+
+    // Perf monitor
     this.initPerformanceMonitor();
   }
 
   initModelSystems() {
+    // Import UI (creates #ui-container)
     this.importModelUI = new ImportModelUI(this.scene, (model) => {
       this.modelSliders.setActiveModel(model);
     }, this.debugger);
 
+    // Transform sliders for imported models
     this.modelSliders = new ModelSlidersUI(this.debugger);
 
+    // Engine Panel controls — seed with YOUR defaults until FX is live
+    const defaultFX = {
+      enginesOn: true,
+      flameWidthFactor: 1.02,
+      flameHeightFactor: 0.77,
+      flameYOffset: 7.6,
+      intensity: 1.17,
+      taper: 0.21,
+      bulge: 0.7,
+      tear: 0.99,
+      turbulence: 0.33,
+      noiseSpeed: 2.23,
+      diamondsStrength: 0.32,
+      diamondsFreq: 2.8,
+      rimStrength: 0.0,
+      rimSpeed: 0.21,
+      colorCyan: 0.61,
+      colorOrange: 2.58,
+      colorWhite: 1.22,
+      groupOffsetX: 5.1,
+      groupOffsetY: 0,
+      groupOffsetZ: 0
+    };
+
     this.enginePanel = new EnginePanelUI({
-      get: () => (this.fx ? this.fx.getParams() : {
-        enginesOn:false, flameWidthFactor:1, flameHeightFactor:1, flameYOffset:0,
-        intensity:1, taper:0.55, turbulence:0.35, noiseSpeed:1.6,
-        diamondsStrength:0.35, diamondsFreq:14,
-        groupOffsetX:0, groupOffsetY:0, groupOffsetZ:0
-      }),
+      get: () => (this.fx ? this.fx.getParams() : { ...defaultFX }),
       set: (patch) => { if (this.fx) this.fx.setParams(patch); },
       setIgnition: (on) => { if (this.fx) this.fx.setIgnition(on); },
-      getIgnition: () => (this.fx ? this.fx.getIgnition() : false)
+      getIgnition: () => (this.fx ? this.fx.getIgnition() : defaultFX.enginesOn)
     }, this.debugger);
   }
 
@@ -108,10 +143,35 @@ export class Main {
           this.scene.add(model);
           this.debugger.log(`Loaded static model: ${obj.name}`);
 
+          // Attach engine FX when SuperHeavy loads
           if (obj.name === 'SuperHeavy') {
             this.fx = new EngineFX(model, this.scene, this.camera);
             this.effects.push(this.fx);
-            this.enginePanel.setReady(true); // NOW the panel can control FX
+            // Apply your defaults immediately (in case EngineFX has other hardcoded defaults)
+            this.fx.setParams({
+              flameWidthFactor: 1.02,
+              flameHeightFactor: 0.77,
+              flameYOffset: 7.6,
+              intensity: 1.17,
+              taper: 0.21,
+              bulge: 0.7,
+              tear: 0.99,
+              turbulence: 0.33,
+              noiseSpeed: 2.23,
+              diamondsStrength: 0.32,
+              diamondsFreq: 2.8,
+              rimStrength: 0.0,
+              rimSpeed: 0.21,
+              colorCyan: 0.61,
+              colorOrange: 2.58,
+              colorWhite: 1.22,
+              groupOffsetX: 5.1,
+              groupOffsetY: 0,
+              groupOffsetZ: 0
+            });
+            this.fx.setIgnition(true);
+            // Now the panel can actually drive FX
+            this.enginePanel.setReady(true);
           }
         },
         (error) => {
@@ -134,6 +194,7 @@ export class Main {
     const moveVector = this.controls.moveVector;
     const lookVector = this.controls.lookVector;
 
+    // Apply look deltas
     if (lookVector.length() > 0) {
       this.camera.rotation.y -= lookVector.x * this.lookSpeed;
       this.camera.rotation.x -= lookVector.y * this.lookSpeed;
@@ -141,11 +202,13 @@ export class Main {
       this.controls.lookVector.set(0, 0);
     }
 
+    // Translate camera in its local space
     this.playerVelocity.z = moveVector.y * moveSpeed;
     this.playerVelocity.x = moveVector.x * moveSpeed;
     this.camera.translateX(this.playerVelocity.x);
     this.camera.translateZ(this.playerVelocity.z);
 
+    // Simple ground-follow using raycast to terrain planes
     const rayOrigin = new THREE.Vector3(this.camera.position.x, 50, this.camera.position.z);
     this.raycaster.set(rayOrigin, this.rayDirection);
     const terrainMeshes = this.terrain.children.filter(c => c.name === "sand_terrain" || c.geometry?.type === "PlaneGeometry");
@@ -159,8 +222,10 @@ export class Main {
     requestAnimationFrame(() => this.animate());
     const dt = this.clock.getDelta();
     const t  = this.clock.elapsedTime;
+
     if (dt > 0) this.updatePlayer(dt);
     for (const fx of this.effects) fx.update(dt, t);
+
     this.renderer.render(this.scene, this.camera);
     this.frameCount++;
   }
