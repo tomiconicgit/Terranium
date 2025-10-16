@@ -13,7 +13,7 @@ export class Scene extends THREE.Scene {
     const sunLight = new THREE.DirectionalLight(0xfff9e8, 1.5);
     sunLight.position.set(1, 1, 1);
     sunLight.castShadow = true;
-    sunLight.shadow.mapSize.width = 4096; // Increased shadow quality
+    sunLight.shadow.mapSize.width = 4096;
     sunLight.shadow.mapSize.height = 4096;
     sunLight.shadow.camera.near = 0.5;
     sunLight.shadow.camera.far = 500;
@@ -32,96 +32,68 @@ export class Scene extends THREE.Scene {
     this.sun = new THREE.Vector3();
     this.updateSky(75); // Sun is higher in the sky
 
-    // Adjusted fog for a larger viewing distance
     this.fog = new THREE.Fog(0x8894ab, 150, 1500);
 
-    // Terrain with Launchpad
+    // Create the world terrain
     this._createTerrain();
     
-    // Load the baked-in models
+    // Load your baked-in model
     this._loadBakedModels();
   }
 
   _createTerrain() {
     const terrainSize = 1000;
-    const terrainSegments = 250;
-    const launchpadSize = 25; // Half of the 50x50 area
-    const transitionWidth = 10; // How wide the blend between concrete and grass is
+    const terrainSegments = 200;
+    const launchpadSize = 50;
 
-    const terrainGeo = new THREE.PlaneGeometry(terrainSize, terrainSize, terrainSegments, terrainSegments);
-    const positions = terrainGeo.attributes.position;
-    const colors = [];
+    // 1. Create the main grassy terrain with hills
+    const grassGeo = new THREE.PlaneGeometry(terrainSize, terrainSize, terrainSegments, terrainSegments);
+    const positions = grassGeo.attributes.position;
 
     for (let i = 0; i < positions.count; i++) {
         const x = positions.getX(i);
-        const y = positions.getY(i); // Corresponds to Z in world space after rotation
-
-        // Procedural hills
-        const z1 = Math.sin(x * 0.02) * Math.cos(y * 0.03) * 8.0;
-        const z2 = Math.sin(x * 0.01) * Math.sin(y * 0.015) * 12.0;
-        const z3 = Math.cos((x + y) * 0.005) * 5.0;
-        const hillHeight = z1 + z2 + z3;
+        const y = positions.getY(i); // This is Z in world space after rotation
         
-        // Calculate blend factor for the launchpad
-        const distFromCenter = Math.max(Math.abs(x), Math.abs(y));
-        const blend = THREE.MathUtils.smoothstep(distFromCenter, launchpadSize, launchpadSize + transitionWidth);
-
-        // Interpolate height and set vertex color for texture mixing
-        positions.setZ(i, hillHeight * blend);
-        colors.push(blend, 0, 0); // Use the red channel to store the blend factor
+        // Only apply hills outside the launchpad area
+        if (Math.abs(x) > launchpadSize / 2 || Math.abs(y) > launchpadSize / 2) {
+            const z1 = Math.sin(x * 0.02) * Math.cos(y * 0.03) * 8.0;
+            const z2 = Math.sin(x * 0.01) * Math.sin(y * 0.015) * 12.0;
+            const z3 = Math.cos((x + y) * 0.005) * 5.0;
+            positions.setZ(i, z1 + z2 + z3);
+        }
     }
-    terrainGeo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
-    terrainGeo.computeVertexNormals();
+    grassGeo.computeVertexNormals();
     
-    // Textures
     const textureLoader = new THREE.TextureLoader();
     const grassTexture = textureLoader.load('https://cdn.jsdelivr.net/gh/mrdoob/three.js@dev/examples/textures/terrain/grasslight-big.jpg');
     grassTexture.wrapS = grassTexture.wrapT = THREE.RepeatWrapping;
     grassTexture.repeat.set(50, 50);
 
+    const grassMat = new THREE.MeshStandardMaterial({
+        map: grassTexture,
+        roughness: 0.8,
+        metalness: 0.1
+    });
+
+    const grassTerrain = new THREE.Mesh(grassGeo, grassMat);
+    grassTerrain.rotation.x = -Math.PI / 2;
+    grassTerrain.receiveShadow = true;
+    grassTerrain.name = 'terrain';
+    this.add(grassTerrain);
+
+    // 2. Create the flat concrete launchpad on top
+    const concreteGeo = new THREE.PlaneGeometry(launchpadSize, launchpadSize);
     const concreteTexture = textureLoader.load('https://cdn.jsdelivr.net/gh/mrdoob/three.js@dev/examples/textures/terrain/rockground.jpg');
     concreteTexture.wrapS = concreteTexture.wrapT = THREE.RepeatWrapping;
     concreteTexture.repeat.set(10, 10);
+    
+    const concreteMat = new THREE.MeshStandardMaterial({ map: concreteTexture });
 
-    // Material with custom shader logic
-    const terrainMat = new THREE.MeshStandardMaterial({
-        roughness: 0.8,
-        metalness: 0.1,
-        vertexColors: true,
-    });
-
-    terrainMat.onBeforeCompile = (shader) => {
-        shader.uniforms.grassTexture = { value: grassTexture };
-        shader.uniforms.concreteTexture = { value: concreteTexture };
-
-        // Pass vertex color (our blend factor) to the fragment shader
-        shader.vertexShader = 'varying vec3 vColor;\n' + shader.vertexShader;
-        shader.vertexShader = shader.vertexShader.replace(
-            '#include <begin_vertex>',
-            '#include <begin_vertex>\nvColor = color;'
-        );
-        
-        // In the fragment shader, mix the textures based on the blend factor
-        shader.fragmentShader = 'uniform sampler2D grassTexture;\nuniform sampler2D concreteTexture;\nvarying vec3 vColor;\n' + shader.fragmentShader;
-        shader.fragmentShader = shader.fragmentShader.replace(
-            '#include <map_fragment>',
-            `
-            #ifdef USE_MAP
-                float blend = vColor.r;
-                vec4 grass = texture2D(grassTexture, vUv);
-                vec4 concrete = texture2D(concreteTexture, vUv);
-                vec4 blendedColor = mix(concrete, grass, blend);
-                diffuseColor *= blendedColor;
-            #endif
-            `
-        );
-    };
-
-    const terrain = new THREE.Mesh(terrainGeo, terrainMat);
-    terrain.rotation.x = -Math.PI / 2;
-    terrain.receiveShadow = true;
-    terrain.name = 'terrain';
-    this.add(terrain);
+    const launchpad = new THREE.Mesh(concreteGeo, concreteMat);
+    launchpad.rotation.x = -Math.PI / 2;
+    launchpad.position.y = 0.05; // Place slightly above grass to prevent visual glitches
+    launchpad.receiveShadow = true;
+    this.add(launchpad);
   }
 
   _loadBakedModels() {
@@ -130,10 +102,8 @@ export class Scene extends THREE.Scene {
     dracoLoader.setDecoderPath('https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/libs/draco/gltf/');
     gltfLoader.setDRACOLoader(dracoLoader);
 
-    // --- BAKE YOUR MODEL HERE ---
-    // Replace the URL with your local 'assets/SuperHeavy.glb' path.
-    // I'm using a placeholder URL so the demo runs.
-    const modelPath = 'https://storage.googleapis.com/abern-portfolio-bucket/Starship-processed.glb';
+    // --- CORRECTED LOCAL FILE PATH ---
+    const modelPath = './assets/SuperHeavy.glb'; 
     const modelData = {
       scale: 0.13,
       position: { x: 0, y: 5, z: 0 }
@@ -151,6 +121,11 @@ export class Scene extends THREE.Scene {
         }
       });
       this.add(model);
+    },
+    undefined, // onProgress callback not needed here
+    (error) => {
+        console.error('An error happened while loading the baked model:', error);
+        // You could add an on-screen error message here if you wanted
     });
   }
 
