@@ -1,162 +1,116 @@
-// Loader.js
+import { Debugger } from './Debugger.js';
+import { Main } from './src/Main.js';
 
-class GameLoader {
-  constructor() {
-    this.initUI();
-    this.start();
-  }
-
-  initUI() {
-    const styles = `
-      #loader-card {
-        position: fixed;
-        inset: 0;
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        background: #05070b;
-        color: white;
-        transition: opacity 0.5s ease-out;
-        z-index: 100;
-      }
-      #loader-card.hidden {
-        opacity: 0;
-        pointer-events: none;
-      }
-      .loader-content {
-        background: rgba(20, 22, 25, 0.5);
-        border: 1px solid rgba(255, 255, 255, 0.1);
-        border-radius: 16px;
-        padding: 32px;
-        width: 320px;
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        backdrop-filter: blur(10px);
-      }
-      h1 { font-size: 48px; font-weight: 700; margin: 0 0 16px; }
-      #logo { width: 100px; height: 100px; margin-bottom: 24px; }
-      #logo .rocket-body { animation: float 3s ease-in-out infinite; }
-      @keyframes float { 0%, 100% { transform: translateY(0px); } 50% { transform: translateY(-5px); } }
-      #logo .flame { transform-origin: 50% 100%; animation-timing-function: ease-in-out; animation-iteration-count: infinite; }
-      #logo .flame1 { animation-name: flicker-1; animation-duration: 0.8s; }
-      #logo .flame2 { animation-name: flicker-2; animation-duration: 1.0s; animation-delay: 0.2s; }
-      #logo .flame3 { animation-name: flicker-3; animation-duration: 1.2s; animation-delay: 0.5s; }
-      @keyframes flicker-1 { 0%, 100% { transform: scaleY(1); } 50% { transform: scaleY(0.9); } }
-      @keyframes flicker-2 { 0%, 100% { transform: scaleY(1); } 60% { transform: scaleY(1.1); } }
-      @keyframes flicker-3 { 0%, 100% { transform: scaleY(1); } 40% { transform: scaleY(0.85); } }
-      
-      .progress-bar { width: 100%; height: 6px; background: rgba(0,0,0,0.3); border-radius: 3px; overflow: hidden; margin-bottom: 8px; }
-      .progress-bar-inner { width: 0%; height: 100%; background: var(--accent); transition: width 0.2s ease-out; }
-      .status-text { font-size: 12px; color: rgba(255,255,255,0.6); height: 16px; text-align: center; }
-      
-      .error-box {
-        display: none;
-        width: 100%;
-        background: rgba(255, 50, 50, 0.1);
-        border: 1px solid rgba(255, 80, 80, 0.3);
-        border-radius: 8px;
-        padding: 12px;
-        margin-top: 16px;
-        font-family: monospace;
-        font-size: 11px;
-        color: #ffaaaa;
-        max-height: 100px;
-        overflow-y: auto;
-        white-space: pre-wrap;
-        word-break: break-all;
-      }
-      .copy-error-btn {
-        background: #ff5050; color: white; border: none; padding: 6px 12px; border-radius: 6px;
-        margin-top: 8px; cursor: pointer; font-size: 12px; font-weight: bold;
-      }
-      .start-btn {
-        display: none;
-        font-size: 20px; padding: 14px 32px; border-radius: 12px;
-        background: var(--accent); color: #000; border: none; cursor: pointer;
-        font-weight: 600; margin-top: 20px;
-      }
-    `;
-
-    document.head.insertAdjacentHTML('beforeend', `<style>${styles}</style>`);
-
-    const loaderHTML = `
-      <div id="loader-card">
-        <div class="loader-content">
-          <h1>Terranium</h1>
-          <svg id="logo" viewBox="0 0 100 125">
-            <g class="rocket-body" fill="#e6eef7" transform="translate(0 -5)"><path d="M 65 95 C 65 95 85 75 85 50 C 85 25 50 0 50 0 C 50 0 15 25 15 50 C 15 75 35 95 35 95 L 65 95 Z" /><path d="M 50 95 L 50 105 L 56 105 A 6 6 0 0 1 50 111 A 6 6 0 0 1 44 105 L 50 105" stroke="#e6eef7" stroke-width="3" stroke-linecap="round" fill="none" /></g><g class="flames" transform="translate(0 5)"><path class="flame flame3" d="M 40 100 C 40 110 45 115 50 125 C 55 115 60 110 60 100 C 60 90 40 90 40 100 Z" fill="#ff4d00" opacity="0.8"/><path class="flame flame2" d="M 42 100 C 42 108 46 112 50 120 C 54 112 58 108 58 100 C 58 92 42 92 42 100 Z" fill="#ff863d" /><path class="flame flame1" d="M 45 100 C 45 105 47 108 50 115 C 53 108 55 105 55 100 C 55 95 45 95 45 100 Z" fill="#ffde9a" /></g>
-          </svg>
-          <div class="progress-bar"><div class="progress-bar-inner"></div></div>
-          <p class="status-text">Booting system...</p>
-          <div class="error-box">
-            <pre id="error-content"></pre>
-            <button class="copy-error-btn">Copy Error</button>
-          </div>
-          <button class="start-btn">Enter World</button>
-        </div>
-      </div>
-    `;
-    document.body.insertAdjacentHTML('beforeend', loaderHTML);
-
-    this.ui = {
-      card: document.getElementById('loader-card'),
-      progressBar: document.querySelector('.progress-bar-inner'),
-      statusText: document.querySelector('.status-text'),
-      errorBox: document.querySelector('.error-box'),
-      errorContent: document.getElementById('error-content'),
-      copyBtn: document.querySelector('.copy-error-btn'),
-      startBtn: document.querySelector('.start-btn')
-    };
-
-    this.ui.copyBtn.addEventListener('click', () => this.copyError());
-  }
-  
-  updateProgress(progress) { this.ui.progressBar.style.width = `${progress * 100}%`; }
-  updateStatus(text) { this.ui.statusText.textContent = text; }
-
-  showError(message) {
-    this.ui.errorContent.textContent = message;
-    this.ui.errorBox.style.display = 'block';
-  }
-  
-  copyError() {
-    navigator.clipboard.writeText(this.ui.errorContent.textContent).then(() => {
-        this.ui.copyBtn.textContent = 'Copied!';
-        setTimeout(() => { this.ui.copyBtn.textContent = 'Copy Error'; }, 2000);
-    });
-  }
-
-  showStartButton() {
-    this.ui.startBtn.style.display = 'block';
-    this.updateStatus('World ready. Press Enter.');
-  }
-
-  async start() {
-    // --- Initialize Debugger first ---
-    this.updateStatus('Initializing debugger...');
-    const { Debugger } = await import('./Debugger.js');
-    Debugger.init(this);
-      
-    try {
-      this.updateStatus('Loading main application...');
-      // FIX: correct case to match file path
-      const { Main } = await import('./src/main.js');
-      
-      const game = new Main(this);
-      
-      this.ui.startBtn.onclick = () => {
-        this.ui.card.classList.add('hidden');
-        game.start();
-      };
-
-    } catch (error) {
-      console.error("Critical boot error:", error);
-      Debugger.report(error, 'Boot failed');
+class Loader {
+    constructor() {
+        this.debugger = new Debugger();
+        this.main = null; // Will be instantiated after loading
+        
+        // DOM Elements
+        this.progressBar = document.getElementById('progress-bar');
+        this.percentageText = document.getElementById('progress-percentage');
+        this.statusText = document.getElementById('loader-status');
+        this.enterButton = document.getElementById('enter-button');
+        this.loaderContainer = document.getElementById('loader-container');
+        this.logoContainer = document.getElementById('loader-logo');
+        
+        this.createProceduralLogo();
+        this.loadManifest();
     }
-  }
+
+    createProceduralLogo() {
+        // Simple procedural SVG: A rotating, multi-layered crystal/planet shape
+        const svgNS = "http://www.w3.org/2000/svg";
+        const svg = document.createElementNS(svgNS, "svg");
+        svg.setAttribute("viewBox", "0 0 100 100");
+
+        const colors = ["#4f8ff7", "#8A2BE2", "#41E0D0"];
+        for (let i = 0; i < 3; i++) {
+            const rect = document.createElementNS(svgNS, "rect");
+            rect.setAttribute("x", "25");
+            rect.setAttribute("y", "25");
+            rect.setAttribute("width", "50");
+            rect.setAttribute("height", "50");
+            rect.setAttribute("fill", "none");
+            rect.setAttribute("stroke", colors[i]);
+            rect.setAttribute("stroke-width", "3");
+            
+            const animate = document.createElementNS(svgNS, "animateTransform");
+            animate.setAttribute("attributeName", "transform");
+            animate.setAttribute("type", "rotate");
+            animate.setAttribute("from", `${i * 30} 50 50`);
+            animate.setAttribute("to", `${360 + i * 30} 50 50`);
+            animate.setAttribute("dur", `${8 + i * 2}s`);
+            animate.setAttribute("repeatCount", "indefinite");
+            
+            rect.appendChild(animate);
+            svg.appendChild(rect);
+        }
+        this.logoContainer.appendChild(svg);
+    }
+
+    async loadManifest() {
+        try {
+            // Get the list of scripts/assets to load from Main.js
+            const manifest = Main.getManifest();
+            const totalItems = manifest.length;
+            
+            for (let i = 0; i < totalItems; i++) {
+                const item = manifest[i];
+                this.updateStatus(`Loading ${item.name}...`);
+                
+                // Here you would add actual loading logic (e.g., for models, textures)
+                // We will simulate it with a short delay
+                await new Promise(resolve => setTimeout(resolve, 150)); 
+                
+                // Run a debugger check (for simulation purposes)
+                this.debugger.log(`Checked: ${item.name}`);
+
+                // Update progress
+                const progress = ((i + 1) / totalItems) * 100;
+                this.updateProgress(progress);
+            }
+
+            this.loadingSuccessful();
+        } catch (error) {
+            this.loadingFailed(error);
+        }
+    }
+
+    updateProgress(percentage) {
+        this.progressBar.style.width = `${percentage}%`;
+        this.percentageText.textContent = `${Math.round(percentage)}%`;
+    }
+
+    updateStatus(text) {
+        this.statusText.textContent = text;
+    }
+
+    loadingSuccessful() {
+        this.updateStatus('All systems ready. Engage when prepared.');
+        this.enterButton.disabled = false;
+        this.enterButton.textContent = 'ENTER';
+        this.enterButton.onclick = () => this.startGame();
+    }
+
+    loadingFailed(error) {
+        this.debugger.handleError(error, 'Loader');
+        this.progressBar.style.backgroundColor = '#d43b3b';
+        this.updateStatus('A critical error occurred. See details below.');
+    }
+    
+    startGame() {
+        this.loaderContainer.style.opacity = '0';
+        // Wait for the fade-out transition to finish before removing it
+        setTimeout(() => {
+            this.loaderContainer.style.display = 'none';
+        }, 500);
+        
+        // Instantiate and start the main game logic
+        this.main = new Main(this.debugger);
+        this.main.start();
+    }
 }
 
-// Instantiate the loader to kick everything off.
-new GameLoader();
+// Initialize the loader when the script is executed
+window.onload = () => new Loader();
