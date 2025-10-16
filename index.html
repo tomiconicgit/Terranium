@@ -43,10 +43,18 @@
     }
 
     #logo { width: 128px; height: 128px; margin-bottom: 30px; }
-    #logo .ring { animation: spin 12s linear infinite; transform-origin: center; }
-    #logo .tower { animation: float 3s ease-in-out infinite; transform-origin: center; }
-    @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
-    @keyframes float { 0%, 100% { transform: translateY(0px); } 50% { transform: translateY(-8px); } }
+    #logo .rocket-body { animation: float 3s ease-in-out infinite; }
+    @keyframes float { 0%, 100% { transform: translateY(0px); } 50% { transform: translateY(-5px); } }
+    
+    #logo .flame { transform-origin: 50% 100%; animation-timing-function: ease-in-out; animation-iteration-count: infinite; }
+    #logo .flame1 { animation-name: flicker-1; animation-duration: 0.8s; }
+    #logo .flame2 { animation-name: flicker-2; animation-duration: 1.0s; animation-delay: 0.2s; }
+    #logo .flame3 { animation-name: flicker-3; animation-duration: 1.2s; animation-delay: 0.5s; }
+
+    @keyframes flicker-1 { 0%, 100% { transform: scaleY(1) scaleX(1); } 50% { transform: scaleY(0.9) scaleX(1.05); } }
+    @keyframes flicker-2 { 0%, 100% { transform: scaleY(1) scaleX(1); } 60% { transform: scaleY(1.1) scaleX(0.9); } }
+    @keyframes flicker-3 { 0%, 100% { transform: scaleY(1); } 40% { transform: scaleY(0.85); } }
+
 
     #loadingInfo {
       width: 280px; text-align: center;
@@ -128,40 +136,39 @@
       #touchLeft, #touchRight, #joyBase, #joyKnob { display:block; }
     }
     
-    #touchLeft {
-      position: fixed; z-index: 40; bottom: 20px; left: 20px;
-      width: 150px; height: 150px; border-radius: 50%; touch-action: none;
-    }
-    #touchRight {
-      position: fixed; z-index: 40; bottom: 0; top: 0; width: 50vw; right: 0; touch-action: none;
-    }
-    #joyBase, #joyKnob {
-      position: fixed; z-index: 41; border-radius: 50%; pointer-events: none;
-      transition: transform 0.1s;
-    }
-    #joyBase {
-      bottom: 25px; left: 25px;
-      width: 140px; height: 140px; border: 2px solid rgba(255,255,255,.25); background: rgba(0,0,0,.25);
-    }
-    #joyKnob {
-      bottom: 59px; left: 59px;
-      width: 72px; height: 72px; border: 2px solid rgba(255,255,255,.6); background: rgba(255,255,255,.1);
-    }
+    #touchLeft { position: fixed; z-index: 40; bottom: 20px; left: 20px; width: 150px; height: 150px; border-radius: 50%; touch-action: none; }
+    #touchRight { position: fixed; z-index: 40; bottom: 0; top: 0; width: 50vw; right: 0; touch-action: none; }
+    #joyBase, #joyKnob { position: fixed; z-index: 41; border-radius: 50%; pointer-events: none; transition: transform 0.1s; }
+    #joyBase { bottom: 25px; left: 25px; width: 140px; height: 140px; border: 2px solid rgba(255,255,255,.25); background: rgba(0,0,0,.25); }
+    #joyKnob { bottom: 59px; left: 59px; width: 72px; height: 72px; border: 2px solid rgba(255,255,255,.6); background: rgba(255,255,255,.1); }
   </style>
 </head>
 <body>
   <div id="loadingScreen">
     <h1>Terranium</h1>
-    <svg id="logo" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
-      <defs><linearGradient id="ring" x1="0" x2="1" y1="0" y2="1"><stop offset="0" stop-color="#7fd1ff"/><stop offset="1" stop-color="#3aa2ff"/></linearGradient></defs>
-      <g transform="translate(256,256)">
-        <circle class="ring" r="160" fill="none" stroke="url(#ring)" stroke-width="22" opacity=".9"/>
-        <g class="tower">
-          <rect x="-42" y="-118" width="84" height="236" rx="14" fill="#e6eef7" opacity=".95"/>
-          <rect x="-84" y="68" width="168" height="26" rx="13" fill="#3aa2ff"/>
-          <rect x="-70" y="-18" width="140" height="18" rx="9" fill="#7fd1ff" opacity=".85"/>
-          <rect x="-70" y="-52" width="140" height="18" rx="9" fill="#7fd1ff" opacity=".70"/>
-        </g>
+    <svg id="logo" viewBox="0 0 100 125" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <linearGradient id="grad-flame" x1="0.5" y1="0" x2="0.5" y2="1">
+          <stop offset="0%" stop-color="#ffde9a" />
+          <stop offset="60%" stop-color="#ff863d" />
+          <stop offset="100%" stop-color="#ff4d00" />
+        </linearGradient>
+        <filter id="glow">
+          <feGaussianBlur stdDeviation="3.5" result="coloredBlur" />
+          <feMerge>
+            <feMergeNode in="coloredBlur" />
+            <feMergeNode in="SourceGraphic" />
+          </feMerge>
+        </filter>
+      </defs>
+      <g class="rocket-body" fill="#e6eef7" transform="translate(0 -5)">
+        <path d="M 65 95 C 65 95 85 75 85 50 C 85 25 50 0 50 0 C 50 0 15 25 15 50 C 15 75 35 95 35 95 L 65 95 Z" />
+        <path d="M 50 95 L 50 105 L 56 105 A 6 6 0 0 1 50 111 A 6 6 0 0 1 44 105 L 50 105" stroke="#e6eef7" stroke-width="3" stroke-linecap="round" fill="none" />
+      </g>
+      <g class="flames" transform="translate(0 5)" filter="url(#glow)">
+        <path class="flame flame3" d="M 40 100 C 40 110 45 115 50 125 C 55 115 60 110 60 100 C 60 90 40 90 40 100 Z" fill="#ff4d00" opacity="0.8"/>
+        <path class="flame flame2" d="M 42 100 C 42 108 46 112 50 120 C 54 112 58 108 58 100 C 58 92 42 92 42 100 Z" fill="#ff863d" />
+        <path class="flame flame1" d="M 45 100 C 45 105 47 108 50 115 C 53 108 55 105 55 100 C 55 95 45 95 45 100 Z" fill="#ffde9a" />
       </g>
     </svg>
     <div id="loadingInfo">
@@ -176,7 +183,6 @@
     <button id="adjustBtn" class="ui-button" style="display: none;">Adjust Model</button>
   </div>
   <input type="file" id="modelUploader" accept=".glb" style="display: none;" />
-
   <div id="adjustPanel" class="panel hidden">
     <h3>Adjust Last Model</h3>
     <div class="setting-row">
@@ -197,20 +203,16 @@
     </div>
     <button id="copyDataBtn" class="copy-button">Copy Transform Data</button>
   </div>
-
   <div id="app"></div>
-
   <div id="touchLeft" class="touch-hide"></div>
   <div id="touchRight" class="touch-hide"></div>
   <div id="joyBase" class="touch-hide"></div>
   <div id="joyKnob" class="touch-hide"></div>
-
   <div id="errorOverlay">
     <div class="error-header">⚠️ Application Error</div>
     <div class="error-content" id="errorContent"></div>
     <button id="copyErrorBtn">Copy Error</button>
   </div>
-
   <script type="module" src="./src/main.js"></script>
 </body>
 </html>
