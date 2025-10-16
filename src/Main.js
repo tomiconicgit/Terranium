@@ -115,6 +115,11 @@ export class Main {
           if (obj.name === 'SuperHeavy') {
             this.fx = new EngineFX(model, this.scene, this.camera, { rings: '33' });
             this.effects.push(this.fx);
+
+            // Enable panel controls now that FX exists
+            if (this.enginePanel && this.enginePanel.setReady) {
+              this.enginePanel.setReady(true);
+            }
           }
         },
         (error) => {
