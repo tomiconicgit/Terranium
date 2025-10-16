@@ -1,3 +1,5 @@
+// src/Main.js
+
 // Import the core of the 3D engine
 import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.163.0/build/three.module.js';
 
@@ -93,9 +95,11 @@ export class Main {
         const moveSpeed = 5.0 * deltaTime;
         const moveVector = this.controls.moveVector;
 
-        // Move forward/backward
-        this.playerVelocity.z = -moveVector.y * moveSpeed;
-        // Strafe left/right
+        // Corrected Movement Logic:
+        // Forward/backward movement (Y-axis of joystick controls Z-axis of camera)
+        this.playerVelocity.z = moveVector.y * moveSpeed;
+        
+        // Strafe left/right (X-axis of joystick controls X-axis of camera)
         this.playerVelocity.x = moveVector.x * moveSpeed;
 
         this.camera.translateX(this.playerVelocity.x);
