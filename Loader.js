@@ -36,7 +36,7 @@ class GameLoader {
         backdrop-filter: blur(10px);
       }
       h1 { font-size: 48px; font-weight: 700; margin: 0 0 16px; }
-      #logo { width: 100px; height: 100px; margin-bottom: 24px; /* styles from previous index.html */ }
+      #logo { width: 100px; height: 100px; margin-bottom: 24px; }
       #logo .rocket-body { animation: float 3s ease-in-out infinite; }
       @keyframes float { 0%, 100% { transform: translateY(0px); } 50% { transform: translateY(-5px); } }
       #logo .flame { transform-origin: 50% 100%; animation-timing-function: ease-in-out; animation-iteration-count: infinite; }
@@ -134,11 +134,13 @@ class GameLoader {
   }
 
   async start() {
-    try {
-      this.updateStatus('Initializing debugger...');
-      const { Debugger } = await import('./Debugger.js');
-      Debugger.init(this);
+    // --- FIX IS HERE ---
+    // Load and initialize Debugger first, outside the main try/catch block.
+    this.updateStatus('Initializing debugger...');
+    const { Debugger } = await import('./Debugger.js');
+    Debugger.init(this);
       
+    try {
       this.updateStatus('Loading main application...');
       const { Main } = await import('./src/Main.js');
       
@@ -150,7 +152,7 @@ class GameLoader {
       };
 
     } catch (error) {
-      // This catches errors during module import or Main class instantiation
+      // Now, Debugger is guaranteed to exist here.
       console.error("Critical boot error:", error);
       Debugger.report(error, 'Boot failed');
     }
@@ -159,3 +161,4 @@ class GameLoader {
 
 // Instantiate the loader to kick everything off.
 new GameLoader();
+
