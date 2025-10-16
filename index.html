@@ -11,16 +11,22 @@
 </head>
 <body>
     <div id="loader-container">
-        <div class="loader-center-ui">
-            <div id="loader-logo"></div>
-            <h1>Terranium</h1>
-            <div class="progress-bar-container">
-                <div id="progress-bar">
-                    <span id="progress-percentage">0%</span>
+        <div class="loader-card">
+            <div class="loader-image-side">
+                <img src="https://via.placeholder.com/300x500/1e2a3b/FFFFFF?text=Terranium+Art" alt="Terranium Game Art">
                 </div>
+            <div class="loader-content-side">
+                <h2>Terranium Initialising</h2>
+                <div class="loader-status-line">
+                    <p id="loader-status-text">Preparing systems...</p>
+                    <span id="progress-percentage-text">0%</span>
+                </div>
+                <div class="progress-bar-container">
+                    <div id="progress-bar"></div>
+                </div>
+                <div id="debugger-message-area"></div> 
+                <button id="enter-button" disabled>LOADING</button>
             </div>
-            <p id="loader-status">Initializing...</p>
-            <button id="enter-button" disabled>LOADING</button>
         </div>
     </div>
 
