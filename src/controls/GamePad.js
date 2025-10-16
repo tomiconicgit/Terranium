@@ -31,21 +31,20 @@ export class GamepadController {
 
     // --- Movement axes (Left stick) ---
     const moveX = this.deadzone(gamepad.axes[0]);
-    // Invert Z-axis for standard forward movement
-    const moveZ = -this.deadzone(gamepad.axes[1]); 
+    const moveZ = this.deadzone(gamepad.axes[1]); // Standard forward/backward
     
     // --- Look axes (Right stick) ---
     const lookX = this.deadzone(gamepad.axes[2]) * this.lookSpeed * deltaTime;
-    // Invert Y-axis for standard camera look
-    const lookY = -this.deadzone(gamepad.axes[3]) * this.lookSpeed * deltaTime;
+    const lookY = this.deadzone(gamepad.axes[3]) * this.lookSpeed * deltaTime;
     
-    // --- Fly controls (Right Bumper/Trigger for Up, Left for Down) ---
-    const flyUp = gamepad.buttons[5]?.pressed ? 1 : (gamepad.buttons[7]?.value || 0);
-    const flyDown = gamepad.buttons[4]?.pressed ? -1 : -(gamepad.buttons[6]?.value || 0);
-    const flyY = flyUp + flyDown;
+    // --- Fly controls (Triggers or Bumpers) ---
+    // Right Trigger/Bumper for Up, Left for Down
+    const flyUp = gamepad.buttons[7]?.value || (gamepad.buttons[5]?.pressed ? 1 : 0);
+    const flyDown = gamepad.buttons[6]?.value || (gamepad.buttons[4]?.pressed ? 1 : 0);
+    const flyY = flyUp - flyDown;
 
     this.cameraRig.rotate(lookX, lookY);
-    // Pass moveZ to the Z parameter for forward/backward movement
-    this.cameraRig.move(moveX, moveZ, flyY, deltaTime, this.speed); 
+    // Use negative moveZ because joystick 'up' is negative
+    this.cameraRig.move(moveX, -moveZ, flyY, deltaTime, this.speed);
   }
 }
