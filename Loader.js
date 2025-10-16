@@ -134,15 +134,15 @@ class GameLoader {
   }
 
   async start() {
-    // --- FIX IS HERE ---
-    // Load and initialize Debugger first, outside the main try/catch block.
+    // --- Initialize Debugger first ---
     this.updateStatus('Initializing debugger...');
     const { Debugger } = await import('./Debugger.js');
     Debugger.init(this);
       
     try {
       this.updateStatus('Loading main application...');
-      const { Main } = await import('./src/Main.js');
+      // FIX: correct case to match file path
+      const { Main } = await import('./src/main.js');
       
       const game = new Main(this);
       
@@ -152,7 +152,6 @@ class GameLoader {
       };
 
     } catch (error) {
-      // Now, Debugger is guaranteed to exist here.
       console.error("Critical boot error:", error);
       Debugger.report(error, 'Boot failed');
     }
