@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>Terranium Test</title>
+  <title>Terranium World Test</title>
 
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1.0, user-scalable=no" />
   <meta name="theme-color" content="#0a0a0a" />
@@ -49,13 +49,19 @@
     }
     #errorOverlay .error-header { font-size: 18px; color: #ff8080; margin-bottom: 12px; font-weight: bold; }
     #errorOverlay .error-content { flex: 1; overflow: auto; white-space: pre-wrap; }
-
-    #reticle {
-      position:fixed; left:50%; top:50%; transform:translate(-50%,-50%);
-      width:6px; height:6px; border-radius:50%; background:#ffffff; opacity:.78; pointer-events:none; z-index:10;
-      box-shadow:0 0 0 2px rgba(0,0,0,.35);
-    }
     
+    .ui-button {
+      width:auto; height:48px; padding: 0 20px; border-radius:12px;
+      background:rgba(0,0,0,0.55); backdrop-filter:blur(6px);
+      border:1px solid rgba(255,255,255,0.08);
+      color:#fff; font-size:16px; cursor:pointer;
+      display:flex; align-items:center; justify-content:center;
+      user-select:none; transition: background .2s;
+    }
+    .ui-button:hover { background:rgba(0,0,0,0.7); }
+    
+    #uploadBtn { position:fixed; top:16px; left:16px; z-index:45; }
+
     /* -------- Touch controls -------- */
     .touch-hide { display:none; }
     @media (pointer: coarse) {
@@ -91,8 +97,10 @@
 <body>
   <div id="startScreen"><button id="startBtn">Start</button></div>
 
+  <button id="uploadBtn" class="ui-button">Upload Model</button>
+  <input type="file" id="modelUploader" accept=".glb" style="display: none;" />
+
   <div id="app"></div>
-  <div id="reticle"></div>
 
   <div id="touchLeft" class="touch-hide"></div>
   <div id="touchRight" class="touch-hide"></div>
@@ -117,3 +125,4 @@
   <script type="module" src="./src/main.js"></script>
 </body>
 </html>
+
