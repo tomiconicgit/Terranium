@@ -1,6 +1,6 @@
 // src/ui/EnginePanel.js
-// Floating, scrollable panel to control the EDITABLE plume.
-// (The baked plume turns on/off with the same Ignite switch but is not editable.)
+// Floating, scrollable panel to control the SINGLE editable plume.
+// (No baked/locked plume anymore.)
 
 export class EnginePanelUI {
   /**
@@ -19,7 +19,7 @@ export class EnginePanelUI {
     this._build();
   }
 
-  /** Call once the SuperHeavy FX has been created so the panel can drive it. */
+  /** Call once EngineFX is created so the panel can drive it. */
   setReady(ready = true) {
     this.isReady = ready;
     this._refreshButtons();
@@ -33,7 +33,7 @@ export class EnginePanelUI {
       return;
     }
 
-    // Toggle button (top-left with other UI)
+    // Toggle button (top-left)
     const openBtn = document.createElement('button');
     openBtn.id = 'engine-panel-btn';
     openBtn.textContent = 'Engines';
@@ -44,10 +44,10 @@ export class EnginePanelUI {
     };
     container.appendChild(openBtn);
 
-    // The floating/scrollable panel (inline styles so no CSS dependency)
+    // Scrollable panel (pan-y to allow vertical scrolling)
     const panel = document.createElement('div');
     panel.id = 'engine-panel';
-    panel.classList.add('no-look'); // hint for TouchPad to ignore camera look
+    panel.classList.add('no-look'); // TouchPad ignores camera look on this
     panel.style.cssText = `
       position:fixed; top:80px; left:20px; z-index:10;
       background:rgba(30,30,36,0.90); color:#fff;
@@ -56,10 +56,9 @@ export class EnginePanelUI {
       box-shadow:0 5px 15px rgba(0,0,0,0.35);
       backdrop-filter:blur(8px);
       -webkit-overflow-scrolling: touch;
-      touch-action:none;
+      touch-action: pan-y;        /* <-- allows vertical scroll */
     `;
 
-    // Helper: one slider row
     const row = (id, label, min, max, step, val) => `
       <div class="slider-group" style="margin-bottom:12px;">
         <label style="display:flex;justify-content:space-between;margin-bottom:6px;">
@@ -69,10 +68,9 @@ export class EnginePanelUI {
                style="width:100%;accent-color:#4f8ff7;">
       </div>`;
 
-    // Panel content
     panel.innerHTML = `
       <h4 style="margin:0 0 12px;border-bottom:1px solid rgba(255,255,255,0.12);padding-bottom:8px;">
-        Engine Controls (Editable Plume)
+        Engine Controls
       </h4>
 
       <div style="display:flex; gap:10px; margin-bottom:14px;">
@@ -82,7 +80,7 @@ export class EnginePanelUI {
 
       ${row('fw','Flame Width ×','0.01','80','0.01','1.00')}
       ${row('fh','Flame Height ×','0.01','120','0.01','1.00')}
-      ${row('fy','Flame Y Offset (m)','-600','1200','0.1','0.00')}
+      ${row('fy','Flame Y Offset (m)','-1200','2400','0.1','0.00')}
 
       ${row('in','Intensity ×','0','5','0.01','1.00')}
       ${row('tp','Taper (0=wide,1=thin)','0','1','0.01','0.55')}
@@ -103,9 +101,9 @@ export class EnginePanelUI {
       ${row('cw','Color Mix – White','0','3','0.01','1.00')}
 
       <hr style="border-color:rgba(255,255,255,0.12);margin:10px 0;">
-      ${row('gx','FX Offset X (m)','-400','400','0.1','0.00')}
-      ${row('gy','FX Offset Y (m)','-1200','1200','0.1','0.00')}
-      ${row('gz','FX Offset Z (m)','-400','400','0.1','0.00')}
+      ${row('gx','FX Offset X (m)','-800','800','0.1','0.00')}
+      ${row('gy','FX Offset Y (m)','-2400','2400','0.1','0.00')}
+      ${row('gz','FX Offset Z (m)','-800','800','0.1','0.00')}
 
       <button id="copy-engine-config" style="margin-top:8px;width:100%;">Copy Current Config</button>
     `;
@@ -118,7 +116,7 @@ export class EnginePanelUI {
     ignite.onclick = () => { if (!this.isReady) return this._notReady(); this.api.setIgnition(true);  this._refreshButtons(); };
     cutoff.onclick = () => { if (!this.isReady) return this._notReady(); this.api.setIgnition(false); this._refreshButtons(); };
 
-    // Collect slider IDs
+    // Sliders -> EngineFX
     const ids = [
       'fw','fh','fy',
       'in','tp','bg','td','tb','ns','ds','df',
@@ -126,8 +124,6 @@ export class EnginePanelUI {
       'cb','co','cw',
       'gx','gy','gz'
     ];
-
-    // Apply to EngineFX on input
     const apply = () => {
       if (!this.isReady) return;
       this.api.set({
@@ -167,7 +163,6 @@ export class EnginePanelUI {
         .catch(err => this.debugger?.handleError(err, 'Clipboard'));
     };
 
-    // First sync
     this._refreshButtons();
     this._syncLabels();
   }
