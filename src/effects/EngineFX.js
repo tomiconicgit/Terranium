@@ -1,7 +1,7 @@
 // src/effects/EngineFX.js
-// --- MODIFIED ---
-// Manages a CLUSTER of rocket plumes. Each plume is a crossed-billboard (3 quads)
-// with an improved shader for a better teardrop shape and more realistic coloring.
+// --- CORRECTED VERSION ---
+// Renders a SINGLE, high-quality rocket plume using crossed billboards.
+// The shader is enhanced for a proper teardrop shape and better colors.
 
 import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.163.0/build/three.module.js';
 
@@ -11,17 +11,15 @@ export class EngineFX {
     this.scene  = scene;
     this.camera = camera;
 
-    // --- NEW: Define a plausible engine layout for a SuperHeavy-style booster ---
-    this.enginePositions = this._getEngineLayout();
-
+    // Measure rocket to set sensible baselines
     const box = new THREE.Box3().setFromObject(rocketRoot);
     this.size = new THREE.Vector3(); box.getSize(this.size);
     this.bottomY = box.min.y;
 
-    // --- ADJUSTED: Base sizes are now for a SINGLE, smaller flame ---
-    this.emitYBase       = this.bottomY + (0.01 * this.size.y);
-    this.flameWidthBase  = 1.15; // Scaled for an individual engine nozzle
-    this.flameHeightBase = 16.0; // A longer, leaner default flame shape
+    // Base flame dimensions
+    this.emitYBase       = this.bottomY;
+    this.flameWidthBase  = 3.5;  // A good starting width for a large engine
+    this.flameHeightBase = 40.0; // A long, powerful-looking flame
 
     // --- REVISED: Parameters tuned for a much better default look ---
     this.params = {
@@ -33,7 +31,7 @@ export class EngineFX {
       intensity:   1.2,    // A bit brighter
       taper:       0.4,    // Slightly wider base
       bulge:       0.1,    // Subtle mid-flame bulge
-      tear:        0.85,   // Much stronger teardrop effect
+      tear:        0.85,   // STRONG teardrop effect is now default
       turbulence:  0.2,    // Less chaotic, more focused
       noiseSpeed:  1.8,
       diamondsStrength: 0.4, // More prominent Mach diamonds
@@ -42,76 +40,45 @@ export class EngineFX {
       rimStrength: 0.3,
       rimSpeed:    2.8,
 
-      colorCyan:   1.0,    // Multiplier for the cyan part of the flame
+      // Renamed for clarity, tuned for a better look
+      colorCyan:   1.0,
       colorOrange: 1.0,
-      colorWhite:  1.2,    // A brighter, more intense core
+      colorWhite:  1.2,
 
       groupOffsetX: 0.0,
       groupOffsetY: 0.0,
       groupOffsetZ: 0.0
     };
 
-    // This master group holds the entire cluster and is attached to the rocket
-    this.masterGroup = new THREE.Group();
-    rocketRoot.add(this.masterGroup);
-    
-    // Store all individual flame groups
-    this.flameGroups = [];
+    // This single group holds all the planes for our one flame
+    this.group = new THREE.Group();
+    rocketRoot.add(this.group);
 
     const sharedMaterial = this._makeFlameMaterial();
 
-    // --- NEW: Loop to create each engine flame in the cluster ---
-    this.enginePositions.forEach(pos => {
-      // Each flame gets its own group for positioning
-      const flameGroup = new THREE.Group();
-      flameGroup.position.set(pos.x, 0, pos.z);
+    // Build 3 crossed planes (0°, 60°, 120°) to create a volumetric effect
+    this.planes = [];
+    for (let i = 0; i < 3; i++) {
+      const geo = new THREE.PlaneGeometry(1, 1);
+      const m   = new THREE.Mesh(geo, sharedMaterial);
+      m.frustumCulled = false;
+      m.rotation.y = i * Math.PI / 3; // Rotates planes to intersect
+      this.group.add(m);
+      this.planes.push(m);
+    }
 
-      // Create the 3 crossed planes for volumetric effect
-      for (let i = 0; i < 3; i++) {
-        const geo = new THREE.PlaneGeometry(1, 1);
-        const m   = new THREE.Mesh(geo, sharedMaterial);
-        m.frustumCulled = false;
-        m.rotation.y = i * Math.PI / 3; // 0°, 60°, 120°
-        flameGroup.add(m);
-      }
-      
-      // Billboard each individual flame group. This makes the cluster look
-      // volumetric as the camera moves around it.
-      flameGroup.onBeforeRender = () => {
-        const worldPos = new THREE.Vector3();
-        flameGroup.getWorldPosition(worldPos);
-        const camPos = this.camera.position;
-        const yaw = Math.atan2(camPos.x - worldPos.x, camPos.z - worldPos.z);
-        flameGroup.rotation.set(0, yaw, 0);
-      };
-
-      this.masterGroup.add(flameGroup);
-      this.flameGroups.push(flameGroup);
-    });
+    // Y-axis billboarding: the whole group swivels to face the camera,
+    // ensuring the crossed planes always look 3D and not flat.
+    this.group.onBeforeRender = () => {
+      const worldPos = new THREE.Vector3(); this.group.getWorldPosition(worldPos);
+      const camPos = this.camera.position;
+      const yaw = Math.atan2(camPos.x - worldPos.x, camPos.z - worldPos.z);
+      this.group.rotation.set(0, yaw, 0);
+    };
 
     this._applyTransforms();
     this._applyUniforms();
     this._applyVisibility();
-  }
-
-  // --- NEW: Helper method to generate engine positions in a pattern ---
-  _getEngineLayout() {
-    const positions = [];
-    // A simplified but plausible 19-engine layout
-    const r1 = 1.3, c1 = 6;  // Inner ring
-    const r2 = 2.6, c2 = 12; // Outer ring
-    
-    positions.push({x:0, z:0}); // Central engine
-
-    for (let i = 0; i < c1; i++) {
-      const angle = (i / c1) * Math.PI * 2;
-      positions.push({ x: Math.cos(angle) * r1, z: Math.sin(angle) * r1 });
-    }
-    for (let i = 0; i < c2; i++) {
-      const angle = (i / c2) * Math.PI * 2;
-      positions.push({ x: Math.cos(angle) * r2, z: Math.sin(angle) * r2 });
-    }
-    return positions;
   }
 
   // ----- Public API for the Engine Panel -----
@@ -129,19 +96,18 @@ export class EngineFX {
   }
 
   update(_, t){
-    // All flames share one material, so we only need to update its time uniform once
-    const mat = this.flameGroups[0]?.children[0]?.material;
+    const mat = this.planes[0]?.material;
     if (mat?.uniforms) mat.uniforms.uTime.value = t;
   }
 
   // ----- Internals -----
   _applyVisibility(){
-    this.masterGroup.visible = !!this.params.enginesOn;
+    this.group.visible = !!this.params.enginesOn;
   }
 
   _applyTransforms(){
-    // Apply global offsets to the entire cluster
-    this.masterGroup.position.set(
+    // Move the whole FX block based on panel offsets
+    this.group.position.set(
       this.params.groupOffsetX,
       this.params.groupOffsetY,
       this.params.groupOffsetZ
@@ -150,22 +116,16 @@ export class EngineFX {
     const w = this.flameWidthBase  * this.params.flameWidthFactor;
     const h = this.flameHeightBase * this.params.flameHeightFactor;
 
-    // Scale and position the planes within each individual flame group
-    for (const group of this.flameGroups) {
-      for (const plane of group.children) {
-        if (plane.isMesh) {
-          plane.scale.set(w, h, 1);
-          // Position the plane so its bottom edge (uv.y=0) is at the nozzle point
-          plane.position.y = this.emitYBase + this.params.flameYOffset + (h / 2);
-        }
-      }
+    // Scale and position each plane identically within the group
+    for (const p of this.planes) {
+      p.scale.set(w, h, 1);
+      // Position planes so their base is at the flame's origin point
+      p.position.y = this.emitYBase + this.params.flameYOffset + (h / 2);
     }
   }
 
   _applyUniforms(){
-    const mat = this.flameGroups[0]?.children[0]?.material;
-    if (!mat?.uniforms) return;
-    const u = mat.uniforms;
+    const u = this.planes[0]?.material.uniforms; if (!u) return;
 
     u.uIntensity.value   = this.params.intensity;
     u.uTaper.value       = this.params.taper;
@@ -190,25 +150,12 @@ export class EngineFX {
       blending: THREE.AdditiveBlending,
       uniforms:{
         uTime: { value: 0.0 },
-
-        // shaping
-        uIntensity: { value: 1.0 },
-        uTaper:     { value: 0.4 },
-        uBulge:     { value: 0.1 },
-        uTear:      { value: 0.85 },
-        uTurb:      { value: 0.2 },
-        uNoiseSpeed:{ value: 1.8 },
-        uDiamondsStrength: { value: 0.4 },
-        uDiamondsFreq:     { value: 12.0 },
-
-        // halo
-        uRimStrength: { value: 0.3 },
-        uRimSpeed:    { value: 2.8 },
-
-        // colors
-        uCyanMul:   { value: 1.0 },
-        uOrangeMul: { value: 1.0 },
-        uWhiteMul:  { value: 1.2 },
+        uIntensity: { value: 1.2 }, uTaper: { value: 0.4 },
+        uBulge: { value: 0.1 }, uTear: { value: 0.85 },
+        uTurb: { value: 0.2 }, uNoiseSpeed:{ value: 1.8 },
+        uDiamondsStrength: { value: 0.4 }, uDiamondsFreq: { value: 12.0 },
+        uRimStrength: { value: 0.3 }, uRimSpeed: { value: 2.8 },
+        uCyanMul:   { value: 1.0 }, uOrangeMul: { value: 1.0 }, uWhiteMul:  { value: 1.2 },
         uCyan:   { value: new THREE.Color(0x80fbfd) },
         uWhite:  { value: new THREE.Color(0xffffff) },
         uOrange: { value: new THREE.Color(0xffac57) }
@@ -222,18 +169,14 @@ export class EngineFX {
       `,
       fragmentShader: /* glsl */`
         precision mediump float;
-
         varying vec2 vUv;
         uniform float uTime;
-
         uniform float uIntensity, uTaper, uBulge, uTear, uTurb, uNoiseSpeed;
         uniform float uDiamondsStrength, uDiamondsFreq;
         uniform float uRimStrength, uRimSpeed;
-
         uniform float uCyanMul, uOrangeMul, uWhiteMul;
         uniform vec3  uCyan, uWhite, uOrange;
 
-        // cheap hash/fbm for noise
         float n2(vec2 p){ return fract(sin(dot(p, vec2(127.1,311.7))) * 43758.5453); }
         float fbm(vec2 p){
           float a=0.0, w=0.5;
@@ -243,10 +186,9 @@ export class EngineFX {
 
         // --- REVISED: Stronger teardrop shape ---
         float radiusProfile(float y){
-          float baseR = mix(0.50, 0.28, clamp(uTaper,0.0,1.0));
-          float bulge = uBulge * smoothstep(0.0, 0.35, 0.35 - abs(y-0.175)) * 0.35;
-          float r = baseR + bulge;
-          r = mix(r, 0.10, smoothstep(0.60, 0.90, y));
+          float r = mix(0.50, 0.28, clamp(uTaper,0.0,1.0)); // Taper
+          r += uBulge * smoothstep(0.0, 0.35, 0.35 - abs(y-0.175)) * 0.35; // Bulge
+          r = mix(r, 0.10, smoothstep(0.60, 0.90, y)); // Narrow tail
           // Sharper, more powerful pinch for the teardrop effect
           float pinch = pow(smoothstep(0.75, 1.0, y), mix(4.0, 15.0, clamp(uTear,0.0,1.0)));
           r = mix(r, 0.0, pinch);
@@ -254,38 +196,27 @@ export class EngineFX {
         }
 
         void main(){
-          float y = clamp(vUv.y, 0.0, 1.0); // y=0 is base (nozzle), y=1 is tail
-
-          // Lateral wobble for turbulence
+          float y = vUv.y;
           float wob = (fbm(vec2(y*6.0, uTime*uNoiseSpeed)) - 0.5) * (0.35*uTurb);
           float x = abs(vUv.x - 0.5 + wob);
 
-          // Main cylindrical flame body
           float r = radiusProfile(y);
           float body = smoothstep(r, r-0.14, x);
-
-          // Soft fade-in at base and tail
           body *= smoothstep(0.00, 0.06, y) * (1.0 - smoothstep(0.96, 1.00, y));
 
-          // Mach diamonds
           float bands = 0.5 + 0.5*sin(y*uDiamondsFreq*6.283);
-          float diamonds = mix(1.0, bands, clamp(uDiamondsStrength,0.0,2.0));
-          diamonds = mix(diamonds, 1.0, smoothstep(0.70, 1.0, y));
-          body *= diamonds;
+          float diamonds = mix(1.0, bands, uDiamondsStrength);
+          body *= mix(diamonds, 1.0, smoothstep(0.70, 1.0, y));
 
           // --- REVISED: More vibrant color ramp ---
-          // Transitions from a white/cyan core to a fiery orange tail
           vec3 col = mix(uWhite*uWhiteMul, uCyan*uCyanMul, smoothstep(0.0, 0.25, y));
           col = mix(col, uOrange*uOrangeMul, smoothstep(0.3, 0.85, y));
 
-          // Noisy halo around the flame edge
-          float rim = smoothstep(r+0.05, r, x);
-          float rimNoise = fbm(vec2((x-r)*24.0, uTime*uRimSpeed))*0.5+0.5;
-          float halo = rim * rimNoise * uRimStrength;
+          float rim = smoothstep(r+0.05, r, x) * (fbm(vec2((x-r)*24.0, uTime*uRimSpeed))*0.5+0.5);
+          float halo = rim * uRimStrength;
 
-          float alpha = (body + halo) * clamp(uIntensity, 0.0, 5.0);
+          float alpha = (body + halo) * uIntensity;
           if (alpha < 0.01) discard;
-
           gl_FragColor = vec4(col * alpha, alpha);
         }
       `
