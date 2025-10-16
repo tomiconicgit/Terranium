@@ -28,63 +28,51 @@ html, body {
     left: 0;
     width: 100%;
     height: 100%;
-    background: url('https://via.placeholder.com/1920x1080/0d111c/6c7a89?text=Game+Background') center center / cover no-repeat; /* Placeholder background image */
-    backdrop-filter: blur(8px); /* Blur the background image */
+    background: url('https://via.placeholder.com/1920x1080/0d111c/6c7a89?text=Game+Background') center center / cover no-repeat;
+    backdrop-filter: blur(8px);
     display: flex;
     justify-content: center;
     align-items: center;
     z-index: 100;
     transition: opacity 0.5s ease-out;
+    padding: 15px; /* Add padding for small screens */
+    box-sizing: border-box;
 }
 
 .loader-card {
-    display: flex; /* Use flexbox for the two-column layout */
-    width: 90%;
-    max-width: 900px; /* Adjust max-width to your preference */
-    background: rgba(20, 20, 30, 0.9); /* Darker background for the card */
+    display: flex;
+    width: 100%;
+    max-width: 800px; /* Reduced max width */
+    background: rgba(20, 20, 30, 0.9);
     border-radius: 8px;
-    overflow: hidden; /* Ensures rounded corners on image as well */
+    overflow: hidden;
     box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
 }
 
 .loader-image-side {
-    flex: 0 0 350px; /* Fixed width for the image side */
-    background-color: #000; /* Fallback for image area */
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    position: relative;
+    flex: 0 0 280px; /* Reduced image width */
+    background-color: #000;
     overflow: hidden;
 }
 
 .loader-image-side img {
     width: 100%;
     height: 100%;
-    object-fit: cover; /* Cover the area without distortion */
-}
-
-/* If you want the procedural logo on the image side */
-.loader-image-side #loader-logo {
-    position: absolute;
-    bottom: 20px;
-    right: 20px;
-    width: 60px;
-    height: 60px;
-    opacity: 0.8;
+    object-fit: cover;
 }
 
 .loader-content-side {
-    flex: 1; /* Takes up remaining space */
-    padding: 30px 40px;
+    flex: 1;
+    padding: 25px 30px;
     display: flex;
     flex-direction: column;
-    justify-content: space-between; /* Pushes button to bottom */
+    justify-content: space-between;
     color: #eee;
 }
 
 .loader-content-side h2 {
     margin-top: 0;
-    font-size: 1.8em;
+    font-size: 1.6em;
     font-weight: 300;
     letter-spacing: 1px;
     color: #fff;
@@ -114,7 +102,7 @@ html, body {
 #progress-percentage-text {
     font-weight: bold;
     color: #fff;
-    min-width: 40px; /* ensure percentage doesn't jump around */
+    min-width: 40px;
     text-align: right;
 }
 
@@ -123,7 +111,7 @@ html, body {
     width: 100%;
     background: rgba(255, 255, 255, 0.1);
     border-radius: 3px;
-    height: 8px; /* Thinner progress bar */
+    height: 8px;
     overflow: hidden;
     margin-bottom: 20px;
 }
@@ -137,17 +125,17 @@ html, body {
 
 /* Enter Button */
 #enter-button {
-    width: 150px; /* Fixed width for the button */
+    width: 150px;
     padding: 12px 20px;
-    margin-top: auto; /* Pushes the button to the bottom */
-    align-self: flex-end; /* Aligns to bottom right within flex column */
+    margin-top: auto;
+    align-self: flex-end;
     border: none;
     border-radius: 4px;
     font-size: 1.1em;
     font-weight: 600;
     cursor: pointer;
     transition: background-color 0.3s, color 0.3s, opacity 0.3s;
-    background-color: #3b3b4d; /* Default disabled color */
+    background-color: #3b3b4d;
     color: #888;
 }
 
@@ -168,7 +156,7 @@ html, body {
 
 /* Debugger Message Area for Loader */
 #debugger-message-area {
-    min-height: 50px; /* Reserve space for messages */
+    min-height: 50px;
     color: #d43b3b;
     font-size: 0.85em;
     background: rgba(212, 59, 59, 0.1);
@@ -176,133 +164,53 @@ html, body {
     padding: 10px;
     margin-bottom: 15px;
     border-radius: 4px;
-    display: none; /* Hidden by default */
+    display: none;
     overflow: auto;
     max-height: 100px;
 }
 
-#debugger-message-area.warning {
-    color: #e0b230;
-    background: rgba(224, 178, 48, 0.1);
-    border-left: 3px solid #e0b230;
-}
-
-
-/* Debugger Notification Card Styles (for in-game errors, unchanged) */
+/* Other styles (Debugger cards, TouchPad) remain unchanged... */
 #debugger-notifications {
-    position: fixed;
-    top: 20px;
-    right: 20px;
-    z-index: 200;
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
+    position: fixed; top: 20px; right: 20px; z-index: 200; display: flex; flex-direction: column; gap: 10px;
 }
-
 .debugger-card {
-    padding: 15px;
-    border-radius: 8px;
-    background: rgba(212, 59, 59, 0.85);
-    backdrop-filter: blur(5px);
-    border: 1px solid rgba(255, 255, 255, 0.2);
-    color: #fff;
-    width: 320px;
-    box-shadow: 0 4px 15px rgba(0,0,0,0.3);
-    animation: slide-in 0.5s forwards;
+    padding: 15px; border-radius: 8px; background: rgba(212, 59, 59, 0.85); backdrop-filter: blur(5px); border: 1px solid rgba(255, 255, 255, 0.2); color: #fff; width: 320px; box-shadow: 0 4px 15px rgba(0,0,0,0.3); animation: slide-in 0.5s forwards;
 }
+.debugger-card.warning { background: rgba(224, 178, 48, 0.85); }
+.debugger-card h4 { margin: 0 0 10px 0; font-size: 1.1em; }
+.debugger-card p { margin: 0 0 15px 0; font-family: 'Courier New', Courier, monospace; font-size: 0.9em; word-wrap: break-word; }
+.debugger-card button { background: rgba(0,0,0,0.3); color: #fff; border: 1px solid #fff; padding: 5px 10px; border-radius: 5px; cursor: pointer; }
+@keyframes slide-in { from { transform: translateX(110%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+.touch-controls { position: fixed; bottom: 20px; left: 20px; z-index: 10; width: 120px; height: 120px; }
+#joystick-base { position: absolute; width: 100%; height: 100%; background: rgba(255, 255, 255, 0.1); border-radius: 50%; border: 2px solid rgba(255, 255, 255, 0.2); }
+#joystick-nub { position: absolute; width: 60px; height: 60px; background: rgba(255, 255, 255, 0.3); border-radius: 50%; top: 30px; left: 30px; pointer-events: none; }
 
-.debugger-card.warning {
-    background: rgba(224, 178, 48, 0.85);
-}
-
-.debugger-card h4 {
-    margin: 0 0 10px 0;
-    font-size: 1.1em;
-}
-
-.debugger-card p {
-    margin: 0 0 15px 0;
-    font-family: 'Courier New', Courier, monospace;
-    font-size: 0.9em;
-    word-wrap: break-word;
-}
-
-.debugger-card button {
-    background: rgba(0,0,0,0.3);
-    color: #fff;
-    border: 1px solid #fff;
-    padding: 5px 10px;
-    border-radius: 5px;
-    cursor: pointer;
-}
-
-@keyframes slide-in {
-    from {
-        transform: translateX(110%);
-        opacity: 0;
+/* Responsive Adjustments for Mobile */
+@media (max-width: 768px) and (orientation: landscape) {
+    .loader-image-side {
+        flex: 0 0 180px; /* Make image even smaller on landscape mobile */
     }
-    to {
-        transform: translateX(0);
-        opacity: 1;
+    .loader-content-side {
+        padding: 15px 20px; /* Reduce padding */
+    }
+    .loader-content-side h2 {
+        font-size: 1.3em;
+        margin-bottom: 10px;
+        padding-bottom: 10px;
+    }
+    #enter-button {
+        width: 120px;
+        padding: 10px;
+        font-size: 1em;
     }
 }
 
-/* TouchPad Controls Styles (unchanged) */
-.touch-controls {
-    position: fixed;
-    bottom: 20px;
-    left: 20px;
-    z-index: 10;
-    width: 120px;
-    height: 120px;
-}
-
-#joystick-base {
-    position: absolute;
-    width: 100%;
-    height: 100%;
-    background: rgba(255, 255, 255, 0.1);
-    border-radius: 50%;
-    border: 2px solid rgba(255, 255, 255, 0.2);
-}
-
-#joystick-nub {
-    position: absolute;
-    width: 60px;
-    height: 60px;
-    background: rgba(255, 255, 255, 0.3);
-    border-radius: 50%;
-    top: 30px;
-    left: 30px;
-    pointer-events: none;
-}
-
-/* Responsive Adjustments for smaller screens */
-@media (max-width: 768px) {
+@media (max-width: 600px) and (orientation: portrait) {
     .loader-card {
         flex-direction: column; /* Stack image and content vertically */
-        max-width: 400px;
+        max-width: 380px;
     }
-
     .loader-image-side {
-        flex: none;
-        height: 200px; /* Fixed height for image on small screens */
-        width: 100%;
-    }
-
-    .loader-image-side #loader-logo {
-        bottom: 10px;
-        right: 10px;
-        width: 40px;
-        height: 40px;
-    }
-    
-    .loader-content-side {
-        padding: 20px;
-    }
-
-    #enter-button {
-        align-self: center; /* Center button on small screens */
-        width: 100%;
+        height: 180px;
     }
 }
