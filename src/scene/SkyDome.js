@@ -1,34 +1,32 @@
 // src/scene/SkyDome.js
-// Renamed from src/objects/SkyDome.js
 
 import * as THREE from 'three';
 
 export function createSkyDome() {
-  const geom = new THREE.SphereGeometry(1000, 32, 16);
-  const mat = new THREE.ShaderMaterial({
+  const topColor = new THREE.Color(0x81B2EB); // A nice sky blue
+  const bottomColor = new THREE.Color(0xF0F8FF); // A very light, almost white horizon
+
+  const canvas = document.createElement('canvas');
+  canvas.width = 2;
+  canvas.height = 128;
+  const context = canvas.getContext('2d');
+  
+  const gradient = context.createLinearGradient(0, 0, 0, 128);
+  gradient.addColorStop(0, topColor.getStyle());
+  gradient.addColorStop(1, bottomColor.getStyle());
+  
+  context.fillStyle = gradient;
+  context.fillRect(0, 0, 2, 128);
+  
+  const gradientTexture = new THREE.CanvasTexture(canvas);
+  
+  const geom = new THREE.SphereGeometry(1500, 32, 16);
+  const mat = new THREE.MeshBasicMaterial({
+    map: gradientTexture,
     side: THREE.BackSide,
-    uniforms: {
-      topColor:    { value: new THREE.Color(0x94c0ff) },
-      bottomColor: { value: new THREE.Color(0xcfe8ff) },
-    },
-    vertexShader: `
-      varying vec3 vWorldPosition;
-      void main() {
-        vec4 worldPosition = modelMatrix * vec4(position, 1.0);
-        vWorldPosition = worldPosition.xyz;
-        gl_Position = projectionMatrix * viewMatrix * worldPosition;
-      }
-    `,
-    fragmentShader: `
-      uniform vec3 topColor;
-      uniform vec3 bottomColor;
-      varying vec3 vWorldPosition;
-      void main() {
-        float h = normalize(vWorldPosition).y;
-        gl_FragColor = vec4(mix(bottomColor, topColor, max(pow(max(h, 0.0), 0.8), 0.0)), 1.0);
-      }
-    `
+    fog: false // The sky itself should not be affected by fog
   });
+  
   const sky = new THREE.Mesh(geom, mat);
   sky.name = 'skydome';
   return sky;
