@@ -16,11 +16,9 @@ export class Debugger {
     }
 
     log(message) {
-        // In a real scenario, you could send this to a logging service
         console.log(`[DEBUG] ${message}`);
     }
 
-    // This method is called by the loader or other parts of the game
     handleError(error, context = 'General') {
         console.error(`[${context} ERROR]`, error);
         
@@ -28,13 +26,11 @@ export class Debugger {
         this.showNotification(`[${context}] ${message}`, 'error');
     }
 
-    // Use this for non-critical warnings like performance dips
     warn(message, context = 'Warning') {
         console.warn(`[${context} WARNING] ${message}`);
         this.showNotification(`[${context}] ${message}`, 'warning');
     }
     
-    // Creates and displays the notification card UI
     showNotification(message, type = 'error') {
         const card = document.createElement('div');
         card.className = `debugger-card ${type}`;
@@ -62,7 +58,6 @@ export class Debugger {
         
         this.notificationContainer.appendChild(card);
         
-        // Auto-remove the notification after some time
         setTimeout(() => {
             card.style.opacity = '0';
             setTimeout(() => card.remove(), 500);
