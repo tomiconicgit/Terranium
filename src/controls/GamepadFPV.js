@@ -1,3 +1,48 @@
-// GamepadFPV.js — controller-only movement + look
+// src/controls/GamePad.js
+
 import * as THREE from 'three';
-export class GamepadFPV extends THREE.Object3D{constructor(t){super(),this.camera=t,this.add(this.camera),this.camera.position.set(0,1.6,0),this.rotation.order="YXZ",this.speed=6,this.flySpeed=4,this.lookSpeed=1.8,this._yaw=0,this._pitch=0,this._lastButtons=[]}getGamepad(){const t=navigator.getGamepads?.()||[];for(const s of t)if(s&&s.connected)return s;return null}isDown(t){const s=this.getGamepad();return s?!!s.buttons[t]?.pressed:!1}update(t){const s=this.getGamepad(),e=s?s.axes:[0,0,0,0],i=dz(e[0]),o=dz(e[1]),h=dz(e[2]),r=dz(e[3]);this._yaw-=h*this.lookSpeed*t,this._pitch-=r*this.lookSpeed*t,this._pitch=Math.max(-Math.PI/2+.01,Math.min(Math.PI/2-.01,this._pitch)),this.rotation.set(this._pitch,this._yaw,0,"YXZ");const a=new THREE.Vector3(0,0,-1).applyQuaternion(this.quaternion),n=new THREE.Vector3(1,0,0).applyQuaternion(this.quaternion);a.y=0,n.y=0,a.normalize(),n.normalize();const c=new THREE.Vector3;c.addScaledVector(n,i*this.speed),c.addScaledVector(a,-o*this.speed),this.isDown(0)&&(c.y+=this.flySpeed),this.isDown(2)&&(c.y-=this.flySpeed),this.position.addScaledVector(c,t)}}function dz(t,s=.12){return Math.abs(t)<s?0:t}
+
+export class GamepadController {
+  constructor(cameraRig) {
+    this.cameraRig = cameraRig;
+    this.speed = 8;
+    this.lookSpeed = 2.0;
+  }
+
+  connect() {
+    // We can add touch/keyboard listeners here in the future
+  }
+
+  getGamepad() {
+    const gamepads = navigator.getGamepads ? navigator.getGamepads() : [];
+    for (const gp of gamepads) {
+      if (gp && gp.connected) return gp;
+    }
+    return null;
+  }
+
+  deadzone(value, threshold = 0.15) {
+    return Math.abs(value) < threshold ? 0 : value;
+  }
+
+  update(deltaTime) {
+    const gamepad = this.getGamepad();
+    if (!gamepad) return;
+
+    // Movement axes (Left stick)
+    const moveX = this.deadzone(gamepad.axes[0]);
+    const moveZ = this.deadzone(gamepad.axes[1]);
+    
+    // Look axes (Right stick)
+    const lookX = this.deadzone(gamepad.axes[2]) * this.lookSpeed * deltaTime;
+    const lookY = this.deadzone(gamepad.axes[3]) * this.lookSpeed * deltaTime;
+    
+    // Fly controls (Triggers or buttons)
+    const flyUp = gamepad.buttons[7]?.pressed ? 1 : 0;
+    const flyDown = gamepad.buttons[6]?.pressed ? -1 : 0;
+    const flyY = flyUp + flyDown;
+
+    this.cameraRig.rotate(lookX, lookY);
+    this.cameraRig.move(moveX, -moveZ, flyY, deltaTime, this.speed);
+  }
+}
