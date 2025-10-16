@@ -5,14 +5,24 @@ import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
 import { Scene } from './scene/Scene.js';
 import { GamepadFPV } from './controls/GamepadFPV.js';
 
+// Core elements
 const mount = document.getElementById('app');
 const overlay = document.getElementById('errorOverlay');
 const startScreenEl = document.getElementById('startScreen');
 const startBtnEl = document.getElementById('startBtn');
 
-// Upload UI
+// UI Buttons & Panels
 const uploadBtn = document.getElementById('uploadBtn');
 const modelUploader = document.getElementById('modelUploader');
+const adjustBtn = document.getElementById('adjustBtn');
+const adjustPanel = document.getElementById('adjustPanel');
+
+// Adjustment Sliders
+const scaleSlider = document.getElementById('scaleSlider');
+const posXSlider = document.getElementById('posXSlider');
+const posYSlider = document.getElementById('posYSlider');
+const posZSlider = document.getElementById('posZSlider');
+const copyDataBtn = document.getElementById('copyDataBtn');
 
 // Touch UI
 const touchLeft = document.getElementById('touchLeft');
@@ -35,23 +45,22 @@ try {
   renderer.toneMappingExposure = 0.5;
   renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
   renderer.setSize(window.innerWidth, window.innerHeight);
-
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-
   mount.appendChild(renderer.domElement);
+  
   scene = new Scene();
   camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 2000);
-
+  
   rig = new GamepadFPV(camera);
-  rig.position.set(0, 15, 20); // Start higher up
+  rig.position.set(0, 15, 20);
   scene.add(rig);
-
 } catch (e) {
   die('Renderer/scene init', e);
 }
 
-/* ---------- Model Loader ---------- */
+/* ---------- Model Loader & Adjustment ---------- */
+let lastLoadedModel = null;
 const gltfLoader = new GLTFLoader();
 const dracoLoader = new DRACOLoader();
 dracoLoader.setDecoderPath('https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/libs/draco/gltf/');
@@ -63,8 +72,8 @@ function loadModel(file) {
     reader.onload = (event) => {
         gltfLoader.parse(event.target.result, '', (gltf) => {
             const model = gltf.scene;
+            lastLoadedModel = model; // Store reference to the latest model
             
-            // Enable shadows for all meshes in the model
             model.traverse(node => {
                 if (node.isMesh) {
                     node.castShadow = true;
@@ -72,7 +81,7 @@ function loadModel(file) {
                 }
             });
 
-            // Raycast down to find the terrain surface and place the model
+            // Raycast to place model on the terrain surface
             raycaster.set(new THREE.Vector3(0, 100, 0), new THREE.Vector3(0, -1, 0));
             const terrain = scene.getObjectByName('terrain');
             if (terrain) {
@@ -81,10 +90,15 @@ function loadModel(file) {
                     model.position.copy(intersects[0].point);
                 }
             } else {
-                 model.position.set(0, 10, 0); // Fallback position
+                 model.position.set(0, 10, 0); // Fallback
             }
 
             scene.add(model);
+            
+            // Sync sliders with the new model's initial state
+            updateSlidersFromModel();
+            adjustBtn.style.display = 'flex'; // Show the adjust button
+            adjustPanel.classList.remove('hidden'); // Show panel by default for new model
         }, (error) => {
             console.error('An error happened during GLTF parsing:', error);
             alert('Could not load the model.');
@@ -93,16 +107,52 @@ function loadModel(file) {
     reader.readAsArrayBuffer(file);
 }
 
+function updateSlidersFromModel() {
+    if (!lastLoadedModel) return;
+    scaleSlider.value = lastLoadedModel.scale.x;
+    posXSlider.value = lastLoadedModel.position.x;
+    posYSlider.value = lastLoadedModel.position.y;
+    posZSlider.value = lastLoadedModel.position.z;
+}
+
+// UI Event Listeners
 uploadBtn.addEventListener('click', () => modelUploader.click());
 modelUploader.addEventListener('change', (event) => {
     const file = event.target.files[0];
-    if (file) {
-        loadModel(file);
-    }
+    if (file) loadModel(file);
 });
 
+adjustBtn.addEventListener('click', () => adjustPanel.classList.toggle('hidden'));
 
-/* ---------- Resize ---------- */
+// Slider Event Listeners
+scaleSlider.addEventListener('input', () => {
+    if (lastLoadedModel) {
+        const scale = parseFloat(scaleSlider.value);
+        lastLoadedModel.scale.set(scale, scale, scale);
+    }
+});
+posXSlider.addEventListener('input', () => { if (lastLoadedModel) lastLoadedModel.position.x = parseFloat(posXSlider.value); });
+posYSlider.addEventListener('input', () => { if (lastLoadedModel) lastLoadedModel.position.y = parseFloat(posYSlider.value); });
+posZSlider.addEventListener('input', () => { if (lastLoadedModel) lastLoadedModel.position.z = parseFloat(posZSlider.value); });
+
+copyDataBtn.addEventListener('click', () => {
+    if (!lastLoadedModel) return;
+    const data = {
+        scale: parseFloat(lastLoadedModel.scale.x.toFixed(4)),
+        position: {
+            x: parseFloat(lastLoadedModel.position.x.toFixed(4)),
+            y: parseFloat(lastLoadedModel.position.y.toFixed(4)),
+            z: parseFloat(lastLoadedModel.position.z.toFixed(4))
+        }
+    };
+    navigator.clipboard.writeText(JSON.stringify(data, null, 2)).then(() => {
+        const originalText = copyDataBtn.textContent;
+        copyDataBtn.textContent = 'Copied!';
+        setTimeout(() => { copyDataBtn.textContent = originalText; }, 2000);
+    });
+});
+
+/* ---------- Core App Logic (Resize, Controls, Loop) - Unchanged ---------- */
 window.addEventListener('resize', () => {
   const w = window.innerWidth;
   const h = window.innerHeight;
@@ -111,7 +161,6 @@ window.addEventListener('resize', () => {
   renderer.setSize(w, h);
 });
 
-/* ---------- Touch controls implementation (unchanged) ---------- */
 const joy = { active: false, centerX: 0, centerY: 0, lx: 0, ly: 0, radius: 70 };
 const lookTouch = { active: false, lastX: 0, lastY: 0, dx: 0, dy: 0 };
 function clamp(v, min, max){ return Math.max(min, Math.min(max, v)); }
@@ -158,10 +207,9 @@ touchRight.addEventListener('touchmove',  rightMove,  { passive: false });
 touchRight.addEventListener('touchend',   rightEnd,   { passive: false });
 touchRight.addEventListener('touchcancel', rightEnd,  { passive: false });
 
-/* ---------- Loop ---------- */
 const clock = new THREE.Clock();
 const TOUCH_LOOK_SENS = 0.0020;
-const TOUCH_MOVE_SPEED = 8.0; // Slightly faster for the larger world
+const TOUCH_MOVE_SPEED = 8.0;
 
 function animate(){
   requestAnimationFrame(animate);
@@ -201,4 +249,3 @@ startBtnEl.addEventListener('click', () => {
   }
   animate();
 }, { once: true });
-
