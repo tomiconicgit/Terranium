@@ -1,5 +1,5 @@
 // src/effects/EngineFX.js
-// Auto-scales to rocket size and exposes live-tweakable params for UI.
+// Auto-scales to rocket size and exposes wide-range controls for flames & smoke.
 
 import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.163.0/build/three.module.js';
 
@@ -19,7 +19,10 @@ export class EngineFX {
     // Measure model
     const box = new THREE.Box3().setFromObject(rocketRoot);
     this.size = new THREE.Vector3(); box.getSize(this.size);
+    this.center = new THREE.Vector3(); box.getCenter(this.center);
     this.bottomY = box.min.y;
+
+    // If model is ~15x15 on your terrain, this keeps proportions sane
     const halfDia = 0.5 * Math.max(this.size.x, this.size.z);
 
     // Engine ring radii
@@ -27,23 +30,32 @@ export class EngineFX {
     this.R_middle = this.R_outer * 0.70;
     this.R_inner  = this.R_outer * 0.35;
 
-    // Base positions/sizes
-    this.emitYBase = this.bottomY + Math.max(0.02 * this.size.y, 0.1);
-    this.flameWidthBase  = this.R_outer * 0.24;  // base column width
-    this.flameHeightBase = this.R_outer * 2.1;   // base length
-    this.smokeSizeBase   = Math.max(28, this.R_outer * 6.0);
+    // Base positions/sizes (these are multiplied by user factors)
+    this.emitYBase       = this.bottomY + Math.max(0.02 * this.size.y, 0.1);
+    this.flameWidthBase  = this.R_outer * 0.40;   // wider base than before
+    this.flameHeightBase = this.R_outer * 5.00;   // MUCH longer flames baseline
+    this.smokeSizeBase   = Math.max(20, this.R_outer * 18.0); // bigger baseline puff size
 
-    // User-tweakable params (multipliers/offsets)
+    // User-tweakable params (very wide ranges supported in UI)
     this.params = {
       enginesOn: false,
-      flameWidthFactor: 1.0,
-      flameHeightFactor: 1.0,
-      flameYOffset: 0.0,
-      smokeSizeFactor: 1.0,
-      smokeYOffset: 0.0,
+
+      // Scales
+      flameWidthFactor:  1.0,   // 0.01 … 50 in UI
+      flameHeightFactor: 1.0,   // 0.01 … 80 in UI
+      smokeSizeFactor:   1.0,   // 0.1  … 50 in UI
+
+      // Local Y micro offsets
+      flameYOffset: 0.0,        // -200 … 200 in UI
+      smokeYOffset: 0.0,        // -200 … 400 in UI
+
+      // Whole FX group offsets (to align under rocket)
+      groupOffsetX: 0.0,        // -50 … 50 in UI
+      groupOffsetY: 0.0,        // -200 … 400 in UI
+      groupOffsetZ: 0.0         // -50 … 50 in UI
     };
 
-    // Build engine emitters
+    // ---- Build engine emitters (positions) ----
     const rings = (this.opts.rings === '33')
       ? [
           { r: this.R_inner,  n: 3  },
@@ -60,23 +72,26 @@ export class EngineFX {
       this.enginePoints.push(...this._ring(r, n).map(p => new THREE.Vector3(p.x, this.emitYBase, p.y)));
     }
 
-    // ---- Flames (instanced quads) ----
+    // ---- Flames (instanced quads + shader) ----
     const flameGeo = new THREE.PlaneGeometry(1, 4);
     const flameMat = this._makeFlameMaterial();
     this.flames = new THREE.InstancedMesh(flameGeo, flameMat, this.enginePoints.length);
     this.flames.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
 
+    const seedColor = new THREE.Color();
     const tmp = new THREE.Object3D();
     for (let i = 0; i < this.enginePoints.length; i++) {
       tmp.position.copy(this.enginePoints[i]);
       tmp.scale.set(this.flameWidthBase, this.flameHeightBase, 1.0);
       tmp.updateMatrix();
       this.flames.setMatrixAt(i, tmp.matrix);
-      this.flames.setColorAt(i, new THREE.Color(Math.random(), 0, 0)); // seed in .r
+      // store random seed in instance color r channel
+      seedColor.setRGB(Math.random(), 0, 0);
+      this.flames.setColorAt(i, seedColor);
     }
     this.flames.frustumCulled = false;
 
-    // Billboard around Y
+    // Billboard around Y each frame (faces camera yaw)
     this.flames.onBeforeRender = () => {
       const m = new THREE.Matrix4();
       const q = new THREE.Quaternion();
@@ -95,14 +110,14 @@ export class EngineFX {
       this.flames.instanceMatrix.needsUpdate = true;
     };
 
-    // ---- Ground smoke (points) ----
-    const smokeCount = Math.floor(500 + (this.R_outer * this.R_outer) * 80);
+    // ---- Ground smoke (points + shader) ----
+    const smokeCount = Math.floor(1000 + (this.R_outer * this.R_outer) * 140); // more density
     const smokeGeo = new THREE.BufferGeometry();
     const positions = new Float32Array(smokeCount * 3);
     const ages = new Float32Array(smokeCount);
     const seeds = new Float32Array(smokeCount);
     const minR = this.R_middle * 0.9;
-    const maxR = this.R_outer  * 1.05;
+    const maxR = this.R_outer  * 1.1;
 
     for (let i = 0; i < smokeCount; i++) {
       const r = THREE.MathUtils.lerp(minR, maxR, Math.random());
@@ -120,8 +135,9 @@ export class EngineFX {
     this.smoke = new THREE.Points(smokeGeo, this._makeSmokeMaterial(this.smokeSizeBase));
     this.smoke.frustumCulled = false;
 
-    // Group under rocket so FX follow later
+    // Group under rocket so FX follow later; we can offset this group
     this.group = new THREE.Group();
+    this.group.position.set(0, 0, 0);
     rocketRoot.add(this.group);
     this.group.add(this.flames);
     this.group.add(this.smoke);
@@ -147,13 +163,17 @@ export class EngineFX {
       flameYOffset:      this.params.flameYOffset,
       smokeSizeFactor:   this.params.smokeSizeFactor,
       smokeYOffset:      this.params.smokeYOffset,
+      groupOffsetX:      this.params.groupOffsetX,
+      groupOffsetY:      this.params.groupOffsetY,
+      groupOffsetZ:      this.params.groupOffsetZ,
       // Derived (absolute) values for copy/paste
       absolute: {
         flameWidth:  this.flameWidthBase  * this.params.flameWidthFactor,
         flameHeight: this.flameHeightBase * this.params.flameHeightFactor,
-        flameY:      this.emitYBase + this.params.flameYOffset,
+        flameY:      this.emitYBase + this.params.flameYOffset + this.params.groupOffsetY,
         smokeSize:   this.smokeSizeBase * this.params.smokeSizeFactor,
-        smokeY:      (this.bottomY + 0.02 * this.size.y) + this.params.smokeYOffset
+        smokeY:      (this.bottomY + 0.02 * this.size.y) + this.params.smokeYOffset + this.params.groupOffsetY,
+        groupOffset: { x: this.params.groupOffsetX, y: this.params.groupOffsetY, z: this.params.groupOffsetZ }
       }
     };
   }
@@ -169,34 +189,40 @@ export class EngineFX {
 
   // === Internals ===
   _applyVisibility() {
-    if (this.flames) this.flames.visible = this.params.enginesOn;
-    if (this.smoke)  this.smoke.visible  = this.params.enginesOn;
+    const vis = !!this.params.enginesOn;
+    if (this.flames) this.flames.visible = vis;
+    if (this.smoke)  this.smoke.visible  = vis;
   }
 
   _applyTransforms() {
-    // Update flames instance transforms (scale & Y)
+    // Move entire FX block
+    if (this.group) {
+      this.group.position.set(this.params.groupOffsetX, this.params.groupOffsetY, this.params.groupOffsetZ);
+    }
+
+    // Update flames instance transforms (scale & local Y offset)
     if (this.flames) {
       const m = new THREE.Matrix4();
       const obj = new THREE.Object3D();
+      const w = this.flameWidthBase  * this.params.flameWidthFactor;
+      const h = this.flameHeightBase * this.params.flameHeightFactor;
+      const y = this.emitYBase + this.params.flameYOffset;
+
       for (let i = 0; i < this.enginePoints.length; i++) {
         const p = this.enginePoints[i];
-        obj.position.set(p.x, this.emitYBase + this.params.flameYOffset, p.z);
-        obj.scale.set(
-          this.flameWidthBase  * this.params.flameWidthFactor,
-          this.flameHeightBase * this.params.flameHeightFactor,
-          1.0
-        );
+        obj.position.set(p.x, y, p.z);
+        obj.scale.set(w, h, 1.0);
         obj.rotation.set(0, 0, 0);
         obj.updateMatrix();
         this.flames.setMatrixAt(i, obj.matrix);
       }
       this.flames.instanceMatrix.needsUpdate = true;
     }
-    // Update smoke uniform size and position offset (via model matrix)
+
+    // Smoke size + local Y offset (group Y already applied above)
     if (this.smoke) {
-      this.smoke.material.uniforms.uSize.value =
-        this.smokeSizeBase * this.params.smokeSizeFactor;
-      this.smoke.position.y = this.params.smokeYOffset; // local offset under group
+      this.smoke.material.uniforms.uSize.value = this.smokeSizeBase * this.params.smokeSizeFactor;
+      this.smoke.position.y = this.params.smokeYOffset; // local (within group)
     }
   }
 
