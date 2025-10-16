@@ -40,7 +40,6 @@ export class Main {
     }
 
     init() {
-        // Scene, Renderer, Camera... (same as before)
         this.scene = new THREE.Scene();
         this.renderer = new THREE.WebGLRenderer({ canvas: this.canvas, antialias: true });
         this.renderer.setSize(window.innerWidth, window.innerHeight);
@@ -50,13 +49,11 @@ export class Main {
         this.camera.rotation.order = 'YXZ';
         this.scene.add(this.camera);
 
-        // Lighting, Scenery... (same as before)
         const { ambientLight, sunLight } = createLighting();
         this.scene.add(ambientLight, sunLight, sunLight.target);
         this.terrain = createTerrain();
         this.scene.add(this.terrain, createSkyDome());
 
-        // Controls... (same as before)
         this.controls = new TouchPad();
         this.playerVelocity = new THREE.Vector3();
         this.lookSpeed = 0.004;
@@ -64,24 +61,23 @@ export class Main {
         this.raycaster = new THREE.Raycaster();
         this.rayDirection = new THREE.Vector3(0, -1, 0);
         
-        // --- NEW INITIALIZATIONS ---
         this.initModelSystems();
         this.loadStaticModels();
-        // -------------------------
 
         window.addEventListener('resize', () => this.onWindowResize(), false);
         this.initPerformanceMonitor();
     }
 
     initModelSystems() {
-        // Sliders UI must be created first so the container exists
-        this.modelSliders = new ModelSlidersUI(this.debugger);
-
-        // Import UI is created next, and we give it a callback
-        // that connects it to the sliders UI.
+        // ▼▼▼ FIX IS HERE: ORDER SWAPPED ▼▼▼
+        // Import UI must be created first to create the #ui-container div.
         this.importModelUI = new ImportModelUI(this.scene, (model) => {
             this.modelSliders.setActiveModel(model);
         }, this.debugger);
+
+        // Sliders UI is created second, and it will now successfully find the container.
+        this.modelSliders = new ModelSlidersUI(this.debugger);
+        // ▲▲▲ FIX IS HERE: ORDER SWAPPED ▲▲▲
     }
     
     loadStaticModels() {
@@ -103,9 +99,6 @@ export class Main {
         });
     }
     
-    // (The rest of the Main.js file is identical to your existing one)
-    // start(), onWindowResize(), updatePlayer(), animate(), initPerformanceMonitor() etc.
-    // ...
     start() { this.animate(); }
     onWindowResize() {
         this.camera.aspect = window.innerWidth / window.innerHeight;
