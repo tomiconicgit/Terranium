@@ -1,7 +1,8 @@
 // src/controls/GamePad.js
 
 import * as THREE from 'three';
-import nipplejs from 'nipplejs';
+// FIX: Use namespace import for nipplejs, as it has no default export
+import * as nipplejs from 'nipplejs';
 
 export class GamepadController {
   constructor(cameraRig) {
