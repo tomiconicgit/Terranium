@@ -28,7 +28,6 @@ html, body {
     left: 0;
     width: 100%;
     height: 100%;
-    /* Darker, blurred background using your image */
     background: linear-gradient(rgba(0, 0, 0, 0.6), rgba(0, 0, 0, 0.6)), url('src/assets/IMG_0022.jpeg') center center / cover no-repeat;
     backdrop-filter: blur(8px);
     display: flex;
@@ -52,17 +51,8 @@ html, body {
     box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
 }
 
-.loader-image-side {
-    flex: 0 0 45%;
-    background-color: #000;
-    overflow: hidden;
-}
-
-.loader-image-side img {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-}
+.loader-image-side { flex: 0 0 45%; background-color: #000; overflow: hidden; }
+.loader-image-side img { width: 100%; height: 100%; object-fit: cover; }
 
 .loader-content-side {
     flex: 1;
@@ -83,55 +73,15 @@ html, body {
     margin-bottom: auto;
 }
 
-.loader-status-line {
-    display: flex;
-    justify-content: space-between;
-    align-items: baseline;
-    font-size: 1em;
-    margin-bottom: 10px;
-}
+.loader-status-line { display: flex; justify-content: space-between; align-items: baseline; font-size: 1em; margin-bottom: 10px; }
+#loader-status-text { margin: 0; color: #ccc; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex-grow: 1; padding-right: 10px; }
+#progress-percentage-text { font-weight: bold; color: #fff; min-width: 40px; text-align: right; }
 
-#loader-status-text {
-    margin: 0;
-    color: #ccc;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    flex-grow: 1;
-    padding-right: 10px;
-}
-
-#progress-percentage-text {
-    font-weight: bold;
-    color: #fff;
-    min-width: 40px;
-    text-align: right;
-}
-
-.progress-bar-container {
-    width: 100%;
-    background: rgba(255, 255, 255, 0.1);
-    border-radius: 3px;
-    height: 8px;
-    overflow: hidden;
-    margin-bottom: 20px;
-}
-
-#progress-bar {
-    width: 0%;
-    height: 100%;
-    background: linear-gradient(90deg, #4f8ff7, #6e4ff7);
-    transition: width 0.3s ease-in-out, background-color 0.3s ease;
-}
+.progress-bar-container { width: 100%; background: rgba(255,255,255,0.1); border-radius: 3px; height: 8px; overflow: hidden; margin-bottom: 20px; }
+#progress-bar { width: 0%; height: 100%; background: linear-gradient(90deg, #4f8ff7, #6e4ff7); transition: width 0.3s ease-in-out, background-color 0.3s ease; }
 
 /* Button Group Styling */
-.button-group {
-    display: flex;
-    justify-content: flex-end;
-    align-items: center;
-    gap: 10px;
-    margin-top: 10px;
-}
+.button-group { display: flex; justify-content: flex-end; align-items: center; gap: 10px; margin-top: 10px; }
 
 /* Enter Button */
 #enter-button {
@@ -145,245 +95,98 @@ html, body {
     background-color: #3b3b4d;
     color: #888;
 }
-
-#enter-button:disabled {
-    opacity: 0.6;
-    cursor: not-allowed;
-}
-
-#enter-button:not(:disabled) {
-    background-color: #4f8ff7;
-    color: #fff;
-}
-
-#enter-button:not(:disabled):hover {
-    background-color: #6e4ff7;
-    box-shadow: 0 2px 10px rgba(79, 143, 247, 0.4);
-}
+#enter-button:disabled { opacity: 0.6; cursor: not-allowed; }
+#enter-button:not(:disabled) { background-color: #4f8ff7; color: #fff; }
+#enter-button:not(:disabled):hover { background-color: #6e4ff7; box-shadow: 0 2px 10px rgba(79,143,247,0.4); }
 
 /* Reload Button */
 #reload-button {
-    width: 40px;
-    height: 40px;
-    border: 1px solid #555;
-    background: transparent;
-    color: #ccc;
-    border-radius: 4px;
-    font-size: 1.5em;
-    cursor: pointer;
-    transition: all 0.3s;
-    display: flex;
-    align-items: center;
-    justify-content: center;
+    width: 40px; height: 40px; border: 1px solid #555; background: transparent; color: #ccc;
+    border-radius: 4px; font-size: 1.5em; cursor: pointer; transition: all 0.3s; display: flex; align-items: center; justify-content: center;
 }
-
-#reload-button:hover {
-    background: #555;
-    color: #fff;
-}
+#reload-button:hover { background: #555; color: #fff; }
 
 /* Debugger Message Area */
 #debugger-message-area {
-    min-height: 50px;
-    color: #d43b3b;
-    font-size: 0.85em;
-    background: rgba(212, 59, 59, 0.1);
-    border-left: 3px solid #d43b3b;
-    padding: 10px;
-    margin-bottom: 15px;
-    border-radius: 4px;
-    display: none;
-    overflow: auto;
-    max-height: 100px;
+    min-height: 50px; color: #d43b3b; font-size: 0.85em; background: rgba(212,59,59,0.1);
+    border-left: 3px solid #d43b3b; padding: 10px; margin-bottom: 15px; border-radius: 4px;
+    display: none; overflow: auto; max-height: 100px;
 }
 
 /* Debugger Notification Cards */
-#debugger-notifications {
-    position: fixed;
-    top: 20px;
-    right: 20px;
-    z-index: 200;
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-}
-
+#debugger-notifications { position: fixed; top: 20px; right: 20px; z-index: 200; display: flex; flex-direction: column; gap: 10px; }
 .debugger-card {
-    padding: 15px;
-    border-radius: 8px;
-    background: rgba(212, 59, 59, 0.85);
-    backdrop-filter: blur(5px);
-    border: 1px solid rgba(255, 255, 255, 0.2);
-    color: #fff;
-    width: 320px;
-    box-shadow: 0 4px 15px rgba(0,0,0,0.3);
-    animation: slide-in 0.5s forwards;
+    padding: 15px; border-radius: 8px; background: rgba(212, 59, 59, 0.85);
+    backdrop-filter: blur(5px); border: 1px solid rgba(255,255,255,0.2); color: #fff; width: 320px;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.3); animation: slide-in 0.5s forwards;
 }
-
-@keyframes slide-in {
-    from {
-        transform: translateX(110%);
-        opacity: 0;
-    }
-    to {
-        transform: translateX(0);
-        opacity: 1;
-    }
-}
+@keyframes slide-in { from { transform: translateX(110%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
 
 /* TouchPad Controls */
-.touch-controls {
-    position: fixed;
-    bottom: 20px;
-    left: 20px;
-    z-index: 10;
-    width: 120px;
-    height: 120px;
-}
+.touch-controls { position: fixed; bottom: 20px; left: 20px; z-index: 10; width: 120px; height: 120px; }
+#joystick-base { position: absolute; width: 100%; height: 100%; background: rgba(255,255,255,0.1); border-radius: 50%; border: 2px solid rgba(255,255,255,0.2); }
+#joystick-nub  { position: absolute; width: 60px; height: 60px; background: rgba(255,255,255,0.3); border-radius: 50%; top: 30px; left: 30px; pointer-events: none; }
 
-#joystick-base {
-    position: absolute;
-    width: 100%;
-    height: 100%;
-    background: rgba(255, 255, 255, 0.1);
-    border-radius: 50%;
-    border: 2px solid rgba(255, 255, 255, 0.2);
-}
-
-#joystick-nub {
-    position: absolute;
-    width: 60px;
-    height: 60px;
-    background: rgba(255, 255, 255, 0.3);
-    border-radius: 50%;
-    top: 30px;
-    left: 30px;
-    pointer-events: none;
-}
-
-/* Responsive Adjustments */
+/* Responsive */
 @media (max-width: 768px) and (orientation: landscape) {
-    .loader-card {
-        max-height: 350px;
-    }
-    .loader-image-side {
-        flex: 0 0 40%;
-    }
-    .loader-content-side {
-        padding: 15px 20px;
-    }
-    .loader-content-side h2 {
-        font-size: 1.3em;
-    }
+    .loader-card { max-height: 350px; }
+    .loader-image-side { flex: 0 0 40%; }
+    .loader-content-side { padding: 15px 20px; }
+    .loader-content-side h2 { font-size: 1.3em; }
 }
 @media (max-width: 600px) and (orientation: portrait) {
-    .loader-card {
-        flex-direction: column;
-        max-height: 90%;
-        height: auto;
-    }
-    .loader-image-side {
-        height: 180px;
-        flex-basis: auto;
-    }
+    .loader-card { flex-direction: column; max-height: 90%; height: auto; }
+    .loader-image-side { height: 180px; flex-basis: auto; }
 }
 
 /* --- UI Container for top-left buttons --- */
-#ui-container {
-    position: fixed;
-    top: 20px;
-    left: 20px;
-    z-index: 10;
-    display: flex;
-    gap: 10px;
-}
-
+#ui-container { position: fixed; top: 20px; left: 20px; z-index: 10; display: flex; gap: 10px; }
 #ui-container button {
-    padding: 10px 15px;
-    font-size: 1em;
-    font-weight: 500;
-    background-color: rgba(30, 30, 36, 0.8);
-    color: #fff;
-    border: 1px solid rgba(255, 255, 255, 0.2);
-    border-radius: 5px;
-    cursor: pointer;
-    backdrop-filter: blur(5px);
-    transition: background-color 0.2s;
+    padding: 10px 15px; font-size: 1em; font-weight: 500; background-color: rgba(30, 30, 36, 0.8);
+    color: #fff; border: 1px solid rgba(255,255,255,0.2); border-radius: 5px; cursor: pointer;
+    backdrop-filter: blur(5px); transition: background-color 0.2s;
 }
-
-#ui-container button:hover {
-    background-color: rgba(60, 60, 70, 0.9);
-}
-
-#ui-container button:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-}
+#ui-container button:hover { background-color: rgba(60, 60, 70, 0.9); }
+#ui-container button:disabled { opacity: 0.5; cursor: not-allowed; }
 
 /* --- Transform Panel for Sliders --- */
 #transform-panel {
-    position: fixed;
-    top: 80px;
-    left: 20px;
-    z-index: 10;
-    background-color: rgba(30, 30, 36, 0.85);
-    backdrop-filter: blur(8px);
-    border-radius: 8px;
-    border: 1px solid rgba(255, 255, 255, 0.2);
-    padding: 20px;
-    width: 300px;
-    box-shadow: 0 5px 15px rgba(0,0,0,0.3);
-    transition: opacity 0.3s, transform 0.3s;
+    position: fixed; top: 80px; left: 20px; z-index: 10; background-color: rgba(30,30,36,0.85);
+    backdrop-filter: blur(8px); border-radius: 8px; border: 1px solid rgba(255,255,255,0.2);
+    padding: 20px; width: 300px; box-shadow: 0 5px 15px rgba(0,0,0,0.3); transition: opacity 0.3s, transform 0.3s;
 }
-
-#transform-panel.hidden {
-    opacity: 0;
-    transform: translateX(-20px);
-    pointer-events: none;
-}
-
-#transform-panel h4 {
-    margin-top: 0;
-    margin-bottom: 20px;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-    padding-bottom: 10px;
-}
+#transform-panel.hidden { opacity: 0; transform: translateX(-20px); pointer-events: none; }
+#transform-panel h4 { margin-top: 0; margin-bottom: 20px; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 10px; }
 
 /* Slider groups */
-.slider-group {
-    margin-bottom: 15px;
-    display: flex;
-    flex-direction: column;
-}
-
-.slider-group label {
-    display: flex;
-    justify-content: space-between;
-    margin-bottom: 8px;
-    font-size: 0.9em;
-    color: #ccc;
-}
-
-/* Sliders with smooth accent color + precise control */
-.slider-group input[type="range"] {
-    width: 100%;
-    accent-color: #4f8ff7;
-}
+.slider-group { margin-bottom: 15px; display: flex; flex-direction: column; }
+.slider-group label { display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 0.9em; color: #ccc; }
+.slider-group input[type="range"] { width: 100%; accent-color: #4f8ff7; }
 
 /* Copy button */
 #copy-data-btn {
-    width: 100%;
-    padding: 10px;
-    margin-top: 10px;
-    background-color: #4f8ff7;
-    border: none;
-    border-radius: 5px;
-    color: #fff;
-    font-weight: 600;
-    cursor: pointer;
-    transition: background-color 0.3s ease;
+    width: 100%; padding: 10px; margin-top: 10px; background-color: #4f8ff7; border: none; border-radius: 5px;
+    color: #fff; font-weight: 600; cursor: pointer; transition: background-color 0.3s ease;
 }
+#copy-data-btn:hover { background-color: #6e4ff7; }
 
-#copy-data-btn:hover {
-    background-color: #6e4ff7;
+/* === Engine panel === */
+.floating-panel {
+  position: fixed;
+  top: 80px;
+  left: 20px;
+  z-index: 12;
+  background-color: rgba(30, 30, 36, 0.85);
+  backdrop-filter: blur(8px);
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  padding: 20px;
+  width: 300px;
+  box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+  transition: opacity 0.3s, transform 0.3s;
 }
+#engine-panel.hidden { opacity: 0; transform: translateX(-20px); pointer-events: none; }
+#engine-panel h4 { margin-top: 0; margin-bottom: 20px; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 10px; }
+#engine-panel button { width: 100%; padding: 10px; background-color: #4f8ff7; border: none; border-radius: 5px; color: #fff; font-weight: 600; cursor: pointer; }
+#engine-panel button:disabled { opacity: 0.5; cursor: not-allowed; }
+#engine-panel .button-row button { width: auto; padding: 10px 16px; }
