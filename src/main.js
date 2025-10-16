@@ -1,8 +1,6 @@
 // src/Main.js
 
 import * as THREE from 'three';
-import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
 import { Debugger } from '../Debugger.js';
 import { Scene } from './scene/Scene.js';
 import { CameraRig } from './Camera.js';
@@ -29,8 +27,7 @@ export class Main {
   setupRenderer() {
     const renderer = new THREE.WebGLRenderer({
       antialias: true,
-      powerPreference: 'high-performance',
-      canvas: document.querySelector('#app canvas') // Attach to a canvas if it exists
+      powerPreference: 'high-performance'
     });
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -39,6 +36,7 @@ export class Main {
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     renderer.setPixelRatio(Math.min(2, window.devicePixelRatio));
     document.getElementById('app').appendChild(renderer.domElement);
+    
     this.onResize = () => {
         const { innerWidth: w, innerHeight: h } = window;
         this.cameraRig.updateAspectRatio(w / h);
@@ -46,6 +44,7 @@ export class Main {
     };
     window.addEventListener('resize', this.onResize);
     this.onResize(); // Initial call
+    
     return renderer;
   }
   
