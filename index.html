@@ -60,7 +60,33 @@
     }
     .ui-button:hover { background:rgba(0,0,0,0.7); }
     
-    #uploadBtn { position:fixed; top:16px; left:16px; z-index:45; }
+    #topBar { position:fixed; top:16px; left:16px; z-index:45; display:flex; gap:12px; }
+
+    .panel {
+      position:fixed;
+      background:rgba(20,22,25,0.8); backdrop-filter:blur(10px);
+      border:1px solid rgba(255,255,255,0.1);
+      transition: transform .3s ease-out, opacity .3s ease-out;
+      z-index: 25; font-size: 14px;
+      width:300px; padding:8px; border-radius:8px;
+      display:flex; flex-direction:column; gap:4px;
+    }
+    .panel.hidden { transform: translateY(-20px); opacity: 0; pointer-events: none; }
+    .panel h3 {
+      font-size: 12px; text-transform: uppercase; letter-spacing: 1px;
+      color: var(--accent); margin: 8px 12px 4px; padding: 0; font-weight: 600; opacity: 0.9;
+    }
+    .panel .setting-row { display:grid; grid-template-columns: 80px 1fr; align-items:center; padding: 8px 12px; border-radius: 4px; }
+    .panel label { color:rgba(255,255,255,0.9); }
+    .panel input[type="range"] { width: 100%; }
+    .panel .copy-button {
+      background: var(--accent); color: #000; font-weight: 600; border: none;
+      padding: 10px; margin: 12px; border-radius: 6px; cursor: pointer;
+      transition: background-color .2s;
+    }
+    .panel .copy-button:hover { background: #fff; }
+
+    #adjustPanel { top:72px; left:16px; }
 
     /* -------- Touch controls -------- */
     .touch-hide { display:none; }
@@ -69,17 +95,12 @@
     }
     
     #touchLeft {
-      position: fixed; z-index: 40;
-      bottom: 20px; left: 20px;
-      width: 150px; height: 150px;
-      border-radius: 50%;
-      touch-action: none;
+      position: fixed; z-index: 40; bottom: 20px; left: 20px;
+      width: 150px; height: 150px; border-radius: 50%; touch-action: none;
     }
     #touchRight {
-      position: fixed; z-index: 40; bottom: 0; top: 0; width: 50vw; touch-action: none;
-      right: 0;
+      position: fixed; z-index: 40; bottom: 0; top: 0; width: 50vw; right: 0; touch-action: none;
     }
-
     #joyBase, #joyKnob {
       position: fixed; z-index: 41; border-radius: 50%; pointer-events: none;
       transition: transform 0.1s;
@@ -97,8 +118,32 @@
 <body>
   <div id="startScreen"><button id="startBtn">Start</button></div>
 
-  <button id="uploadBtn" class="ui-button">Upload Model</button>
+  <div id="topBar">
+    <button id="uploadBtn" class="ui-button">Upload Model</button>
+    <button id="adjustBtn" class="ui-button" style="display: none;">Adjust Model</button>
+  </div>
   <input type="file" id="modelUploader" accept=".glb" style="display: none;" />
+
+  <div id="adjustPanel" class="panel hidden">
+    <h3>Adjust Last Model</h3>
+    <div class="setting-row">
+      <label for="scaleSlider">Scale</label>
+      <input type="range" id="scaleSlider" min="0.01" max="5" step="0.01" value="1">
+    </div>
+    <div class="setting-row">
+      <label for="posXSlider">Position X</label>
+      <input type="range" id="posXSlider" min="-250" max="250" step="0.1" value="0">
+    </div>
+    <div class="setting-row">
+      <label for="posYSlider">Position Y</label>
+      <input type="range" id="posYSlider" min="0" max="100" step="0.1" value="0">
+    </div>
+    <div class="setting-row">
+      <label for="posZSlider">Position Z</label>
+      <input type="range" id="posZSlider" min="-250" max="250" step="0.1" value="0">
+    </div>
+    <button id="copyDataBtn" class="copy-button">Copy Transform Data</button>
+  </div>
 
   <div id="app"></div>
 
@@ -125,4 +170,3 @@
   <script type="module" src="./src/main.js"></script>
 </body>
 </html>
-
