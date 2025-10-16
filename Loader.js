@@ -6,16 +6,18 @@ class Loader {
         this.debugger = new Debugger();
         this.main = null; 
         
-        // DOM Elements for the new UI
+        // DOM Elements
         this.progressBar = document.getElementById('progress-bar');
         this.percentageText = document.getElementById('progress-percentage-text');
         this.statusText = document.getElementById('loader-status-text');
         this.enterButton = document.getElementById('enter-button');
+        this.reloadButton = document.getElementById('reload-button'); // Get the new button
         this.loaderContainer = document.getElementById('loader-container');
         this.debuggerMessageArea = document.getElementById('debugger-message-area');
 
-        // Initial setup for the debugger message area
+        // Initial setup
         this.debuggerMessageArea.style.display = 'none';
+        this.reloadButton.onclick = () => window.location.reload(); // Add reload functionality
 
         this.loadManifest();
     }
