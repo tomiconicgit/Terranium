@@ -8,7 +8,7 @@ export class Scene extends THREE.Scene {
   constructor() {
     super();
 
-    // Set a fallback background color immediately. If you see this, other things failed.
+    // Set a fallback background color immediately.
     this.background = new THREE.Color(0x1d2430); 
 
     // Lighting and Sky
@@ -38,24 +38,24 @@ export class Scene extends THREE.Scene {
     this.fog = new THREE.Fog(0x8894ab, 150, 1500);
 
     // Create the world terrain
-    this._createTerrain();
+    this._createProceduralTerrain();
     
     // Load your baked-in model
     this._loadBakedModels();
   }
 
-  _createTerrain() {
+  _createProceduralTerrain() {
     const terrainSize = 1000;
-    const launchpadRadius = 25; // A 50x50 area
+    const launchpadRadius = 25; // Creates a 50x50 area
 
-    // 1. Create the main grassy terrain (it's completely flat under the launchpad)
-    const textureLoader = new THREE.TextureLoader();
-    const grassTexture = textureLoader.load('https://cdn.jsdelivr.net/gh/mrdoob/three.js@dev/examples/textures/terrain/grasslight-big.jpg');
-    grassTexture.wrapS = grassTexture.wrapT = THREE.RepeatWrapping;
-    grassTexture.repeat.set(50, 50);
-
+    // 1. Create the main grassy terrain plane
     const terrainGeo = new THREE.PlaneGeometry(terrainSize, terrainSize);
-    const terrainMat = new THREE.MeshStandardMaterial({ map: grassTexture });
+    // A simple green material, no textures needed.
+    const terrainMat = new THREE.MeshStandardMaterial({
+        color: 0x3d7d40, // Grassy green
+        roughness: 0.9,
+        metalness: 0.0
+    });
     const terrain = new THREE.Mesh(terrainGeo, terrainMat);
     terrain.rotation.x = -Math.PI / 2;
     terrain.receiveShadow = true;
@@ -63,12 +63,13 @@ export class Scene extends THREE.Scene {
     this.add(terrain);
 
     // 2. Create a separate, flat concrete circle for the launchpad on top
-    const concreteTexture = textureLoader.load('https://cdn.jsdelivr.net/gh/mrdoob/three.js@dev/examples/textures/terrain/rockground.jpg');
-    concreteTexture.wrapS = concreteTexture.wrapT = THREE.RepeatWrapping;
-    concreteTexture.repeat.set(8, 8);
-
     const launchpadGeo = new THREE.CircleGeometry(launchpadRadius, 64);
-    const launchpadMat = new THREE.MeshStandardMaterial({ map: concreteTexture });
+    // A simple grey material for the concrete pad.
+    const launchpadMat = new THREE.MeshStandardMaterial({
+        color: 0x8a8a8a, // Concrete grey
+        roughness: 0.7,
+        metalness: 0.1
+    });
     const launchpad = new THREE.Mesh(launchpadGeo, launchpadMat);
     launchpad.rotation.x = -Math.PI / 2;
     launchpad.position.y = 0.01; // Place slightly above grass to prevent visual glitches
@@ -126,3 +127,5 @@ export class Scene extends THREE.Scene {
     // Future animations can go here
   }
 }
+
+
