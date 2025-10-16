@@ -8,26 +8,29 @@ export class Scene extends THREE.Scene {
   constructor() {
     super();
 
+    // Set a fallback background color immediately. If you see this, other things failed.
+    this.background = new THREE.Color(0x1d2430); 
+
     // Lighting and Sky
     this.add(new THREE.HemisphereLight(0xeeeeff, 0x777788, 0.75));
     const sunLight = new THREE.DirectionalLight(0xfff9e8, 1.5);
-    sunLight.position.set(1, 1, 1);
+    sunLight.position.set(100, 100, 100);
     sunLight.castShadow = true;
-    sunLight.shadow.mapSize.width = 4096;
-    sunLight.shadow.mapSize.height = 4096;
+    sunLight.shadow.mapSize.width = 2048;
+    sunLight.shadow.mapSize.height = 2048;
     sunLight.shadow.camera.near = 0.5;
     sunLight.shadow.camera.far = 500;
-    sunLight.shadow.camera.left = -100;
-    sunLight.shadow.camera.right = 100;
-    sunLight.shadow.camera.top = 100;
-    sunLight.shadow.camera.bottom = -100;
-    sunLight.shadow.bias = -0.0005;
+    sunLight.shadow.camera.left = -150;
+    sunLight.shadow.camera.right = 150;
+    sunLight.shadow.camera.top = 150;
+    sunLight.shadow.camera.bottom = -150;
     this.sunLight = sunLight;
     this.add(sunLight);
 
-    this.sky = new Sky();
-    this.sky.scale.setScalar(1000);
-    this.add(this.sky);
+    const sky = new Sky();
+    sky.scale.setScalar(1000);
+    this.add(sky);
+    this.sky = sky;
 
     this.sun = new THREE.Vector3();
     this.updateSky(75); // Sun is higher in the sky
@@ -43,55 +46,32 @@ export class Scene extends THREE.Scene {
 
   _createTerrain() {
     const terrainSize = 1000;
-    const terrainSegments = 200;
-    const launchpadSize = 50;
+    const launchpadRadius = 25; // A 50x50 area
 
-    // 1. Create the main grassy terrain with hills
-    const grassGeo = new THREE.PlaneGeometry(terrainSize, terrainSize, terrainSegments, terrainSegments);
-    const positions = grassGeo.attributes.position;
-
-    for (let i = 0; i < positions.count; i++) {
-        const x = positions.getX(i);
-        const y = positions.getY(i); // This is Z in world space after rotation
-        
-        // Only apply hills outside the launchpad area
-        if (Math.abs(x) > launchpadSize / 2 || Math.abs(y) > launchpadSize / 2) {
-            const z1 = Math.sin(x * 0.02) * Math.cos(y * 0.03) * 8.0;
-            const z2 = Math.sin(x * 0.01) * Math.sin(y * 0.015) * 12.0;
-            const z3 = Math.cos((x + y) * 0.005) * 5.0;
-            positions.setZ(i, z1 + z2 + z3);
-        }
-    }
-    grassGeo.computeVertexNormals();
-    
+    // 1. Create the main grassy terrain (it's completely flat under the launchpad)
     const textureLoader = new THREE.TextureLoader();
     const grassTexture = textureLoader.load('https://cdn.jsdelivr.net/gh/mrdoob/three.js@dev/examples/textures/terrain/grasslight-big.jpg');
     grassTexture.wrapS = grassTexture.wrapT = THREE.RepeatWrapping;
     grassTexture.repeat.set(50, 50);
 
-    const grassMat = new THREE.MeshStandardMaterial({
-        map: grassTexture,
-        roughness: 0.8,
-        metalness: 0.1
-    });
+    const terrainGeo = new THREE.PlaneGeometry(terrainSize, terrainSize);
+    const terrainMat = new THREE.MeshStandardMaterial({ map: grassTexture });
+    const terrain = new THREE.Mesh(terrainGeo, terrainMat);
+    terrain.rotation.x = -Math.PI / 2;
+    terrain.receiveShadow = true;
+    terrain.name = 'terrain';
+    this.add(terrain);
 
-    const grassTerrain = new THREE.Mesh(grassGeo, grassMat);
-    grassTerrain.rotation.x = -Math.PI / 2;
-    grassTerrain.receiveShadow = true;
-    grassTerrain.name = 'terrain';
-    this.add(grassTerrain);
-
-    // 2. Create the flat concrete launchpad on top
-    const concreteGeo = new THREE.PlaneGeometry(launchpadSize, launchpadSize);
+    // 2. Create a separate, flat concrete circle for the launchpad on top
     const concreteTexture = textureLoader.load('https://cdn.jsdelivr.net/gh/mrdoob/three.js@dev/examples/textures/terrain/rockground.jpg');
     concreteTexture.wrapS = concreteTexture.wrapT = THREE.RepeatWrapping;
-    concreteTexture.repeat.set(10, 10);
-    
-    const concreteMat = new THREE.MeshStandardMaterial({ map: concreteTexture });
+    concreteTexture.repeat.set(8, 8);
 
-    const launchpad = new THREE.Mesh(concreteGeo, concreteMat);
+    const launchpadGeo = new THREE.CircleGeometry(launchpadRadius, 64);
+    const launchpadMat = new THREE.MeshStandardMaterial({ map: concreteTexture });
+    const launchpad = new THREE.Mesh(launchpadGeo, launchpadMat);
     launchpad.rotation.x = -Math.PI / 2;
-    launchpad.position.y = 0.05; // Place slightly above grass to prevent visual glitches
+    launchpad.position.y = 0.01; // Place slightly above grass to prevent visual glitches
     launchpad.receiveShadow = true;
     this.add(launchpad);
   }
@@ -102,7 +82,7 @@ export class Scene extends THREE.Scene {
     dracoLoader.setDecoderPath('https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/libs/draco/gltf/');
     gltfLoader.setDRACOLoader(dracoLoader);
 
-    // --- CORRECTED LOCAL FILE PATH ---
+    // --- Loading your local model ---
     const modelPath = './assets/SuperHeavy.glb'; 
     const modelData = {
       scale: 0.13,
@@ -122,10 +102,10 @@ export class Scene extends THREE.Scene {
       });
       this.add(model);
     },
-    undefined, // onProgress callback not needed here
+    undefined, 
     (error) => {
-        console.error('An error happened while loading the baked model:', error);
-        // You could add an on-screen error message here if you wanted
+        console.error('MODEL LOADING FAILED:', error);
+        alert('Could not load the SuperHeavy.glb model. Check the console (F12) for details.');
     });
   }
 
@@ -137,13 +117,12 @@ export class Scene extends THREE.Scene {
       this.sky.material.uniforms['sunPosition'].value.copy(this.sun);
       this.sunLight.position.copy(this.sun).multiplyScalar(100);
       
-      this.background = new THREE.Color().setHSL(0.58, 0.4, 0.8 - (elevation/180));
-      if(this.fog) this.fog.color.copy(this.background);
+      const bgColor = new THREE.Color().setHSL(0.58, 0.4, 0.8 - (elevation/180));
+      this.background = bgColor;
+      if(this.fog) this.fog.color.copy(bgColor);
   }
 
   update(renderer, camera) {
     // Future animations can go here
   }
 }
-
-
