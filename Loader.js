@@ -4,17 +4,24 @@ import { Main } from './src/Main.js';
 class Loader {
     constructor() {
         this.debugger = new Debugger();
-        this.main = null; // Will be instantiated after loading
+        this.main = null; 
         
-        // DOM Elements
+        // DOM Elements for the new UI
         this.progressBar = document.getElementById('progress-bar');
-        this.percentageText = document.getElementById('progress-percentage');
-        this.statusText = document.getElementById('loader-status');
+        this.percentageText = document.getElementById('progress-percentage-text'); // Changed ID
+        this.statusText = document.getElementById('loader-status-text'); // Changed ID
         this.enterButton = document.getElementById('enter-button');
         this.loaderContainer = document.getElementById('loader-container');
-        this.logoContainer = document.getElementById('loader-logo');
+        this.debuggerMessageArea = document.getElementById('debugger-message-area'); // New element
         
-        this.createProceduralLogo();
+        // You can decide if the logo goes on the image side or is removed here
+        // For now, I'll keep the procedural logo and add it to the image side as an example
+        this.logoContainer = document.querySelector('.loader-image-side'); // Place logo on image side
+        this.createProceduralLogo(); 
+
+        // Initial setup for the debugger message area
+        this.debuggerMessageArea.style.display = 'none';
+
         this.loadManifest();
     }
 
@@ -23,6 +30,7 @@ class Loader {
         const svgNS = "http://www.w3.org/2000/svg";
         const svg = document.createElementNS(svgNS, "svg");
         svg.setAttribute("viewBox", "0 0 100 100");
+        svg.id = "loader-logo"; // Add ID for CSS positioning if desired
 
         const colors = ["#4f8ff7", "#8A2BE2", "#41E0D0"];
         for (let i = 0; i < 3; i++) {
@@ -51,22 +59,17 @@ class Loader {
 
     async loadManifest() {
         try {
-            // Get the list of scripts/assets to load from Main.js
             const manifest = Main.getManifest();
             const totalItems = manifest.length;
             
             for (let i = 0; i < totalItems; i++) {
                 const item = manifest[i];
-                this.updateStatus(`Loading ${item.name}...`);
+                this.updateStatus(`Installing ${item.name}...`); // Changed text to match reference
                 
-                // Here you would add actual loading logic (e.g., for models, textures)
-                // We will simulate it with a short delay
                 await new Promise(resolve => setTimeout(resolve, 150)); 
                 
-                // Run a debugger check (for simulation purposes)
                 this.debugger.log(`Checked: ${item.name}`);
 
-                // Update progress
                 const progress = ((i + 1) / totalItems) * 100;
                 this.updateProgress(progress);
             }
@@ -87,26 +90,29 @@ class Loader {
     }
 
     loadingSuccessful() {
-        this.updateStatus('All systems ready. Engage when prepared.');
+        this.updateStatus('Installation complete. Click Enter to begin!');
         this.enterButton.disabled = false;
         this.enterButton.textContent = 'ENTER';
         this.enterButton.onclick = () => this.startGame();
     }
 
     loadingFailed(error) {
-        this.debugger.handleError(error, 'Loader');
+        // Display error directly in the loader's debugger message area
+        this.debuggerMessageArea.style.display = 'block';
+        this.debuggerMessageArea.innerHTML = `<h4>🛑 Error Detected:</h4><p>${error.message}</p>
+            <button onclick="navigator.clipboard.writeText('${error.message.replace(/'/g, "\\'")}')
+            .then(() => alert('Error copied!'))
+            .catch(err => console.error('Failed to copy error: ', err))">Copy Error</button>`;
         this.progressBar.style.backgroundColor = '#d43b3b';
-        this.updateStatus('A critical error occurred. See details below.');
+        this.updateStatus('A critical error occurred during installation.');
     }
     
     startGame() {
         this.loaderContainer.style.opacity = '0';
-        // Wait for the fade-out transition to finish before removing it
         setTimeout(() => {
             this.loaderContainer.style.display = 'none';
         }, 500);
         
-        // Instantiate and start the main game logic
         this.main = new Main(this.debugger);
         this.main.start();
     }
@@ -114,7 +120,6 @@ class Loader {
 
 // Initialize the loader and register the service worker when the page is ready
 window.onload = () => {
-    // Register the service worker
     if ('serviceWorker' in navigator) {
         navigator.serviceWorker.register('/sw.js')
             .then((registration) => {
@@ -125,6 +130,5 @@ window.onload = () => {
             });
     }
     
-    // Start the game loader
     new Loader();
 };
