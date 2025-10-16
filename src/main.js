@@ -1,4 +1,4 @@
-// src/Main.js
+// src/main.js
 
 import * as THREE from 'three';
 import { Debugger } from '../Debugger.js';
@@ -10,10 +10,11 @@ export class Main {
   constructor(loader) {
     this.loader = loader;
     this.clock = new THREE.Clock();
-    
-    // Core components are initialized but not started
-    this.renderer = this.setupRenderer();
+
+    // Create camera BEFORE renderer so resize logic can use it safely
     this.cameraRig = new CameraRig();
+    this.renderer = this.setupRenderer();
+
     this.controller = new GamepadController(this.cameraRig);
 
     // Setup Loading Manager to bridge Three.js loading with our UI loader
@@ -38,9 +39,9 @@ export class Main {
     document.getElementById('app').appendChild(renderer.domElement);
     
     this.onResize = () => {
-        const { innerWidth: w, innerHeight: h } = window;
-        this.cameraRig.updateAspectRatio(w / h);
-        renderer.setSize(w, h);
+      const { innerWidth: w, innerHeight: h } = window;
+      if (this.cameraRig) this.cameraRig.updateAspectRatio(w / h);
+      renderer.setSize(w, h);
     };
     window.addEventListener('resize', this.onResize);
     this.onResize(); // Initial call
