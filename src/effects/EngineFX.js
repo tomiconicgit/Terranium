@@ -1,5 +1,5 @@
 // src/effects/EngineFX.js
-// Scales automatically to the rocket's size (fits SuperHeavy bells)
+// Auto-scales to rocket size and exposes live-tweakable params for UI.
 
 import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.163.0/build/three.module.js';
 
@@ -8,7 +8,7 @@ export class EngineFX {
    * @param {THREE.Object3D} rocketRoot
    * @param {THREE.Scene} scene
    * @param {THREE.Camera} camera
-   * @param {{rings?: '33'|'basic'}} [opts]  rings='33' uses 3/10/20 layout
+   * @param {{rings?: '33'|'basic'}} [opts]
    */
   constructor(rocketRoot, scene, camera, opts = {}) {
     this.rocket = rocketRoot;
@@ -16,49 +16,51 @@ export class EngineFX {
     this.camera = camera;
     this.opts = { rings: '33', ...opts };
 
-    // --- Measure the model ---
+    // Measure model
     const box = new THREE.Box3().setFromObject(rocketRoot);
-    const size = new THREE.Vector3(); box.getSize(size);
-    const bottomY = box.min.y;
+    this.size = new THREE.Vector3(); box.getSize(this.size);
+    this.bottomY = box.min.y;
+    const halfDia = 0.5 * Math.max(this.size.x, this.size.z);
 
-    // Half diameter in XZ (use larger axis to be safe)
-    const halfDia = 0.5 * Math.max(size.x, size.z);
+    // Engine ring radii
+    this.R_outer = halfDia * 0.90;
+    this.R_middle = this.R_outer * 0.70;
+    this.R_inner  = this.R_outer * 0.35;
 
-    // --- Fit ring radii to rocket footprint ---
-    // Outer ring ~ just inside the bell circle; middle & inner relative to that.
-    const R_outer = halfDia * 0.88;   // near rim
-    const R_middle = R_outer * 0.70;  // mid ring
-    const R_inner  = R_outer * 0.35;  // core
+    // Base positions/sizes
+    this.emitYBase = this.bottomY + Math.max(0.02 * this.size.y, 0.1);
+    this.flameWidthBase  = this.R_outer * 0.24;  // base column width
+    this.flameHeightBase = this.R_outer * 2.1;   // base length
+    this.smokeSizeBase   = Math.max(28, this.R_outer * 6.0);
 
-    // Vertical emit height (just inside/under bells)
-    const emitY = bottomY + Math.max(0.02 * size.y, 0.1);
+    // User-tweakable params (multipliers/offsets)
+    this.params = {
+      enginesOn: false,
+      flameWidthFactor: 1.0,
+      flameHeightFactor: 1.0,
+      flameYOffset: 0.0,
+      smokeSizeFactor: 1.0,
+      smokeYOffset: 0.0,
+    };
 
-    // Flame scale relative to rocket
-    const flameWidth  = R_outer * 0.20;   // wide column
-    const flameHeight = R_outer * 1.80;   // long jet
-
-    // Smoke parameters scale with area
-    const smokeBaseCount = Math.floor(400 + (R_outer * R_outer) * 80);
-    const smokeSize = Math.max(28, R_outer * 5.5);  // pixel size per point
-
-    // ---- Build engine emitter points ----
+    // Build engine emitters
     const rings = (this.opts.rings === '33')
       ? [
-          { r: R_inner,  n: 3   },  // center triangle (approx)
-          { r: R_middle, n: 10  },
-          { r: R_outer,  n: 20  }
+          { r: this.R_inner,  n: 3  },
+          { r: this.R_middle, n: 10 },
+          { r: this.R_outer,  n: 20 }
         ]
       : [
-          { r: R_inner,  n: 9   },
-          { r: R_outer,  n: 24  }
+          { r: this.R_inner,  n: 9  },
+          { r: this.R_outer,  n: 24 }
         ];
 
     this.enginePoints = [];
     for (const { r, n } of rings) {
-      this.enginePoints.push(...this._ring(r, n).map(p => new THREE.Vector3(p.x, emitY, p.y)));
+      this.enginePoints.push(...this._ring(r, n).map(p => new THREE.Vector3(p.x, this.emitYBase, p.y)));
     }
 
-    // ---- FLAMES (instanced quads) ----
+    // ---- Flames (instanced quads) ----
     const flameGeo = new THREE.PlaneGeometry(1, 4);
     const flameMat = this._makeFlameMaterial();
     this.flames = new THREE.InstancedMesh(flameGeo, flameMat, this.enginePoints.length);
@@ -67,14 +69,14 @@ export class EngineFX {
     const tmp = new THREE.Object3D();
     for (let i = 0; i < this.enginePoints.length; i++) {
       tmp.position.copy(this.enginePoints[i]);
-      tmp.scale.set(flameWidth, flameHeight, 1.0);
+      tmp.scale.set(this.flameWidthBase, this.flameHeightBase, 1.0);
       tmp.updateMatrix();
       this.flames.setMatrixAt(i, tmp.matrix);
       this.flames.setColorAt(i, new THREE.Color(Math.random(), 0, 0)); // seed in .r
     }
     this.flames.frustumCulled = false;
 
-    // Y-axis billboard so quads always face the camera
+    // Billboard around Y
     this.flames.onBeforeRender = () => {
       const m = new THREE.Matrix4();
       const q = new THREE.Quaternion();
@@ -93,23 +95,21 @@ export class EngineFX {
       this.flames.instanceMatrix.needsUpdate = true;
     };
 
-    // ---- GROUND SMOKE (points) ----
-    const smokeCount = smokeBaseCount;
+    // ---- Ground smoke (points) ----
+    const smokeCount = Math.floor(500 + (this.R_outer * this.R_outer) * 80);
     const smokeGeo = new THREE.BufferGeometry();
     const positions = new Float32Array(smokeCount * 3);
     const ages = new Float32Array(smokeCount);
     const seeds = new Float32Array(smokeCount);
-
-    // Emit over a donut between middle & outer ring
-    const minR = R_middle * 0.9;
-    const maxR = R_outer  * 1.05;
+    const minR = this.R_middle * 0.9;
+    const maxR = this.R_outer  * 1.05;
 
     for (let i = 0; i < smokeCount; i++) {
       const r = THREE.MathUtils.lerp(minR, maxR, Math.random());
       const a = Math.random() * Math.PI * 2;
       positions[i*3+0] = Math.cos(a) * r;
       positions[i*3+2] = Math.sin(a) * r;
-      positions[i*3+1] = bottomY + 0.02 * size.y; // ground near bottom
+      positions[i*3+1] = this.bottomY + 0.02 * this.size.y;
       ages[i]  = Math.random();
       seeds[i] = Math.random() * 1000.0;
     }
@@ -117,18 +117,87 @@ export class EngineFX {
     smokeGeo.setAttribute('aAge', new THREE.BufferAttribute(ages, 1));
     smokeGeo.setAttribute('aSeed', new THREE.BufferAttribute(seeds, 1));
 
-    this.smoke = new THREE.Points(smokeGeo, this._makeSmokeMaterial(smokeSize));
+    this.smoke = new THREE.Points(smokeGeo, this._makeSmokeMaterial(this.smokeSizeBase));
     this.smoke.frustumCulled = false;
 
-    // Attach under rocket so FX follow later if you animate
+    // Group under rocket so FX follow later
     this.group = new THREE.Group();
     rocketRoot.add(this.group);
     this.group.add(this.flames);
     this.group.add(this.smoke);
 
-    this.time = 0;
-    this.engineOn = false;
     this._applyVisibility();
+    this._applyTransforms(); // apply initial factors
+  }
+
+  // === Public API for UI ===
+  setIgnition(on) { this.params.enginesOn = !!on; this._applyVisibility(); }
+  getIgnition()   { return this.params.enginesOn; }
+
+  setParams(patch) {
+    Object.assign(this.params, patch);
+    this._applyTransforms();
+  }
+
+  getParams() {
+    return {
+      enginesOn: this.params.enginesOn,
+      flameWidthFactor:  this.params.flameWidthFactor,
+      flameHeightFactor: this.params.flameHeightFactor,
+      flameYOffset:      this.params.flameYOffset,
+      smokeSizeFactor:   this.params.smokeSizeFactor,
+      smokeYOffset:      this.params.smokeYOffset,
+      // Derived (absolute) values for copy/paste
+      absolute: {
+        flameWidth:  this.flameWidthBase  * this.params.flameWidthFactor,
+        flameHeight: this.flameHeightBase * this.params.flameHeightFactor,
+        flameY:      this.emitYBase + this.params.flameYOffset,
+        smokeSize:   this.smokeSizeBase * this.params.smokeSizeFactor,
+        smokeY:      (this.bottomY + 0.02 * this.size.y) + this.params.smokeYOffset
+      }
+    };
+  }
+
+  update(dt, time) {
+    if (this.flames?.material?.uniforms) {
+      this.flames.material.uniforms.uTime.value = time;
+    }
+    if (this.smoke?.material?.uniforms) {
+      this.smoke.material.uniforms.uTime.value = time;
+    }
+  }
+
+  // === Internals ===
+  _applyVisibility() {
+    if (this.flames) this.flames.visible = this.params.enginesOn;
+    if (this.smoke)  this.smoke.visible  = this.params.enginesOn;
+  }
+
+  _applyTransforms() {
+    // Update flames instance transforms (scale & Y)
+    if (this.flames) {
+      const m = new THREE.Matrix4();
+      const obj = new THREE.Object3D();
+      for (let i = 0; i < this.enginePoints.length; i++) {
+        const p = this.enginePoints[i];
+        obj.position.set(p.x, this.emitYBase + this.params.flameYOffset, p.z);
+        obj.scale.set(
+          this.flameWidthBase  * this.params.flameWidthFactor,
+          this.flameHeightBase * this.params.flameHeightFactor,
+          1.0
+        );
+        obj.rotation.set(0, 0, 0);
+        obj.updateMatrix();
+        this.flames.setMatrixAt(i, obj.matrix);
+      }
+      this.flames.instanceMatrix.needsUpdate = true;
+    }
+    // Update smoke uniform size and position offset (via model matrix)
+    if (this.smoke) {
+      this.smoke.material.uniforms.uSize.value =
+        this.smokeSizeBase * this.params.smokeSizeFactor;
+      this.smoke.position.y = this.params.smokeYOffset; // local offset under group
+    }
   }
 
   _ring(radius, count) {
@@ -147,9 +216,9 @@ export class EngineFX {
       blending: THREE.AdditiveBlending,
       uniforms: {
         uTime: { value: 0 },
-        uColor1: { value: new THREE.Color(0xfff0c0) }, // hot core
-        uColor2: { value: new THREE.Color(0xff7a00) }, // mid
-        uColor3: { value: new THREE.Color(0x6d3a00) }, // outer
+        uColor1: { value: new THREE.Color(0xfff0c0) },
+        uColor2: { value: new THREE.Color(0xff7a00) },
+        uColor3: { value: new THREE.Color(0x6d3a00) },
         uNoiseAmp: { value: 0.7 },
         uFlicker:  { value: 3.0 },
       },
@@ -208,7 +277,7 @@ export class EngineFX {
       uniforms: {
         uTime: { value: 0 },
         uColor: { value: new THREE.Color(0x808080) },
-        uRise:  { value: 3.6 },   // faster plume rise for scale
+        uRise:  { value: 3.6 },
         uLife:  { value: 3.2 },
         uSize:  { value: pixelSize },
         uSoft:  { value: 0.8 }
@@ -250,24 +319,5 @@ export class EngineFX {
         }
       `
     });
-  }
-
-  update(dt, time) {
-    if (this.flames?.material?.uniforms) {
-      this.flames.material.uniforms.uTime.value = time;
-    }
-    if (this.smoke?.material?.uniforms) {
-      this.smoke.material.uniforms.uTime.value = time;
-    }
-  }
-
-  setEngines(on) {
-    this.engineOn = !!on;
-    this._applyVisibility();
-  }
-
-  _applyVisibility() {
-    if (this.flames) this.flames.visible = this.engineOn;
-    if (this.smoke)  this.smoke.visible  = this.engineOn;
   }
 }
