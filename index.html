@@ -3,216 +3,31 @@
 <head>
   <meta charset="utf-8" />
   <title>Terranium</title>
-
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1.0, user-scalable=no" />
   <meta name="theme-color" content="#0a0a0a" />
-  <meta name="apple-mobile-web-app-capable" content="yes" />
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-  <meta name="mobile-web-app-capable" content="yes" />
   <link rel="manifest" href="./manifest.webmanifest" />
-  <link rel="icon" href="./icon-192.png" sizes="192x192" />
-  <link rel="icon" href="./icon-512.png" sizes="512x512" />
-
-  <script type="importmap">
-    {
-      "imports": {
-        "three": "https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js",
-        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/"
-      }
-    }
-  </script>
-
   <style>
-    :root { --bg:#000; --fg:#fff; --accent:#4dd2ff; }
-    html, body { height:100%; margin:0; background:var(--bg); color:var(--fg); }
-    body { touch-action:none; -webkit-user-select:none; font-family:system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
-    #app { position:fixed; inset:0; }
-
-    /* --- Loading Screen --- */
-    #loadingScreen {
-      position:fixed; inset:0; z-index:99999;
-      background: #05070b;
-      display:flex; flex-direction:column; align-items:center; justify-content:center;
-      transition: opacity .5s ease-out .2s;
+    :root { --accent: #4dd2ff; }
+    html, body { height: 100%; margin: 0; background: #05070b; font-family: system-ui, sans-serif; }
+    #app { position: fixed; inset: 0; }
+    noscript {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      font-size: 1.2em;
+      text-align: center;
+      padding: 2em;
     }
-    #loadingScreen.hidden { opacity:0; pointer-events:none; }
-    
-    #loadingScreen h1 {
-      font-size: 48px; font-weight: 700; letter-spacing: 2px;
-      color: var(--fg); margin: 0 0 20px;
-    }
-
-    #logo { width: 128px; height: 128px; margin-bottom: 30px; }
-    #logo .rocket-body { animation: float 3s ease-in-out infinite; }
-    @keyframes float { 0%, 100% { transform: translateY(0px); } 50% { transform: translateY(-5px); } }
-    
-    #logo .flame { transform-origin: 50% 100%; animation-timing-function: ease-in-out; animation-iteration-count: infinite; }
-    #logo .flame1 { animation-name: flicker-1; animation-duration: 0.8s; }
-    #logo .flame2 { animation-name: flicker-2; animation-duration: 1.0s; animation-delay: 0.2s; }
-    #logo .flame3 { animation-name: flicker-3; animation-duration: 1.2s; animation-delay: 0.5s; }
-
-    @keyframes flicker-1 { 0%, 100% { transform: scaleY(1) scaleX(1); } 50% { transform: scaleY(0.9) scaleX(1.05); } }
-    @keyframes flicker-2 { 0%, 100% { transform: scaleY(1) scaleX(1); } 60% { transform: scaleY(1.1) scaleX(0.9); } }
-    @keyframes flicker-3 { 0%, 100% { transform: scaleY(1); } 40% { transform: scaleY(0.85); } }
-
-
-    #loadingInfo {
-      width: 280px; text-align: center;
-      display: flex; flex-direction: column; align-items: center; gap: 12px;
-    }
-    #loadingStatus { font-size: 14px; color: rgba(255,255,255,0.7); height: 20px; }
-    #progressBar {
-      width: 100%; height: 4px; background: rgba(255,255,255,0.1);
-      border-radius: 2px; overflow: hidden;
-    }
-    #progressBarInner {
-      width: 0%; height: 100%; background: var(--accent);
-      transition: width .2s ease-out;
-    }
-
-    #startBtn {
-      font-size:20px; padding:14px 32px; border-radius:12px;
-      background:var(--accent); color: #000; border:none; cursor:pointer; font-weight:600;
-      margin-top: 20px; display: none; /* Hidden by default */
-    }
-
-    /* --- Error Overlay --- */
-    #errorOverlay {
-      position: fixed; inset: 0;
-      background: rgba(0,0,0,0.95);
-      color: #ff6; font: 14px/1.6 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-      padding: 16px; display: none; z-index: 999999;
-      flex-direction: column; gap: 16px;
-    }
-    #errorOverlay .error-header { font-size: 18px; color: #ff8080; margin-bottom: 0; font-weight: bold; }
-    #errorOverlay .error-content { flex: 1; overflow: auto; white-space: pre-wrap; background: #111; padding: 12px; border-radius: 4px; }
-    #copyErrorBtn {
-      padding: 10px 16px; background: var(--accent); color: #000; border: none;
-      border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 14px;
-      align-self: flex-end;
-    }
-    
-    .ui-button {
-      width:auto; height:48px; padding: 0 20px; border-radius:12px;
-      background:rgba(0,0,0,0.55); backdrop-filter:blur(6px);
-      border:1px solid rgba(255,255,255,0.08);
-      color:#fff; font-size:16px; cursor:pointer;
-      display:flex; align-items:center; justify-content:center;
-      user-select:none; transition: background .2s;
-    }
-    .ui-button:hover { background:rgba(0,0,0,0.7); }
-    
-    #topBar { position:fixed; top:16px; left:16px; z-index:45; display:flex; gap:12px; }
-
-    .panel {
-      position:fixed;
-      background:rgba(20,22,25,0.8); backdrop-filter:blur(10px);
-      border:1px solid rgba(255,255,255,0.1);
-      transition: transform .3s ease-out, opacity .3s ease-out;
-      z-index: 25; font-size: 14px;
-      width:300px; padding:8px; border-radius:8px;
-      display:flex; flex-direction:column; gap:4px;
-    }
-    .panel.hidden { transform: translateY(-20px); opacity: 0; pointer-events: none; }
-    .panel h3 {
-      font-size: 12px; text-transform: uppercase; letter-spacing: 1px;
-      color: var(--accent); margin: 8px 12px 4px; padding: 0; font-weight: 600; opacity: 0.9;
-    }
-    .panel .setting-row { display:grid; grid-template-columns: 80px 1fr; align-items:center; padding: 8px 12px; border-radius: 4px; }
-    .panel label { color:rgba(255,255,255,0.9); }
-    .panel input[type="range"] { width: 100%; }
-    .panel .copy-button {
-      background: var(--accent); color: #000; font-weight: 600; border: none;
-      padding: 10px; margin: 12px; border-radius: 6px; cursor: pointer;
-      transition: background-color .2s;
-    }
-    .panel .copy-button:hover { background: #fff; }
-
-    #adjustPanel { top:72px; left:16px; }
-
-    /* -------- Touch controls -------- */
-    .touch-hide { display:none; }
-    @media (pointer: coarse) {
-      #touchLeft, #touchRight, #joyBase, #joyKnob { display:block; }
-    }
-    
-    #touchLeft { position: fixed; z-index: 40; bottom: 20px; left: 20px; width: 150px; height: 150px; border-radius: 50%; touch-action: none; }
-    #touchRight { position: fixed; z-index: 40; bottom: 0; top: 0; width: 50vw; right: 0; touch-action: none; }
-    #joyBase, #joyKnob { position: fixed; z-index: 41; border-radius: 50%; pointer-events: none; transition: transform 0.1s; }
-    #joyBase { bottom: 25px; left: 25px; width: 140px; height: 140px; border: 2px solid rgba(255,255,255,.25); background: rgba(0,0,0,.25); }
-    #joyKnob { bottom: 59px; left: 59px; width: 72px; height: 72px; border: 2px solid rgba(255,255,255,.6); background: rgba(255,255,255,.1); }
   </style>
 </head>
 <body>
-  <div id="loadingScreen">
-    <h1>Terranium</h1>
-    <svg id="logo" viewBox="0 0 100 125" xmlns="http://www.w3.org/2000/svg">
-      <defs>
-        <linearGradient id="grad-flame" x1="0.5" y1="0" x2="0.5" y2="1">
-          <stop offset="0%" stop-color="#ffde9a" />
-          <stop offset="60%" stop-color="#ff863d" />
-          <stop offset="100%" stop-color="#ff4d00" />
-        </linearGradient>
-        <filter id="glow">
-          <feGaussianBlur stdDeviation="3.5" result="coloredBlur" />
-          <feMerge>
-            <feMergeNode in="coloredBlur" />
-            <feMergeNode in="SourceGraphic" />
-          </feMerge>
-        </filter>
-      </defs>
-      <g class="rocket-body" fill="#e6eef7" transform="translate(0 -5)">
-        <path d="M 65 95 C 65 95 85 75 85 50 C 85 25 50 0 50 0 C 50 0 15 25 15 50 C 15 75 35 95 35 95 L 65 95 Z" />
-        <path d="M 50 95 L 50 105 L 56 105 A 6 6 0 0 1 50 111 A 6 6 0 0 1 44 105 L 50 105" stroke="#e6eef7" stroke-width="3" stroke-linecap="round" fill="none" />
-      </g>
-      <g class="flames" transform="translate(0 5)" filter="url(#glow)">
-        <path class="flame flame3" d="M 40 100 C 40 110 45 115 50 125 C 55 115 60 110 60 100 C 60 90 40 90 40 100 Z" fill="#ff4d00" opacity="0.8"/>
-        <path class="flame flame2" d="M 42 100 C 42 108 46 112 50 120 C 54 112 58 108 58 100 C 58 92 42 92 42 100 Z" fill="#ff863d" />
-        <path class="flame flame1" d="M 45 100 C 45 105 47 108 50 115 C 53 108 55 105 55 100 C 55 95 45 95 45 100 Z" fill="#ffde9a" />
-      </g>
-    </svg>
-    <div id="loadingInfo">
-      <div id="progressBar"><div id="progressBarInner"></div></div>
-      <p id="loadingStatus">Initializing...</p>
-      <button id="startBtn">Enter World</button>
-    </div>
-  </div>
-
-  <div id="topBar">
-    <button id="uploadBtn" class="ui-button">Upload Model</button>
-    <button id="adjustBtn" class="ui-button" style="display: none;">Adjust Model</button>
-  </div>
-  <input type="file" id="modelUploader" accept=".glb" style="display: none;" />
-  <div id="adjustPanel" class="panel hidden">
-    <h3>Adjust Last Model</h3>
-    <div class="setting-row">
-      <label for="scaleSlider">Scale</label>
-      <input type="range" id="scaleSlider" min="0.01" max="5" step="0.01" value="1">
-    </div>
-    <div class="setting-row">
-      <label for="posXSlider">Position X</label>
-      <input type="range" id="posXSlider" min="-250" max="250" step="0.1" value="0">
-    </div>
-    <div class="setting-row">
-      <label for="posYSlider">Position Y</label>
-      <input type="range" id="posYSlider" min="0" max="100" step="0.1" value="0">
-    </div>
-    <div class="setting-row">
-      <label for="posZSlider">Position Z</label>
-      <input type="range" id="posZSlider" min="-250" max="250" step="0.1" value="0">
-    </div>
-    <button id="copyDataBtn" class="copy-button">Copy Transform Data</button>
-  </div>
   <div id="app"></div>
-  <div id="touchLeft" class="touch-hide"></div>
-  <div id="touchRight" class="touch-hide"></div>
-  <div id="joyBase" class="touch-hide"></div>
-  <div id="joyKnob" class="touch-hide"></div>
-  <div id="errorOverlay">
-    <div class="error-header">⚠️ Application Error</div>
-    <div class="error-content" id="errorContent"></div>
-    <button id="copyErrorBtn">Copy Error</button>
-  </div>
-  <script type="module" src="./src/main.js"></script>
+  <noscript>
+    <p>This application requires JavaScript to be enabled.<br>Please check your browser settings.</p>
+  </noscript>
+  <script type="module" src="./Loader.js"></script>
 </body>
 </html>
