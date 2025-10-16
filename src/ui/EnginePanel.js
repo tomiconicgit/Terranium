@@ -1,14 +1,14 @@
 // src/ui/EnginePanel.js
-// Floating, scrollable panel to control the SINGLE editable plume.
-// (No baked/locked plume anymore.)
+// --- MODIFIED ---
+// Updated to reflect new defaults and renamed color parameter.
 
 export class EnginePanelUI {
   /**
    * @param {{
-   *   get:()=>any,
-   *   set:(patch:any)=>void,
-   *   setIgnition:(on:boolean)=>void,
-   *   getIgnition:()=>boolean
+   * get:()=>any,
+   * set:(patch:any)=>void,
+   * setIgnition:(on:boolean)=>void,
+   * getIgnition:()=>boolean
    * }} api
    * @param {Debugger} dbg
    */
@@ -33,7 +33,6 @@ export class EnginePanelUI {
       return;
     }
 
-    // Toggle button (top-left)
     const openBtn = document.createElement('button');
     openBtn.id = 'engine-panel-btn';
     openBtn.textContent = 'Engines';
@@ -44,10 +43,9 @@ export class EnginePanelUI {
     };
     container.appendChild(openBtn);
 
-    // Scrollable panel (pan-y to allow vertical scrolling)
     const panel = document.createElement('div');
     panel.id = 'engine-panel';
-    panel.classList.add('no-look'); // TouchPad ignores camera look on this
+    panel.classList.add('no-look');
     panel.style.cssText = `
       position:fixed; top:80px; left:20px; z-index:10;
       background:rgba(30,30,36,0.90); color:#fff;
@@ -56,7 +54,7 @@ export class EnginePanelUI {
       box-shadow:0 5px 15px rgba(0,0,0,0.35);
       backdrop-filter:blur(8px);
       -webkit-overflow-scrolling: touch;
-      touch-action: pan-y;        /* <-- allows vertical scroll */
+      touch-action: pan-y;
     `;
 
     const row = (id, label, min, max, step, val) => `
@@ -68,69 +66,54 @@ export class EnginePanelUI {
                style="width:100%;accent-color:#4f8ff7;">
       </div>`;
 
+    // --- REVISED: Default values updated to match new EngineFX.js defaults ---
     panel.innerHTML = `
       <h4 style="margin:0 0 12px;border-bottom:1px solid rgba(255,255,255,0.12);padding-bottom:8px;">
         Engine Controls
       </h4>
-
       <div style="display:flex; gap:10px; margin-bottom:14px;">
         <button id="ignite-btn"  style="flex:1;">Ignite</button>
         <button id="cutoff-btn"  style="flex:1;">Cutoff</button>
       </div>
-
       ${row('fw','Flame Width ×','0.01','80','0.01','1.00')}
       ${row('fh','Flame Height ×','0.01','120','0.01','1.00')}
       ${row('fy','Flame Y Offset (m)','-1200','2400','0.1','0.00')}
-
-      ${row('in','Intensity ×','0','5','0.01','1.00')}
-      ${row('tp','Taper (0=wide,1=thin)','0','1','0.01','0.55')}
-      ${row('bg','Bulge (mid-body)','0','1','0.01','0.00')}
-      ${row('td','TearDrop (base pinch)','0','1','0.01','0.50')}
-      ${row('tb','Turbulence','0','1','0.01','0.35')}
-      ${row('ns','Noise Speed','0','5','0.01','1.60')}
-      ${row('ds','Mach Diamonds Strength','0','2','0.01','0.35')}
-      ${row('df','Mach Diamonds Frequency','2','40','0.1','14.0')}
-
+      ${row('in','Intensity ×','0','5','0.01','1.20')}
+      ${row('tp','Taper (0=wide,1=thin)','0','1','0.01','0.40')}
+      ${row('bg','Bulge (mid-body)','0','1','0.01','0.10')}
+      ${row('td','TearDrop (base pinch)','0','1','0.01','0.85')}
+      ${row('tb','Turbulence','0','1','0.01','0.20')}
+      ${row('ns','Noise Speed','0','5','0.01','1.80')}
+      ${row('ds','Mach Diamonds Strength','0','2','0.01','0.40')}
+      ${row('df','Mach Diamonds Frequency','2','40','0.1','12.0')}
       <hr style="border-color:rgba(255,255,255,0.12);margin:10px 0;">
-      ${row('rs','Rim Strength (halo)','0','1','0.01','0.25')}
-      ${row('rp','Rim Speed','0','6','0.01','2.50')}
-
+      ${row('rs','Rim Strength (halo)','0','1','0.01','0.30')}
+      ${row('rp','Rim Speed','0','6','0.01','2.80')}
       <hr style="border-color:rgba(255,255,255,0.12);margin:10px 0;">
-      ${row('cb','Color Mix – Blue','0','3','0.01','1.00')}
+      ${row('cb','Color Mix – Cyan','0','3','0.01','1.00')}
       ${row('co','Color Mix – Orange','0','3','0.01','1.00')}
-      ${row('cw','Color Mix – White','0','3','0.01','1.00')}
-
+      ${row('cw','Color Mix – White','0','3','0.01','1.20')}
       <hr style="border-color:rgba(255,255,255,0.12);margin:10px 0;">
       ${row('gx','FX Offset X (m)','-800','800','0.1','0.00')}
       ${row('gy','FX Offset Y (m)','-2400','2400','0.1','0.00')}
       ${row('gz','FX Offset Z (m)','-800','800','0.1','0.00')}
-
       <button id="copy-engine-config" style="margin-top:8px;width:100%;">Copy Current Config</button>
     `;
     document.body.appendChild(panel);
     this.panel = panel;
 
-    // Buttons
     const ignite = panel.querySelector('#ignite-btn');
     const cutoff = panel.querySelector('#cutoff-btn');
     ignite.onclick = () => { if (!this.isReady) return this._notReady(); this.api.setIgnition(true);  this._refreshButtons(); };
     cutoff.onclick = () => { if (!this.isReady) return this._notReady(); this.api.setIgnition(false); this._refreshButtons(); };
 
-    // Sliders -> EngineFX
-    const ids = [
-      'fw','fh','fy',
-      'in','tp','bg','td','tb','ns','ds','df',
-      'rs','rp',
-      'cb','co','cw',
-      'gx','gy','gz'
-    ];
+    const ids = ['fw','fh','fy','in','tp','bg','td','tb','ns','ds','df','rs','rp','cb','co','cw','gx','gy','gz'];
     const apply = () => {
       if (!this.isReady) return;
       this.api.set({
         flameWidthFactor:  parseFloat(panel.querySelector('#fw').value),
         flameHeightFactor: parseFloat(panel.querySelector('#fh').value),
         flameYOffset:      parseFloat(panel.querySelector('#fy').value),
-
         intensity:         parseFloat(panel.querySelector('#in').value),
         taper:             parseFloat(panel.querySelector('#tp').value),
         bulge:             parseFloat(panel.querySelector('#bg').value),
@@ -139,14 +122,11 @@ export class EnginePanelUI {
         noiseSpeed:        parseFloat(panel.querySelector('#ns').value),
         diamondsStrength:  parseFloat(panel.querySelector('#ds').value),
         diamondsFreq:      parseFloat(panel.querySelector('#df').value),
-
         rimStrength:       parseFloat(panel.querySelector('#rs').value),
         rimSpeed:          parseFloat(panel.querySelector('#rp').value),
-
-        colorBlue:         parseFloat(panel.querySelector('#cb').value),
+        colorCyan:         parseFloat(panel.querySelector('#cb').value), // Changed from colorBlue
         colorOrange:       parseFloat(panel.querySelector('#co').value),
         colorWhite:        parseFloat(panel.querySelector('#cw').value),
-
         groupOffsetX:      parseFloat(panel.querySelector('#gx').value),
         groupOffsetY:      parseFloat(panel.querySelector('#gy').value),
         groupOffsetZ:      parseFloat(panel.querySelector('#gz').value),
@@ -155,7 +135,6 @@ export class EnginePanelUI {
     };
     ids.forEach(id => panel.querySelector('#'+id).oninput = apply);
 
-    // Copy button
     panel.querySelector('#copy-engine-config').onclick = () => {
       const cfg = this.api.get();
       navigator.clipboard.writeText(JSON.stringify(cfg, null, 2))
@@ -180,11 +159,9 @@ export class EnginePanelUI {
   _syncLabels() {
     const c = this.api.get?.() ?? {};
     const set = (id, v) => { const el = this.panel.querySelector(id); if (el) el.textContent = v; };
-
     set('#fw-val', (c.flameWidthFactor ?? 1).toFixed(2));
     set('#fh-val', (c.flameHeightFactor ?? 1).toFixed(2));
     set('#fy-val', (c.flameYOffset ?? 0).toFixed(2));
-
     set('#in-val', (c.intensity ?? 1).toFixed(2));
     set('#tp-val', (c.taper ?? 0.55).toFixed(2));
     set('#bg-val', (c.bulge ?? 0).toFixed(2));
@@ -193,14 +170,11 @@ export class EnginePanelUI {
     set('#ns-val', (c.noiseSpeed ?? 1.6).toFixed(2));
     set('#ds-val', (c.diamondsStrength ?? 0).toFixed(2));
     set('#df-val', (c.diamondsFreq ?? 14).toFixed(1));
-
     set('#rs-val', (c.rimStrength ?? 0.25).toFixed(2));
     set('#rp-val', (c.rimSpeed ?? 2.5).toFixed(2));
-
-    set('#cb-val', (c.colorBlue ?? 1).toFixed(2));
+    set('#cb-val', (c.colorCyan ?? 1).toFixed(2)); // Changed from colorBlue
     set('#co-val', (c.colorOrange ?? 1).toFixed(2));
     set('#cw-val', (c.colorWhite ?? 1).toFixed(2));
-
     set('#gx-val', (c.groupOffsetX ?? 0).toFixed(2));
     set('#gy-val', (c.groupOffsetY ?? 0).toFixed(2));
     set('#gz-val', (c.groupOffsetZ ?? 0).toFixed(2));
