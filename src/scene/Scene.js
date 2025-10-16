@@ -11,8 +11,10 @@ import { Debugger } from '../../Debugger.js';
 export class Scene extends THREE.Scene {
   constructor(manager) {
     super();
-    this.background = new THREE.Color(0x1d2430);
-    this.fog = new THREE.Fog(0x8894ab, 150, 1500);
+    // Use the sky's horizon color for a seamless blend with fog
+    const horizonColor = 0xF0F8FF;
+    this.background = new THREE.Color(horizonColor); 
+    this.fog = new THREE.Fog(horizonColor, 150, 1200);
 
     createLighting(this);
     this.add(createSkyDome());
