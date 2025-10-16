@@ -1,70 +1,33 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <title>Terranium</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1.0, user-scalable=no" />
-  <meta name="theme-color" content="#0a0a0a" />
-  <link rel="manifest" href="./manifest.webmanifest" />
-
-  <!-- Import map for Three.js and add-ons -->
-  <script type="importmap">
-  {
-    "imports": {
-      "three": "https://unpkg.com/three@0.169.0/build/three.module.js",
-      "three/addons/": "https://unpkg.com/three@0.169.0/examples/jsm/"
-    }
-  }
-  </script>
-
-  <!-- Load NippleJS as a global (UMD). Do NOT import it as a module. -->
-  <script src="https://cdn.jsdelivr.net/npm/nipplejs@0.10.1/dist/nipplejs.min.js" defer></script>
-
-  <style>
-    :root { --accent: #4dd2ff; }
-    html, body { 
-      height: 100%; 
-      margin: 0; 
-      background: #05070b; 
-      font-family: system-ui, sans-serif;
-      -webkit-tap-highlight-color: transparent;
-    }
-    #app { position: fixed; inset: 0; }
-
-    #joystick-container {
-      position: fixed;
-      bottom: 50px;
-      left: 50px;
-      width: 120px;
-      height: 120px;
-      z-index: 10;
-      display: none;
-    }
-    @media (pointer: coarse) {
-      #joystick-container { display: block; }
-    }
-
-    noscript {
-      position: fixed;
-      inset: 0;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      color: white;
-      font-size: 1.2em;
-      text-align: center;
-      padding: 2em;
-    }
-  </style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Terranium</title>
+    <link rel="stylesheet" href="style.css">
+    <script type="module" src="Loader.js" defer></script>
 </head>
 <body>
-  <div id="app"></div>
-  <div id="joystick-container"></div>
-  <noscript>
-    <p>This application requires JavaScript to be enabled.<br>Please check your browser settings.</p>
-  </noscript>
+    <div id="loader-container">
+        <div class="loader-center-ui">
+            <div id="loader-logo"></div>
+            <h1>Terranium</h1>
+            <div class="progress-bar-container">
+                <div id="progress-bar">
+                    <span id="progress-percentage">0%</span>
+                </div>
+            </div>
+            <p id="loader-status">Initializing...</p>
+            <button id="enter-button" disabled>LOADING</button>
+        </div>
+    </div>
 
-  <!-- App entry -->
-  <script type="module" src="./Loader.js"></script>
+    <div id="debugger-notifications"></div>
+    
+    <canvas id="game-canvas"></canvas>
+
+    <noscript>
+        <p>This experience requires JavaScript to be enabled. Please enable it in your browser settings.</p>
+    </noscript>
 </body>
 </html>
