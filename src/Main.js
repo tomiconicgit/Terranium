@@ -14,7 +14,7 @@ import { worldObjects } from './world/Mapping.js';
 import { loadModel } from './ModelLoading.js';
 import { ImportModelUI } from './ui/ImportModel.js';
 import { ModelSlidersUI } from './ui/ModelSliders.js';
-import { EngineControlsUI } from './ui/EngineControls.js';
+import { EnginePanelUI } from './ui/EnginePanel.js';
 
 // Effects
 import { EngineFX } from './effects/EngineFX.js';
@@ -25,9 +25,8 @@ export class Main {
     this.canvas = document.getElementById('game-canvas');
     this.clock = new THREE.Clock();
 
-    // state
     this.effects = [];
-    this.enginesOn = false; // default OFF
+    this.fx = null; // reference to SuperHeavy FX
 
     this.init();
   }
@@ -44,7 +43,7 @@ export class Main {
       { name: 'Player Camera', path: './scene/Camera.js' },
       { name: 'Control Systems', path: './controls/TouchPad.js' },
       { name: 'Engine FX', path: './effects/EngineFX.js' },
-      { name: 'Engine Controls', path: './ui/EngineControls.js' },
+      { name: 'Engine Panel', path: './ui/EnginePanel.js' },
       { name: 'Finalizing...', path: '...' },
     ];
   }
@@ -81,19 +80,24 @@ export class Main {
   }
 
   initModelSystems() {
-    // Must be first to create #ui-container
+    // Make sure UI container exists
     this.importModelUI = new ImportModelUI(this.scene, (model) => {
       this.modelSliders.setActiveModel(model);
     }, this.debugger);
 
     this.modelSliders = new ModelSlidersUI(this.debugger);
 
-    // Add Engine Controls button to same container
-    this.engineControlsUI = new EngineControlsUI(
-      (on) => this.setEngines(on),
-      () => this.enginesOn,
-      this.debugger
-    );
+    // Engine Panel (uses live API into EngineFX once available)
+    this.enginePanel = new EnginePanelUI({
+      get: () => (this.fx ? this.fx.getParams() : {
+        enginesOn: false,
+        flameWidthFactor: 1, flameHeightFactor: 1,
+        flameYOffset: 0, smokeSizeFactor: 1, smokeYOffset: 0
+      }),
+      set: (patch) => { if (this.fx) this.fx.setParams(patch); },
+      setIgnition: (on) => { if (this.fx) this.fx.setIgnition(on); },
+      getIgnition: () => (this.fx ? this.fx.getIgnition() : false)
+    }, this.debugger);
   }
 
   loadStaticModels() {
@@ -108,13 +112,9 @@ export class Main {
           this.scene.add(model);
           this.debugger.log(`Loaded static model: ${obj.name}`);
 
-          // Attach engine FX to SuperHeavy
           if (obj.name === 'SuperHeavy') {
-            const fx = new EngineFX(model, this.scene, this.camera, {
-              inner: 9, outer: 24, innerRadius: 2.6, outerRadius: 6.2
-            });
-            fx.setEngines(this.enginesOn);
-            this.effects.push(fx);
+            this.fx = new EngineFX(model, this.scene, this.camera, { rings: '33' });
+            this.effects.push(this.fx);
           }
         },
         (error) => {
@@ -122,12 +122,6 @@ export class Main {
         }
       );
     });
-  }
-
-  setEngines(on) {
-    this.enginesOn = !!on;
-    for (const fx of this.effects) fx.setEngines(this.enginesOn);
-    this.debugger.log(this.enginesOn ? 'Engines: ON' : 'Engines: OFF');
   }
 
   start() { this.animate(); }
@@ -169,11 +163,7 @@ export class Main {
     const deltaTime = this.clock.getDelta();
     const elapsed = this.clock.elapsedTime;
 
-    if (deltaTime > 0) {
-      this.updatePlayer(deltaTime);
-    }
-
-    // Effects tick
+    if (deltaTime > 0) this.updatePlayer(deltaTime);
     for (const fx of this.effects) fx.update(deltaTime, elapsed);
 
     this.renderer.render(this.scene, this.camera);
