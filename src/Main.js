@@ -1,11 +1,19 @@
 // src/Main.js
 
 import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.163.0/build/three.module.js';
+
+// Game components
 import { createTerrain } from './scene/Terrain.js';
 import { createSkyDome } from './scene/SkyDome.js';
 import { createLighting } from './scene/Lighting.js';
 import { createCamera } from './scene/Camera.js';
 import { TouchPad } from './controls/TouchPad.js';
+
+// New Model & UI Systems
+import { worldObjects } from './world/Mapping.js';
+import { loadModel } from './ModelLoading.js';
+import { ImportModelUI } from './ui/ImportModel.js';
+import { ModelSlidersUI } from './ui/ModelSliders.js';
 
 export class Main {
     constructor(debuggerInstance) {
@@ -20,6 +28,8 @@ export class Main {
         return [
             { name: 'Debugger Systems', path: './Debugger.js' },
             { name: 'Core Engine (Three.js)', path: 'three.module.js' },
+            { name: 'GLTF & Draco Loaders', path: 'three.js examples' },
+            { name: 'UI Systems', path: './ui/' },
             { name: 'World Terrain', path: './scene/Terrain.js' },
             { name: 'Atmosphere & Sky', path: './scene/SkyDome.js' },
             { name: 'Lighting Engine', path: './scene/Lighting.js' },
@@ -30,49 +40,110 @@ export class Main {
     }
 
     init() {
-        // Scene
+        // Scene, Renderer, Camera... (same as before)
         this.scene = new THREE.Scene();
-
-        // Renderer
-        this.renderer = new THREE.WebGLRenderer({
-            canvas: this.canvas,
-            antialias: true,
-        });
+        this.renderer = new THREE.WebGLRenderer({ canvas: this.canvas, antialias: true });
         this.renderer.setSize(window.innerWidth, window.innerHeight);
         this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
         this.renderer.shadowMap.enabled = true;
-
-        // Camera
         this.camera = createCamera();
-        this.camera.rotation.order = 'YXZ'; // Essential for FPS controls
+        this.camera.rotation.order = 'YXZ';
         this.scene.add(this.camera);
 
-        // Lighting
+        // Lighting, Scenery... (same as before)
         const { ambientLight, sunLight } = createLighting();
-        this.scene.add(ambientLight);
-        this.scene.add(sunLight);
-        this.scene.add(sunLight.target);
+        this.scene.add(ambientLight, sunLight, sunLight.target);
+        this.terrain = createTerrain();
+        this.scene.add(this.terrain, createSkyDome());
 
-        // Scenery
-        this.terrain = createTerrain(); // Store terrain for raycasting
-        const skyDome = createSkyDome();
-        this.scene.add(this.terrain);
-        this.scene.add(skyDome);
-
-        // Controls
+        // Controls... (same as before)
         this.controls = new TouchPad();
         this.playerVelocity = new THREE.Vector3();
-        this.lookSpeed = 0.004; // ADJUSTED: Increased look sensitivity
-        this.playerHeight = 2.0; // Eye-level height above the ground
-
-        // Raycaster for terrain collision
+        this.lookSpeed = 0.004;
+        this.playerHeight = 2.0;
         this.raycaster = new THREE.Raycaster();
         this.rayDirection = new THREE.Vector3(0, -1, 0);
-
-        // Handle window resizing
-        window.addEventListener('resize', () => this.onWindowResize(), false);
         
-        // Performance monitoring
+        // --- NEW INITIALIZATIONS ---
+        this.initModelSystems();
+        this.loadStaticModels();
+        // -------------------------
+
+        window.addEventListener('resize', () => this.onWindowResize(), false);
+        this.initPerformanceMonitor();
+    }
+
+    initModelSystems() {
+        // Sliders UI must be created first so the container exists
+        this.modelSliders = new ModelSlidersUI(this.debugger);
+
+        // Import UI is created next, and we give it a callback
+        // that connects it to the sliders UI.
+        this.importModelUI = new ImportModelUI(this.scene, (model) => {
+            this.modelSliders.setActiveModel(model);
+        }, this.debugger);
+    }
+    
+    loadStaticModels() {
+        this.debugger.log(`Loading ${worldObjects.length} static models from Mapping.js...`);
+        worldObjects.forEach(obj => {
+            loadModel(
+                obj.path,
+                (model) => {
+                    model.position.set(obj.position.x, obj.position.y, obj.position.z);
+                    model.scale.set(obj.scale.x, obj.scale.y, obj.scale.z);
+                    model.rotation.set(obj.rotation.x, obj.rotation.y, obj.rotation.z);
+                    this.scene.add(model);
+                    this.debugger.log(`Loaded static model: ${obj.name}`);
+                },
+                (error) => {
+                    this.debugger.handleError(error, `StaticModel: ${obj.name}`);
+                }
+            );
+        });
+    }
+    
+    // (The rest of the Main.js file is identical to your existing one)
+    // start(), onWindowResize(), updatePlayer(), animate(), initPerformanceMonitor() etc.
+    // ...
+    start() { this.animate(); }
+    onWindowResize() {
+        this.camera.aspect = window.innerWidth / window.innerHeight;
+        this.camera.updateProjectionMatrix();
+        this.renderer.setSize(window.innerWidth, window.innerHeight);
+    }
+    updatePlayer(deltaTime) {
+        const moveSpeed = 5.0 * deltaTime;
+        const moveVector = this.controls.moveVector;
+        const lookVector = this.controls.lookVector;
+        if (lookVector.length() > 0) {
+            this.camera.rotation.y -= lookVector.x * this.lookSpeed;
+            this.camera.rotation.x -= lookVector.y * this.lookSpeed;
+            this.camera.rotation.x = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, this.camera.rotation.x));
+            this.controls.lookVector.set(0, 0);
+        }
+        this.playerVelocity.z = moveVector.y * moveSpeed;
+        this.playerVelocity.x = moveVector.x * moveSpeed;
+        this.camera.translateX(this.playerVelocity.x);
+        this.camera.translateZ(this.playerVelocity.z);
+        const rayOrigin = new THREE.Vector3(this.camera.position.x, 50, this.camera.position.z);
+        this.raycaster.set(rayOrigin, this.rayDirection);
+        const terrainMeshes = this.terrain.children.filter(c => c.name === "sand_terrain" || c.geometry.type === "PlaneGeometry");
+        const intersects = this.raycaster.intersectObjects(terrainMeshes);
+        if (intersects.length > 0) {
+            this.camera.position.y = intersects[0].point.y + this.playerHeight;
+        }
+    }
+    animate() {
+        requestAnimationFrame(() => this.animate());
+        const deltaTime = this.clock.getDelta();
+        if (deltaTime > 0) {
+            this.updatePlayer(deltaTime);
+        }
+        this.renderer.render(this.scene, this.camera);
+        this.frameCount++;
+    }
+    initPerformanceMonitor() {
         this.frameCount = 0;
         setInterval(() => {
             if (this.frameCount > 0 && this.frameCount < 30) {
@@ -80,59 +151,5 @@ export class Main {
             }
             this.frameCount = 0;
         }, 1000);
-    }
-
-    start() {
-        this.animate();
-    }
-
-    onWindowResize() {
-        this.camera.aspect = window.innerWidth / window.innerHeight;
-        this.camera.updateProjectionMatrix();
-        this.renderer.setSize(window.innerWidth, window.innerHeight);
-    }
-    
-    updatePlayer(deltaTime) {
-        const moveSpeed = 5.0 * deltaTime;
-        const moveVector = this.controls.moveVector;
-        const lookVector = this.controls.lookVector;
-
-        // --- 1. Update Camera Rotation (Look) ---
-        if (lookVector.length() > 0) {
-            this.camera.rotation.y -= lookVector.x * this.lookSpeed;
-            this.camera.rotation.x -= lookVector.y * this.lookSpeed;
-            this.camera.rotation.x = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, this.camera.rotation.x));
-            this.controls.lookVector.set(0, 0);
-        }
-
-        // --- 2. Update Camera Position (Move) ---
-        this.playerVelocity.z = moveVector.y * moveSpeed;
-        this.playerVelocity.x = moveVector.x * moveSpeed;
-
-        this.camera.translateX(this.playerVelocity.x);
-        this.camera.translateZ(this.playerVelocity.z);
-
-        // --- 3. Apply Terrain Following (Collision) ---
-        const rayOrigin = new THREE.Vector3(this.camera.position.x, 50, this.camera.position.z);
-        this.raycaster.set(rayOrigin, this.rayDirection);
-        
-        const terrainMeshes = this.terrain.children.filter(c => c.name === "sand_terrain" || c.geometry.type === "PlaneGeometry");
-        const intersects = this.raycaster.intersectObjects(terrainMeshes);
-
-        if (intersects.length > 0) {
-            this.camera.position.y = intersects[0].point.y + this.playerHeight;
-        }
-    }
-
-    animate() {
-        requestAnimationFrame(() => this.animate());
-        const deltaTime = this.clock.getDelta();
-        
-        if (deltaTime > 0) {
-            this.updatePlayer(deltaTime);
-        }
-
-        this.renderer.render(this.scene, this.camera);
-        this.frameCount++;
     }
 }
