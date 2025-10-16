@@ -1,7 +1,7 @@
 import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.163.0/build/three.module.js';
 
 export function createCamera() {
-    const fov = 75; // Field of View
+    const fov = 60; // Field of View
     const aspect = window.innerWidth / window.innerHeight; // Aspect Ratio
     const near = 0.1; // Near clipping plane
     const far = 2000; // Far clipping plane
