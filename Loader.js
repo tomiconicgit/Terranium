@@ -5,8 +5,8 @@ import { Debugger } from './Debugger.js';
 class Loader {
   constructor() {
     this.debugger = new Debugger();
-    this.mainModule = null;   // will hold the dynamically imported module
-    this.mainClass = null;    // reference to exported Main class
+    this.mainModule = null;
+    this.mainClass = null;
 
     // DOM
     this.progressBar = document.getElementById('progress-bar');
@@ -21,33 +21,27 @@ class Loader {
     this.enterButton.disabled = true;
     this.reloadButton.onclick = () => window.location.reload();
 
-    // start
     this.boot();
   }
 
   async boot() {
     try {
       this.updateStatus('Preparing systems…');
-      // 1) Import Main.js dynamically so this file still runs if it fails.
-      // Add a small cache-buster to dodge SW or HTTP caches.
+
       const url = new URL('./src/Main.js', window.location.href);
       url.searchParams.set('v', Date.now().toString());
 
       this.updateStatus('Checking core modules…');
       this.mainModule = await import(/* @vite-ignore */ url.href).catch((e) => {
-        // Show *which* module failed (often reveals path/case/404 issues).
-        throw new Error(
-          `Failed to load src/Main.js. ${this._friendlyModuleHint(e)}`
-        );
+        throw new Error(`Failed to load src/Main.js. ${this._friendlyModuleHint(e)}`);
       });
 
-      // ensure export exists
       if (!this.mainModule.Main) {
         throw new Error('src/Main.js loaded, but export "Main" was not found.');
       }
       this.mainClass = this.mainModule.Main;
 
-      // 2) Probe critical submodules (existence/404). Keeps it lightweight—no execution.
+      // Probe key modules (add new FX + UI controls)
       const probes = [
         './src/scene/Terrain.js',
         './src/scene/SkyDome.js',
@@ -57,30 +51,30 @@ class Loader {
         './src/world/Mapping.js',
         './src/ui/ImportModel.js',
         './src/ui/ModelSliders.js',
-        './src/ModelLoading.js'
+        './src/ui/EngineControls.js',
+        './src/ModelLoading.js',
+        './src/effects/EngineFX.js'
       ];
 
       await this._probeModules(probes);
 
-      // 3) Drive the visible progress using Main.getManifest (if provided).
+      // Progress bar drive
       let manifest = [];
       try {
         manifest = this.mainClass.getManifest?.() ?? [];
       } catch (e) {
         this.debugger.warn('Main.getManifest() threw; continuing without it.', 'Loader');
       }
-
       if (!Array.isArray(manifest) || manifest.length === 0) {
-        // Provide a default visual progress so UI doesn’t look stuck.
         manifest = probes.map(p => ({ name: `Check ${p}`, path: p }));
       }
 
-      const totalItems = manifest.length;
-      for (let i = 0; i < totalItems; i++) {
+      const total = manifest.length;
+      for (let i = 0; i < total; i++) {
         const item = manifest[i];
         this.updateStatus(`Installing ${item.name}…`);
         await this._sleep(120);
-        this.updateProgress(((i + 1) / totalItems) * 100);
+        this.updateProgress(((i + 1) / total) * 100);
       }
 
       this.loadingSuccessful();
@@ -98,19 +92,16 @@ class Loader {
         const u = new URL(path, window.location.href);
         u.searchParams.set('v', Date.now().toString());
         const res = await fetch(u.href, { cache: 'no-store' });
-        if (!res.ok) {
-          throw new Error(`HTTP ${res.status} (${res.statusText})`);
-        }
+        if (!res.ok) throw new Error(`HTTP ${res.status} (${res.statusText})`);
         const ct = (res.headers.get('content-type') || '').toLowerCase();
         if (!ct.includes('javascript') && !ct.includes('text/plain')) {
-          // GitHub Pages often serves JS as text/plain; both are fine.
           this.debugger.warn(`Unusual content-type for ${path}: ${ct}`, 'Loader');
         }
         this.debugger.log(`OK: ${path}`);
       } catch (e) {
         throw new Error(`Module check failed: ${path} → ${e.message}`);
       }
-      this.updateProgress(((i + 1) / total) * 30); // first ~30% used by probes
+      this.updateProgress(((i + 1) / total) * 30);
       await this._sleep(60);
     }
   }
@@ -118,7 +109,6 @@ class Loader {
   _sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
   _friendlyModuleHint(err) {
-    // Helpful text for common GitHub Pages issues (404/case/mime).
     const msg = (err && err.message) ? err.message : String(err);
     return `${msg}
 Tips:
@@ -145,9 +135,7 @@ Tips:
   loadingFailed(error) {
     console.error(error);
     this.debuggerMessageArea.style.display = 'block';
-    const safe = (error.message || 'Unknown error')
-      .replace(/'/g, "\\'")
-      .replace(/"/g, '&quot;');
+    const safe = (error.message || 'Unknown error').replace(/'/g, "\\'").replace(/"/g, '&quot;');
     this.debuggerMessageArea.innerHTML = `
       <h4>🛑 Error Detected:</h4>
       <p style="white-space:pre-wrap">${safe}</p>
@@ -162,7 +150,6 @@ Tips:
   }
 
   async startGame() {
-    // Fade out loader
     this.loaderContainer.style.opacity = '0';
     setTimeout(() => { this.loaderContainer.style.display = 'none'; }, 500);
 
@@ -176,7 +163,6 @@ Tips:
 }
 
 window.onload = () => {
-  // IMPORTANT on GitHub Pages: register the SW relative to repo, not domain root.
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('./sw.js')
       .then(r => console.log('Service Worker registered:', r.scope))
