@@ -1,15 +1,14 @@
 // src/effects/EngineFX.js
-// Two-plume system:
-//  • Plume A = baked/locked using your config (not editable)
-//  • Plume B = editable via EnginePanel
-// Both are GPU-cheap single billboards, flipped so the jet points downward.
+// Round, cone-like jet using CylinderGeometry (open ended).
+// Plume A = baked (locked). Plume B = editable via EnginePanel.
+// Cheap additive shader; alpha shaped by cylindrical UV and height.
 
 import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.163.0/build/three.module.js';
 
 export class EngineFX {
   constructor(rocketRoot, scene, camera) {
     this.rocket = rocketRoot;
-    this.scene = scene;
+    this.scene  = scene;
     this.camera = camera;
 
     // Measure rocket to derive baselines
@@ -19,15 +18,15 @@ export class EngineFX {
     const clusterRadius = 0.5 * Math.max(this.size.x, this.size.z) * 0.9;
 
     // Baselines
-    this.emitYBase       = this.bottomY + Math.max(0.02 * this.size.y, 0.1);
-    this.flameWidthBase  = clusterRadius * 1.4;
-    this.flameHeightBase = clusterRadius * 7.0;
+    this.emitYBase        = this.bottomY + Math.max(0.02 * this.size.y, 0.1);
+    this.flameRadiusBase  = clusterRadius * 0.7;   // base radius of plume
+    this.flameHeightBase  = clusterRadius * 7.0;   // plume length
 
-    // ---- BAKED (LOCKED) PLUME: your config ----
+    // ---- BAKED (LOCKED) plume params (your JSON) ----
     this.paramsLocked = {
-      enginesOn: true, // visible when ignition on
-      flameWidthFactor:  4.06,
-      flameHeightFactor: 10.64,
+      enginesOn: true,
+      flameWidthFactor:  4.06,   // radius multiplier
+      flameHeightFactor: 10.64,  // height multiplier
       flameYOffset:      278.2,
       intensity:         1.61,
       taper:             0.01,
@@ -44,7 +43,7 @@ export class EngineFX {
       groupOffsetZ:      41.5
     };
 
-    // ---- EDITABLE plume defaults (fresh one you can tweak) ----
+    // ---- Editable plume default params ----
     this.params = {
       enginesOn: false,
       flameWidthFactor:  1.0,
@@ -65,14 +64,13 @@ export class EngineFX {
       groupOffsetZ:      0.0
     };
 
-    // Groups parented to rocket (separate transforms)
-    this.groupLocked = new THREE.Group();
-    this.groupEdit   = new THREE.Group();
-    rocketRoot.add(this.groupLocked);
-    rocketRoot.add(this.groupEdit);
+    // Shared geometry: open-ended cylinder (frustum) along +Y
+    // (top radius smaller than bottom; we’ll still apply taper in shader)
+    // 24 radial segments gives a smooth circle at very low cost.
+    const geo = new THREE.CylinderGeometry(0.5, 1.0, 1.0, 24, 1, true);
+    geo.rotateZ(0); // keep default orientation (Y up)
 
-    // Shared geometry; two materials (so colors/params are independent)
-    const geo = new THREE.PlaneGeometry(1, 1, 1, 1);
+    // Two distinct materials so uniforms can differ
     this.matLocked = this._makeFlameMaterial();
     this.matEdit   = this._makeFlameMaterial();
 
@@ -80,30 +78,21 @@ export class EngineFX {
     this.flameLocked = new THREE.Mesh(geo, this.matLocked);
     this.flameEdit   = new THREE.Mesh(geo, this.matEdit);
 
-    // IMPORTANT: flip vertically so plume points DOWN
-    // We still face camera around Y each frame.
+    // IMPORTANT: flip so plume points DOWNWARD (−Y)
     this.flameLocked.rotation.x = Math.PI;
     this.flameEdit.rotation.x   = Math.PI;
 
     this.flameLocked.frustumCulled = false;
     this.flameEdit.frustumCulled   = false;
+
+    // Parent groups (so you can offset each plume)
+    this.groupLocked = new THREE.Group();
+    this.groupEdit   = new THREE.Group();
+    rocketRoot.add(this.groupLocked, this.groupEdit);
     this.groupLocked.add(this.flameLocked);
     this.groupEdit.add(this.flameEdit);
 
-    // Face camera around Y (for each plume)
-    const faceCam = (mesh, group) => {
-      mesh.onBeforeRender = () => {
-        const p = new THREE.Vector3(); group.getWorldPosition(p);
-        const c = this.camera.position;
-        const yaw = Math.atan2(c.x - p.x, c.z - p.z);
-        // keep X=PI (flipped), update yaw every frame
-        mesh.rotation.set(Math.PI, yaw, 0);
-      };
-    };
-    faceCam(this.flameLocked, this.groupLocked);
-    faceCam(this.flameEdit,   this.groupEdit);
-
-    // Apply initial transforms & uniforms
+    // Initial state
     this._applyTransformsLocked();
     this._applyUniformsLocked();
     this._applyTransforms();
@@ -111,12 +100,11 @@ export class EngineFX {
     this._applyVisibility();
   }
 
-  // ======= Public API for UI (controls only the EDITABLE plume) =======
+  // ======= Public API (controls ONLY the editable plume) =======
   setIgnition(on) {
     const v = !!on;
-    // “Ignite” shows BOTH: the baked + your editable
     this.params.enginesOn = v;
-    this.paramsLocked.enginesOn = v;
+    this.paramsLocked.enginesOn = v; // both appear together on ignite
     this._applyVisibility();
   }
   getIgnition() { return !!this.params.enginesOn; }
@@ -131,8 +119,8 @@ export class EngineFX {
     return {
       ...this.params,
       absolute: {
-        flameWidth:  this.flameWidthBase  * this.params.flameWidthFactor,
-        flameHeight: this.flameHeightBase * this.params.flameHeightFactor,
+        flameWidth:  this.flameRadiusBase  * this.params.flameWidthFactor * 2.0, // diameter
+        flameHeight: this.flameHeightBase  * this.params.flameHeightFactor,
         flameY:      this.emitYBase + this.params.flameYOffset + this.params.groupOffsetY
       }
     };
@@ -145,21 +133,20 @@ export class EngineFX {
 
   // ======= Internals =======
   _applyVisibility() {
-    const show = !!this.params.enginesOn; // both obey same ignition
-    if (this.flameLocked) this.flameLocked.visible = show;
-    if (this.flameEdit)   this.flameEdit.visible   = show;
+    const show = !!this.params.enginesOn;
+    this.flameLocked.visible = show;
+    this.flameEdit.visible   = show;
   }
 
   _applyTransformsLocked() {
     const P = this.paramsLocked;
     this.groupLocked.position.set(P.groupOffsetX, P.groupOffsetY, P.groupOffsetZ);
 
-    const w = this.flameWidthBase  * P.flameWidthFactor;
+    const r = this.flameRadiusBase * P.flameWidthFactor; // radius
     const h = this.flameHeightBase * P.flameHeightFactor;
 
-    this.flameLocked.scale.set(w, h, 1);
-    // place relative to rocket base + offset
-    this.flameLocked.position.set(0, this.emitYBase + P.flameYOffset + h * 0.02, 0);
+    this.flameLocked.scale.set(r, h, r); // XZ = radius, Y = height
+    this.flameLocked.position.set(0, this.emitYBase + P.flameYOffset, 0);
   }
 
   _applyUniformsLocked() {
@@ -180,10 +167,12 @@ export class EngineFX {
   _applyTransforms() {
     const P = this.params;
     this.groupEdit.position.set(P.groupOffsetX, P.groupOffsetY, P.groupOffsetZ);
-    const w = this.flameWidthBase  * P.flameWidthFactor;
+
+    const r = this.flameRadiusBase * P.flameWidthFactor; // radius
     const h = this.flameHeightBase * P.flameHeightFactor;
-    this.flameEdit.scale.set(w, h, 1);
-    this.flameEdit.position.set(0, this.emitYBase + P.flameYOffset + h * 0.02, 0);
+
+    this.flameEdit.scale.set(r, h, r);
+    this.flameEdit.position.set(0, this.emitYBase + P.flameYOffset, 0);
   }
 
   _applyUniforms() {
@@ -195,9 +184,7 @@ export class EngineFX {
     u.uNoiseSpeed.value       = P.noiseSpeed;
     u.uDiamondsStrength.value = P.diamondsStrength;
     u.uDiamondsFreq.value     = P.diamondsFreq;
-
     u.uBulge.value            = P.bulge;
-
     u.uMixBlue.value          = P.colorBlue;
     u.uMixOrange.value        = P.colorOrange;
     u.uMixWhite.value         = P.colorWhite;
@@ -208,6 +195,7 @@ export class EngineFX {
       transparent: true,
       depthWrite: false,
       blending: THREE.AdditiveBlending,
+      side: THREE.DoubleSide, // see-through from any angle
       uniforms: {
         uTime:   { value: 0 },
         uIntensity: { value: 1.0 },
@@ -217,6 +205,7 @@ export class EngineFX {
         uDiamondsStrength: { value: 0.35 },
         uDiamondsFreq:     { value: 14.0 },
         uBulge: { value: 0.0 },
+
         uMixBlue:   { value: 1.0 },
         uMixOrange: { value: 1.0 },
         uMixWhite:  { value: 1.0 },
@@ -225,48 +214,57 @@ export class EngineFX {
         uWhiteColor:  { value: new THREE.Color(0xfff9e6) }
       },
       vertexShader: /* glsl */`
-        varying vec2 vUv;
+        varying vec2 vUv;     // cylinder UV: x is angle [0..1], y is height [0..1]
+        varying vec3 vPos;    // object-space position (after scale in MV)
         void main() {
           vUv = uv;
-          gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0);
+          vPos = position;
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
         }
       `,
       fragmentShader: /* glsl */`
         precision mediump float;
         varying vec2 vUv;
+        varying vec3 vPos;
 
         uniform float uTime, uIntensity, uTaper, uTurbulence, uNoiseSpeed;
         uniform float uDiamondsStrength, uDiamondsFreq, uBulge;
         uniform float uMixBlue, uMixOrange, uMixWhite;
         uniform vec3  uBlueColor, uOrangeColor, uWhiteColor;
 
+        // super-cheap noise
         float n2(vec2 p){ return fract(sin(dot(p, vec2(127.1,311.7))) * 43758.5453); }
         float fbm(vec2 p){
           float a=0.0, w=0.5;
-          for(int i=0;i<4;i++){ a += w * n2(p); p = p*2.03 + 1.7; w *= 0.5; }
+          for(int i=0;i<4;i++){ a += w*n2(p); p=p*2.03+1.7; w*=0.5; }
           return a;
         }
 
-        void main() {
-          // y goes 0..1 from base to tip (we flipped mesh in world, not UV)
+        void main(){
+          // Height along plume (0 = base near nozzle, 1 = tip)
           float y = clamp(vUv.y, 0.0, 1.0);
 
-          // Base taper + mid-plume bulge
-          float width = mix(0.48, 0.08, clamp(uTaper, 0.0, 1.0));
-          width = mix(width, 0.12, smoothstep(0.6, 1.0, y));
-          float bulge = uBulge * 0.25 * exp(-pow((y - 0.30) / 0.18, 2.0));
-          width += bulge;
+          // "Angular" distance from edge using cylinder UV (0/1 edges, 0.5 opposite edge)
+          float edgeCoord = min(vUv.x, 1.0 - vUv.x); // 0 at seam/edge, 0.5 at opposite side
+          // widen/narrow allowed thickness across the circumference
+          float width = mix(0.48, 0.10, clamp(uTaper, 0.0, 1.0));
+          // fade thinner toward the tip
+          width = mix(width, 0.14, smoothstep(0.6, 1.0, y));
+          // mid-plume bulge
+          width += uBulge * 0.25 * exp(-pow((y - 0.30)/0.18, 2.0));
 
-          // Lateral wobble
-          float wob = (fbm(vec2(vUv.y*6.0, uTime*uNoiseSpeed)) - 0.5) * (0.25*uTurbulence);
-          float x = abs(vUv.x - 0.5 + wob);
+          // Turbulent wobble makes rim noisy over time
+          float wob = (fbm(vec2(y*6.0, uTime*uNoiseSpeed)) - 0.5) * (0.25*uTurbulence);
+          edgeCoord += wob;
 
-          // Mask
-          float body = smoothstep(width, width - 0.12, x);
+          // Body mask from the cylindrical edge
+          float body = smoothstep(width, width - 0.12, edgeCoord);
+
+          // Base fade-in and tip fade-out
           float head = smoothstep(0.0, 0.10, y);
           float tail = 1.0 - smoothstep(0.88, 1.0, y);
 
-          // Mach diamonds
+          // Mach diamonds bands along height (fade near tip)
           float bands = sin(y * uDiamondsFreq * 6.283) * 0.5 + 0.5;
           float diamonds = mix(1.0, bands, clamp(uDiamondsStrength,0.0,2.0));
           diamonds = mix(diamonds, 1.0, smoothstep(0.65, 1.0, y));
@@ -277,8 +275,8 @@ export class EngineFX {
           vec3 col = mix(mixCol * 0.8, mixCol, smoothstep(0.0, 0.25, y));
 
           float alpha = body * head * tail * diamonds * clamp(uIntensity, 0.0, 5.0);
-          if (alpha < 0.01) discard;
 
+          if (alpha < 0.01) discard;
           gl_FragColor = vec4(col * alpha, alpha);
         }
       `
