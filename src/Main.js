@@ -69,7 +69,6 @@ export class Main {
     }
 
     initModelSystems() {
-        // ▼▼▼ FIX IS HERE: ORDER SWAPPED ▼▼▼
         // Import UI must be created first to create the #ui-container div.
         this.importModelUI = new ImportModelUI(this.scene, (model) => {
             this.modelSliders.setActiveModel(model);
@@ -77,7 +76,6 @@ export class Main {
 
         // Sliders UI is created second, and it will now successfully find the container.
         this.modelSliders = new ModelSlidersUI(this.debugger);
-        // ▲▲▲ FIX IS HERE: ORDER SWAPPED ▲▲▲
     }
     
     loadStaticModels() {
