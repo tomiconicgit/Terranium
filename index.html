@@ -6,19 +6,46 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1.0, user-scalable=no" />
   <meta name="theme-color" content="#0a0a0a" />
   <link rel="manifest" href="./manifest.webmanifest" />
-  <!-- Import map for Three.js and add-ons -->
   <script type="importmap">
   {
     "imports": {
       "three": "https://unpkg.com/three@0.169.0/build/three.module.js",
-      "three/addons/": "https://unpkg.com/three@0.169.0/examples/jsm/"
+      "three/addons/": "https://unpkg.com/three@0.169.0/examples/jsm/",
+      "nipplejs": "https://cdn.jsdelivr.net/npm/nipplejs@0.10.1/dist/nipplejs.min.js"
     }
   }
   </script>
   <style>
     :root { --accent: #4dd2ff; }
-    html, body { height: 100%; margin: 0; background: #05070b; font-family: system-ui, sans-serif; }
+    html, body { 
+      height: 100%; 
+      margin: 0; 
+      background: #05070b; 
+      font-family: system-ui, sans-serif;
+      /* Prevents flash on touch */
+      -webkit-tap-highlight-color: transparent; 
+    }
     #app { position: fixed; inset: 0; }
+    
+    /* Styles for the joystick container */
+    #joystick-container {
+      position: fixed;
+      bottom: 50px;
+      left: 50px;
+      width: 120px;
+      height: 120px;
+      z-index: 10;
+      /* Hide by default */
+      display: none;
+    }
+    
+    /* Show only on devices that support touch */
+    @media (pointer: coarse) {
+      #joystick-container {
+        display: block;
+      }
+    }
+
     noscript {
       position: fixed;
       inset: 0;
@@ -34,6 +61,7 @@
 </head>
 <body>
   <div id="app"></div>
+  <div id="joystick-container"></div>
   <noscript>
     <p>This application requires JavaScript to be enabled.<br>Please check your browser settings.</p>
   </noscript>
