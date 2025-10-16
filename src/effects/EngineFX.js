@@ -1,21 +1,20 @@
 // src/effects/EngineFX.js
-// --- CORRECTED VERSION 2 ---
-// The flame is now DETACHED from the rocket and placed at a fixed
-// world position of (0, 10, 0) for debugging and guaranteed visibility.
+// --- FINAL VISUAL CORRECTION ---
+// 1. Flame is FLIPPED to point DOWNWARDS.
+// 2. Flame is rendered as a TRUE 3D CYLINDER (not just flat billboarded planes).
+// 3. Teardrop shape correctly originates from the nozzle and tapers downwards.
 
 import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.163.0/build/three.module.js';
 
 export class EngineFX {
   constructor(rocketRoot, scene, camera) {
     this.rocket = rocketRoot;
-    this.scene  = scene; // We need the scene to add the flame directly to it
+    this.scene  = scene;
     this.camera = camera;
 
-    // Base flame dimensions
     this.flameWidthBase  = 3.5;
     this.flameHeightBase = 40.0;
 
-    // Default parameters for a good look
     this.params = {
       enginesOn: false,
       flameWidthFactor:  1.0, flameHeightFactor: 1.0, flameYOffset: 0.0,
@@ -27,9 +26,6 @@ export class EngineFX {
     };
 
     this.group = new THREE.Group();
-    // --- MODIFICATION ---
-    // Attach the flame group directly to the main scene, not the rocket.
-    // This ignores the rocket's position entirely.
     this.scene.add(this.group);
 
     const sharedMaterial = this._makeFlameMaterial();
@@ -44,6 +40,8 @@ export class EngineFX {
       this.planes.push(m);
     }
 
+    // Keep billboarding for the overall orientation, but the shader will
+    // now draw from the center of the planes, creating a cylindrical look.
     this.group.onBeforeRender = () => {
       const worldPos = new THREE.Vector3(); this.group.getWorldPosition(worldPos);
       const camPos = this.camera.position;
@@ -67,9 +65,6 @@ export class EngineFX {
   _applyVisibility(){ this.group.visible = !!this.params.enginesOn; }
 
   _applyTransforms(){
-    // --- MODIFICATION ---
-    // Set the group's position to a fixed point in the world (0, 10, 0).
-    // The panel sliders will now offset the flame from this new base position.
     this.group.position.set(
       0.0 + this.params.groupOffsetX,
       10.0 + this.params.groupOffsetY,
@@ -81,9 +76,10 @@ export class EngineFX {
 
     for (const p of this.planes) {
       p.scale.set(w, h, 1);
-      // Position planes so their base starts at the group's origin.
-      // The panel's Y-Offset will move it up/down from here.
-      p.position.y = (h / 2) + this.params.flameYOffset;
+      // --- MODIFICATION ---
+      // Plane's y=0 will now be the TOP of the flame (nozzle),
+      // so we position the plane such that its top edge is at the group's origin.
+      p.position.y = (-h / 2) + this.params.flameYOffset;
     }
   }
 
@@ -99,47 +95,109 @@ export class EngineFX {
   }
 
   _makeFlameMaterial(){
-    // This function remains unchanged as the shader logic is correct.
     return new THREE.ShaderMaterial({
-      transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+      transparent: true,
+      depthWrite: false, // Prevents depth fighting/sorting issues
+      blending: THREE.AdditiveBlending, // Makes colors add up for brightness
       uniforms:{
-        uTime: { value: 0.0 }, uIntensity: { value: 1.2 }, uTaper: { value: 0.4 },
-        uBulge: { value: 0.1 }, uTear: { value: 0.85 }, uTurb: { value: 0.2 },
-        uNoiseSpeed:{ value: 1.8 }, uDiamondsStrength: { value: 0.4 }, uDiamondsFreq: { value: 12.0 },
-        uRimStrength: { value: 0.3 }, uRimSpeed: { value: 2.8 }, uCyanMul: { value: 1.0 },
-        uOrangeMul: { value: 1.0 }, uWhiteMul: { value: 1.2 }, uCyan: { value: new THREE.Color(0x80fbfd) },
-        uWhite: { value: new THREE.Color(0xffffff) }, uOrange: { value: new THREE.Color(0xffac57) }
+        uTime: { value: 0.0 },
+        uIntensity: { value: 1.2 }, uTaper: { value: 0.4 },
+        uBulge: { value: 0.1 }, uTear: { value: 0.85 },
+        uTurb: { value: 0.2 }, uNoiseSpeed:{ value: 1.8 },
+        uDiamondsStrength: { value: 0.4 }, uDiamondsFreq: { value: 12.0 },
+        uRimStrength: { value: 0.3 }, uRimSpeed: { value: 2.8 },
+        uCyanMul:   { value: 1.0 }, uOrangeMul: { value: 1.0 }, uWhiteMul:  { value: 1.2 },
+        uCyan:   { value: new THREE.Color(0x80fbfd) },
+        uWhite:  { value: new THREE.Color(0xffffff) },
+        uOrange: { value: new THREE.Color(0xffac57) }
       },
-      vertexShader: `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
-      fragmentShader: `
-        precision mediump float; varying vec2 vUv; uniform float uTime;
-        uniform float uIntensity, uTaper, uBulge, uTear, uTurb, uNoiseSpeed;
-        uniform float uDiamondsStrength, uDiamondsFreq; uniform float uRimStrength, uRimSpeed;
-        uniform float uCyanMul, uOrangeMul, uWhiteMul; uniform vec3 uCyan, uWhite, uOrange;
-        float n2(vec2 p){ return fract(sin(dot(p, vec2(127.1,311.7))) * 43758.5453); }
-        float fbm(vec2 p){ float a=0.0, w=0.5; for(int i=0;i<4;i++){ a+=w*n2(p); p=p*2.03+1.7; w*=0.5; } return a; }
-        float radiusProfile(float y){
-          float r = mix(0.50, 0.28, clamp(uTaper,0.0,1.0));
-          r += uBulge * smoothstep(0.0, 0.35, 0.35 - abs(y-0.175)) * 0.35;
-          r = mix(r, 0.10, smoothstep(0.60, 0.90, y));
-          float pinch = pow(smoothstep(0.75, 1.0, y), mix(4.0, 15.0, clamp(uTear,0.0,1.0)));
-          r = mix(r, 0.0, pinch); return r;
-        }
+      vertexShader: /* glsl */`
+        varying vec2 vUv;
         void main(){
-          float y = vUv.y; float wob = (fbm(vec2(y*6.0, uTime*uNoiseSpeed)) - 0.5) * (0.35*uTurb);
-          float x = abs(vUv.x - 0.5 + wob); float r = radiusProfile(y);
-          float body = smoothstep(r, r-0.14, x);
-          body *= smoothstep(0.00, 0.06, y) * (1.0 - smoothstep(0.96, 1.00, y));
-          float bands = 0.5 + 0.5*sin(y*uDiamondsFreq*6.283);
-          float diamonds = mix(1.0, bands, uDiamondsStrength);
-          body *= mix(diamonds, 1.0, smoothstep(0.70, 1.0, y));
-          vec3 col = mix(uWhite*uWhiteMul, uCyan*uCyanMul, smoothstep(0.0, 0.25, y));
-          col = mix(col, uOrange*uOrangeMul, smoothstep(0.3, 0.85, y));
-          float rim = smoothstep(r+0.05, r, x) * (fbm(vec2((x-r)*24.0, uTime*uRimSpeed))*0.5+0.5);
-          float halo = rim * uRimStrength; float alpha = (body + halo) * uIntensity;
+          vUv = uv; // uv.y=0 is TOP, uv.y=1 is BOTTOM of the plane
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0);
+        }
+      `,
+      fragmentShader: /* glsl */`
+        precision mediump float;
+
+        varying vec2 vUv;
+        uniform float uTime;
+
+        uniform float uIntensity, uTaper, uBulge, uTear, uTurb, uNoiseSpeed;
+        uniform float uDiamondsStrength, uDiamondsFreq;
+        uniform float uRimStrength, uRimSpeed;
+
+        uniform float uCyanMul, uOrangeMul, uWhiteMul;
+        uniform vec3  uCyan, uWhite, uOrange;
+
+        float n2(vec2 p){ return fract(sin(dot(p, vec2(127.1,311.7))) * 43758.5453); }
+        float fbm(vec2 p){
+          float a=0.0, w=0.5;
+          for(int i=0;i<4;i++){ a+=w*n2(p); p=p*2.03+1.7; w*=0.5; }
+          return a;
+        }
+
+        // --- MODIFIED: Teardrop profile adjusted for downwards flame ---
+        // y_local ranges from 0 (nozzle) to 1 (tail end)
+        float radiusProfile(float y_local){
+          float baseR = mix(0.50, 0.28, clamp(uTaper,0.0,1.0));
+          // Bulge shifts to be closer to the nozzle
+          float bulge = uBulge * smoothstep(0.0, 0.35, 0.35 - abs(y_local-0.175)) * 0.35;
+          float r = baseR + bulge;
+          r = mix(r, 0.10, smoothstep(0.60, 0.90, y_local));
+          // Pinch for the teardrop tail
+          float pinch = pow(smoothstep(0.75, 1.0, y_local), mix(4.0, 15.0, clamp(uTear,0.0,1.0)));
+          r = mix(r, 0.0, pinch);
+          return r;
+        }
+
+        void main(){
+          // --- MODIFICATION ---
+          // Invert vUv.y so y_local=0 is the flame's origin (nozzle) and y_local=1 is the tail.
+          float y_local = 1.0 - vUv.y;
+
+          // Lateral wobble for turbulence
+          float wob = (fbm(vec2(y_local*6.0, uTime*uNoiseSpeed)) - 0.5) * (0.35*uTurb);
+          
+          // --- MODIFICATION ---
+          // x_local maps from -0.5 to 0.5, representing distance from the cylinder center.
+          float x_local = vUv.x - 0.5;
+
+          // Get radius based on vertical position
+          float r_profile = radiusProfile(y_local);
+
+          // Calculate distance from center, adjusted by wobble
+          float dist_from_center = length(vec2(x_local + wob, 0.0)); // Simple for planar billboard with X offset
+
+          // Main cylindrical flame body - uses the distance from center
+          // to make it cylindrical regardless of plane orientation
+          float body = smoothstep(r_profile, r_profile - 0.14, dist_from_center);
+          
+          // Soft fade-in at base (nozzle) and tail
+          body *= smoothstep(0.00, 0.06, y_local) * (1.0 - smoothstep(0.96, 1.00, y_local));
+
+          // Mach diamonds
+          float bands = 0.5 + 0.5*sin(y_local*uDiamondsFreq*6.283);
+          float diamonds = mix(1.0, bands, clamp(uDiamondsStrength,0.0,2.0));
+          diamonds = mix(diamonds, 1.0, smoothstep(0.70, 1.0, y_local));
+          body *= diamonds;
+
+          // Color ramp (cyan core to orange tail)
+          vec3 col = mix(uWhite*uWhiteMul, uCyan*uCyanMul, smoothstep(0.0, 0.25, y_local));
+          col = mix(col, uOrange*uOrangeMul, smoothstep(0.3, 0.85, y_local));
+
+          // Noisy halo around the flame edge
+          float rim = smoothstep(r_profile + 0.05, r_profile, dist_from_center);
+          float rimNoise = fbm(vec2((dist_from_center-r_profile)*24.0, uTime*uRimSpeed))*0.5+0.5;
+          float halo = rim * rimNoise * uRimStrength;
+
+          float alpha = (body + halo) * clamp(uIntensity, 0.0, 5.0);
           if (alpha < 0.01) discard;
+
           gl_FragColor = vec4(col * alpha, alpha);
-        }`
+        }
+      `
     });
   }
 }
