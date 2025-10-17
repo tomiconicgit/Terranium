@@ -52,7 +52,7 @@ export class Main {
     this.rayDown   = new THREE.Vector3(0, -1, 0);
 
     this.effects = [];
-    this.fx      = null;
+    this.fx      = null; // the single editable flame
 
     this.clock = new THREE.Clock();
     this.frameCount = 0;
@@ -109,10 +109,10 @@ export class Main {
     }, this.debugger);
   }
 
-  // <-- UPDATED DEFAULTS (from your screenshots) -->
+  // ----- CURRENT DEFAULTS (your latest) -----
   defaultFXParams() {
     return {
-      enginesOn: true,                 // UI shows "Cutoff" after Ignite; we start hidden until user ignites.
+      enginesOn: true,
       flameWidthFactor: 0.7,
       flameHeightFactor: 0.8,
       flameYOffset: 7.6,
@@ -148,6 +148,23 @@ export class Main {
     };
   }
 
+  // Helper: create a baked (fixed) flame instance
+  _spawnBakedFlame(rocket, offX, offY, offZ) {
+    const p = this.defaultFXParams();
+    const fx = new EngineFX(rocket, this.scene, this.camera);
+    fx.setParams({
+      ...p,
+      groupOffsetX: offX,
+      groupOffsetY: offY,
+      groupOffsetZ: offZ
+    });
+    // ignite immediately; mute so multiple flames don't layer audio
+    try { fx.audio?.setVolume(0.0); } catch {}
+    fx.setIgnition(true);
+    this.effects.push(fx);
+    return fx;
+  }
+
   loadStaticModels() {
     this.debugger?.log(`Loading ${worldObjects.length} static models from Mapping.js...`);
     worldObjects.forEach(obj => {
@@ -161,11 +178,23 @@ export class Main {
           this.debugger?.log(`Loaded static model: ${obj.name}`);
 
           if (obj.name === 'SuperHeavy') {
+            const base = this.defaultFXParams();
+
+            // --------- 5 BAKED FLAMES ----------
+            // 1) the existing baked (base offsets)
+            this._spawnBakedFlame(model, base.groupOffsetX, base.groupOffsetY, base.groupOffsetZ);
+            // 2–5) your requested extra coordinates (X, Y) using same Z
+            this._spawnBakedFlame(model,  9.3,   0.5, base.groupOffsetZ);
+            this._spawnBakedFlame(model, 11.6,   6.0, base.groupOffsetZ);
+            this._spawnBakedFlame(model, 10.0,  12.5, base.groupOffsetZ);
+            this._spawnBakedFlame(model, 14.2,  14.0, base.groupOffsetZ);
+
+            // --------- 6th EDITABLE FLAME ----------
             this.fx = new EngineFX(model, this.scene, this.camera);
-            this.fx.setParams(this.defaultFXParams());
-            // keep engines off until the user presses Ignite (avoids autoplay issues)
-            this.fx.setIgnition(false);
+            this.fx.setParams(base);      // start from same defaults
+            this.fx.setIgnition(false);   // wait for user via panel
             this.effects.push(this.fx);
+
             this.enginePanel.setReady(true);
           }
         },
