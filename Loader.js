@@ -149,7 +149,7 @@ Tips:
       .replace(/'/g, "\\'")
       .replace(/"/g, '&quot;');
     this.debuggerMessageArea.innerHTML = `
-      <h4>🛑 Error Detected:</h4>
+      <h4>Error Detected:</h4>
       <p style="white-space:pre-wrap">${safe}</p>
       <button onclick="navigator.clipboard.writeText('${safe}')
         .then(()=>alert('Error copied!'))
