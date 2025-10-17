@@ -14,7 +14,7 @@ import { TouchPad }       from './controls/TouchPad.js';
 import { ImportModelUI }  from './ui/ImportModel.js';
 import { ModelSlidersUI } from './ui/ModelSliders.js';
 import { EnginePanelUI }  from './ui/EnginePanel.js';
-import { HighlighterUI }  from './ui/Highlighter.js'; // ✅ correct path/name
+import { HighlighterUI }  from './ui/Highlighter.js';
 
 // Assets + FX
 import { worldObjects }   from './world/Mapping.js';
@@ -25,54 +25,43 @@ export class Main {
   constructor(debuggerInstance) {
     this.debugger = debuggerInstance;
 
-    // --- renderer / canvas ---
     this.canvas   = document.getElementById('game-canvas');
     this.renderer = new THREE.WebGLRenderer({ canvas: this.canvas, antialias: true });
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.renderer.shadowMap.enabled = true;
 
-    // --- core three.js ---
     this.scene  = new THREE.Scene();
     this.camera = createCamera();
     this.camera.rotation.order = 'YXZ';
     this.scene.add(this.camera);
 
-    // --- lighting ---
     const { ambientLight, sunLight } = createLighting();
     this.scene.add(ambientLight, sunLight, sunLight.target);
 
-    // --- terrain & sky (all terrain building lives in Terrain.js) ---
     this.terrain = createTerrain({
-      // optional: if you want to pass the selection directly instead of using a global
       selection: window.EXCAVATION_SELECTION || null
     });
     this.scene.add(this.terrain);
     this.scene.add(createSkyDome());
 
-    // --- controls ---
     this.controls       = new TouchPad();
     this.playerVelocity = new THREE.Vector3();
     this.lookSpeed      = 0.004;
     this.playerHeight   = 2.0;
 
-    // --- ground-follow raycast ---
     this.raycaster = new THREE.Raycaster();
     this.rayDown   = new THREE.Vector3(0, -1, 0);
 
-    // --- FX ---
     this.effects = [];
     this.fx      = null;
 
-    // --- clock / perf ---
     this.clock = new THREE.Clock();
     this.frameCount = 0;
 
-    // --- UI systems ---
     this.initModelSystems();
     this.loadStaticModels();
 
-    // --- Highlighter tool (tile picking)
     try {
       this.highlighter = new HighlighterUI({
         scene: this.scene,
@@ -84,11 +73,8 @@ export class Main {
       this.debugger?.handleError(e, 'HighlighterInit');
     }
 
-    // --- events ---
     window.addEventListener('resize', () => this.onWindowResize(), false);
     this.initPerformanceMonitor();
-
-    // --- go! ---
     this.start();
   }
 
@@ -189,7 +175,6 @@ export class Main {
 
     for (const fx of this.effects) fx.update(dt, t);
 
-    // optional helper UI tick
     if (this.highlighter?.update) this.highlighter.update(dt);
 
     this.renderer.render(this.scene, this.camera);
@@ -215,14 +200,14 @@ export class Main {
     this.camera.translateX(this.playerVelocity.x);
     this.camera.translateZ(this.playerVelocity.z);
 
-    // ground-follow vs terrain meshes
+    // Ray down → intersect ANY mesh in terrain_root
     const rayOrigin = new THREE.Vector3(this.camera.position.x, 80, this.camera.position.z);
     this.raycaster.set(rayOrigin, this.rayDown);
 
-    const terrainMeshes = this.terrain.children.filter(
-      c => c.name === 'sand_terrain' || c.geometry?.type === 'PlaneGeometry'
-    );
-    const hits = this.raycaster.intersectObjects(terrainMeshes);
+    const terrainMeshes = [];
+    this.terrain.traverse(obj => { if (obj.isMesh) terrainMeshes.push(obj); });
+
+    const hits = this.raycaster.intersectObjects(terrainMeshes, true);
     if (hits.length > 0) {
       this.camera.position.y = hits[0].point.y + this.playerHeight;
     }
