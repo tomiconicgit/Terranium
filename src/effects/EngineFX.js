@@ -1,5 +1,5 @@
 // src/effects/EngineFX.js
-// Defaults updated per request; enginesOff by default. Includes JS fract() fix.
+// Defaults updated per request; enginesOff by default. Includes JS fract() fix and soft tail fade.
 
 import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.163.0/build/three.module.js';
 
@@ -45,7 +45,12 @@ export class EngineFX {
       colorWhite: 1.0,
       groupOffsetX: 3.1,
       groupOffsetY: -3.0,
-      groupOffsetZ: 1.2
+      groupOffsetZ: 1.2,
+
+      // NEW: soft tail fade controls
+      tailFadeStart: 0.82,  // where the tail begins to fade (0..1 along flame)
+      tailFeather:   1.6,   // softness/length of fade (power)
+      tailNoise:     0.15   // slight noise so the edge isn’t a perfect line
     };
 
     this.group = new THREE.Group();
@@ -101,6 +106,11 @@ export class EngineFX {
     u.uCyanMul.value          = this.params.colorCyan;
     u.uOrangeMul.value        = this.params.colorOrange;
     u.uWhiteMul.value         = this.params.colorWhite;
+
+    // NEW
+    u.uTailStart.value   = this.params.tailFadeStart;
+    u.uTailFeather.value = this.params.tailFeather;
+    u.uTailNoise.value   = this.params.tailNoise;
   }
 
   _makeFlameMesh(){
@@ -148,6 +158,7 @@ export class EngineFX {
       pos.setZ(i, Math.sin(ang) * ro);
       pos.setY(i, y0 * this.params.flameHeightFactor);
 
+      // gentle expand-in near the nozzle to avoid a hard ring
       if (y_norm < 0.05) {
         const f = smoothstep(0.05, 0.0, y_norm);
         pos.setX(i, pos.getX(i) * f);
@@ -175,11 +186,17 @@ export class EngineFX {
         uCyan:   { value: new THREE.Color(0x80fbfd) },
         uWhite:  { value: new THREE.Color(0xffffff) },
         uOrange: { value: new THREE.Color(0xffac57) },
+
+        // NEW tail fade uniforms
+        uTailStart:   { value: this.params.tailFadeStart },
+        uTailFeather: { value: this.params.tailFeather },
+        uTailNoise:   { value: this.params.tailNoise }
       },
       vertexShader: `
         varying vec3 vNormal;
         varying float y_norm;
         void main(){
+          // NOTE: 40.0 matches flameHeightBase; y translated so 0 at nozzle, -40 at tail
           y_norm = position.y / -40.0;
           vNormal = normalize(normalMatrix * normal);
           gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0);
@@ -188,22 +205,47 @@ export class EngineFX {
         precision mediump float;
         varying vec3 vNormal;
         varying float y_norm;
+
         uniform float uTime;
         uniform float uIntensity, uDiamondsStrength, uDiamondsFreq, uRimStrength, uRimSpeed;
         uniform float uCyanMul, uOrangeMul, uWhiteMul;
-        uniform vec3 uCyan, uWhite, uOrange;
+        uniform vec3  uCyan, uWhite, uOrange;
+
+        // NEW
+        uniform float uTailStart;   // ~0.82
+        uniform float uTailFeather; // ~1.6
+        uniform float uTailNoise;   // ~0.15
+
         float n2(vec2 p){ return fract(sin(dot(p, vec2(127.1,311.7))) * 43758.5453); }
         float fbm(vec2 p){ float a=0.0, w=0.5; for(int i=0;i<4;i++){ a+=w*n2(p); p=p*2.03+1.7; w*=0.5; } return a; }
+
         void main(){
+          // --- color profile (kept from previous version) ---
           float bands = 0.5 + 0.5*sin(y_norm*uDiamondsFreq*6.2831853);
           float diamonds = mix(1.0, bands, clamp(uDiamondsStrength,0.0,2.0));
           diamonds = mix(diamonds, 1.0, smoothstep(0.70, 1.0, y_norm));
-          vec3 col = mix(uWhite*uWhiteMul, uCyan*uCyanMul, smoothstep(0.0, 0.25, y_norm));
-          col = mix(col, uOrange*uOrangeMul, smoothstep(0.30, 0.85, y_norm));
+
+          vec3 col = mix(uWhite*uWhiteMul, uCyan*uCyanMul,  smoothstep(0.0, 0.25, y_norm));
+          col = mix(col,                   uOrange*uOrangeMul, smoothstep(0.30, 0.85, y_norm));
           col *= diamonds;
-          float alpha_fade = smoothstep(0.00, 0.06, y_norm) * (1.0 - smoothstep(0.96, 1.0, y_norm));
+
+          // --- alpha: soft start + SOFT TAIL FADE ---
+          // Ease-in near the nozzle (avoid hard ring)
+          float alphaStart = smoothstep(0.00, 0.06, y_norm);
+
+          // Tail fade starts at uTailStart -> 1.0, feathered and slightly noisy
+          float baseTail   = 1.0 - smoothstep(uTailStart, 1.0, y_norm);
+          baseTail         = pow(max(baseTail, 0.0), max(uTailFeather, 0.0001));
+
+          // Small jitter so the edge doesn't look like a cutout
+          float tailJitter = (fbm(vec2(y_norm*18.0, uTime*1.3)) - 0.5) * uTailNoise;
+          float alphaTail  = clamp(baseTail + tailJitter, 0.0, 1.0);
+
+          // Optional rim shimmer
           float rim = fbm(vec2(y_norm * 10.0, uTime*uRimSpeed)) * uRimStrength;
-          float alpha = (alpha_fade + rim) * uIntensity;
+
+          float alpha = (alphaStart * alphaTail + rim) * uIntensity;
+
           if (alpha < 0.01) discard;
           gl_FragColor = vec4(col * alpha, alpha);
         }`
