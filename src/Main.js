@@ -1,18 +1,21 @@
-// src/Main.js — one editable flame; can place fixed flames via EnginePanel
+// src/Main.js — core app bootstrap
 
 import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.163.0/build/three.module.js';
 
+// Scene bits
 import { createTerrain }  from './scene/Terrain.js';
 import { createSkyDome }  from './scene/SkyDome.js';
 import { createLighting } from './scene/Lighting.js';
 import { createCamera }   from './scene/Camera.js';
 
+// Controls + UI
 import { TouchPad }       from './controls/TouchPad.js';
 import { ImportModelUI }  from './ui/ImportModel.js';
 import { ModelSlidersUI } from './ui/ModelSliders.js';
 import { EnginePanelUI }  from './ui/EnginePanel.js';
 import { HighlighterUI }  from './ui/Highlighter.js';
 
+// Assets + FX
 import { worldObjects }   from './world/Mapping.js';
 import { loadModel }      from './ModelLoading.js';
 import { EngineFX }       from './effects/EngineFX.js';
@@ -112,29 +115,29 @@ export class Main {
     this.enginePanel = new EnginePanelUI({
       get: () => (this.fx ? this.fx.getParams() : this.defaultFXParams()),
       set: (patch) => { if (this.fx) this.fx.setParams(patch); },
-      setIgnition: (on) => {                  // only editable flame toggled
+
+      setIgnition: (on) => {
         if (this.fx) this.fx.setIgnition(on);
-        // optional: also toggle all fixed flames:
         for (const f of this.fixedFX) f.setIgnition(on);
       },
       getIgnition: () => (this.fx ? this.fx.getIgnition() : false),
 
-      // NEW: panel lifecycle → pause/resume camera
-      onPanelOpen: () => { this.controlsPaused = true; },
-      onPanelClose: () => { this.controlsPaused = false; this.setMoveMode(false); },
+      // panel lifecycle → pause/resume camera & look controls
+      onPanelOpen: () => { this.controlsPaused = true; this.controls.setPaused(true); },
+      onPanelClose: () => { this.controlsPaused = false; this.controls.setPaused(false); this.setMoveMode(false); },
 
-      // NEW: placement & move
+      // placement & move
       placeFlame: () => this.placeFixedFlame(),
       setMoveMode: (on) => this.setMoveMode(on),
       selectFixed: (idx) => this.setActiveFixed(idx),
 
-      // NEW: expose fixed list / copy
+      // expose fixed list / copy
       getFixedList: () => this.getFixedList(),
       copyFixedJSON: () => JSON.stringify(this.getFixedList(), null, 2),
     }, this.debugger);
   }
 
-  // Defaults (your tuned values)
+  // ---------- Defaults (synced with EngineFX) ----------
   defaultFXParams() {
     return {
       enginesOn: true,
@@ -162,9 +165,14 @@ export class Main {
       groupOffsetY: -3.0,
       groupOffsetZ: 1.2,
 
+      // TOP/tail fade
       tailFadeStart: 0.3,
       tailFeather: 4.0,
       tailNoise: 0.2,
+
+      // BOTTOM/nozzle fade
+      bottomFadeDepth: 0.12,
+      bottomFadeFeather: 0.80,
 
       orangeShift: -0.2,
       lightIntensity: 50.0,
@@ -175,7 +183,7 @@ export class Main {
 
   // ---------- Fixed flame helpers ----------
   placeFixedFlame() {
-    if (!this.fx) return -1;
+    if (!this.fx || !this.rocketModel) return -1;
     const params = this.fx.getParams(); // snapshot current settings/offsets
     const f = new EngineFX(this.rocketModel, this.scene, this.camera);
     f.setParams(params);
@@ -209,53 +217,57 @@ export class Main {
 
   setMoveMode(on) {
     this.flameMoveMode = !!on;
-    // if turning on and no active selection, choose last placed
     if (this.flameMoveMode && this.activeFixedIndex === -1 && this.fixedFX.length > 0) {
       this.activeFixedIndex = this.fixedFX.length - 1;
     }
-    if (!this.flameMoveMode) {
-      this._dragActive = false;
-    }
+    if (!this.flameMoveMode) this._dragActive = false;
   }
 
   _bindMoveHandlers() {
-    // Drag over canvas to move active fixed flame (XZ only) while panel is open
+    // Decide which flame is being moved: selected fixed OR the single editable.
+    const getTargetFlame = () => {
+      if (this.activeFixedIndex >= 0) return this.fixedFX[this.activeFixedIndex];
+      return this.fx; // fallback to editable flame
+    };
+
     const start = (x, y) => {
       if (!this.flameMoveMode) return;
-      if (this.activeFixedIndex < 0) return;
+      const target = getTargetFlame(); if (!target) return;
       this._dragActive = true;
       this._dragStart.x = x; this._dragStart.y = y;
-      const f = this.fixedFX[this.activeFixedIndex];
-      const p = f.getParams();
+      const p = target.getParams();
       this._dragBase.x = p.groupOffsetX;
       this._dragBase.z = p.groupOffsetZ;
     };
+
     const move = (x, y, e) => {
       if (!this._dragActive) return;
       if (e) e.preventDefault();
+      const target = getTargetFlame(); if (!target) return;
+
       const dx = x - this._dragStart.x;
       const dy = y - this._dragStart.y;
+
       const SCALE = 0.03; // meters per pixel
-      const f = this.fixedFX[this.activeFixedIndex];
       const nx = this._dragBase.x + dx * SCALE;
       const nz = this._dragBase.z + dy * SCALE; // swipe up -> +Z
-      f.setParams({ groupOffsetX: nx, groupOffsetZ: nz });
+
+      target.setParams({ groupOffsetX: nx, groupOffsetZ: nz });
     };
+
     const end = () => { this._dragActive = false; };
 
-    // Pointer (mouse)
+    // Pointer
     this.canvas.addEventListener('pointerdown', (e)=> start(e.clientX, e.clientY), { passive: true });
     this.canvas.addEventListener('pointermove', (e)=> move(e.clientX, e.clientY, e), { passive: false });
     window.addEventListener('pointerup', end, { passive: true });
 
     // Touch
     this.canvas.addEventListener('touchstart', (e)=>{
-      const t = e.changedTouches[0]; if (!t) return;
-      start(t.clientX, t.clientY);
+      const t = e.changedTouches[0]; if (!t) return; start(t.clientX, t.clientY);
     }, { passive: true });
     this.canvas.addEventListener('touchmove', (e)=>{
-      const t = e.changedTouches[0]; if (!t) return;
-      move(t.clientX, t.clientY, e);
+      const t = e.changedTouches[0]; if (!t) return; move(t.clientX, t.clientY, e);
     }, { passive: false });
     window.addEventListener('touchend', end, { passive: true });
     window.addEventListener('touchcancel', end, { passive: true });
@@ -334,6 +346,7 @@ export class Main {
     const rayOrigin = new THREE.Vector3(this.camera.position.x, 80, this.camera.position.z);
     this.raycaster.set(rayOrigin, this.rayDown);
 
+    // hit anything inside terrain_root
     const terrainMeshes = [];
     this.terrain.traverse(o => { if (o.isMesh) terrainMeshes.push(o); });
     const hits = this.raycaster.intersectObjects(terrainMeshes, true);
