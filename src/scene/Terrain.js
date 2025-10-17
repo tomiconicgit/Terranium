@@ -1,135 +1,78 @@
 // src/scene/Terrain.js
-import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.163.0/build/three.module.js';
+import * as THREE from 'three';
 
 export function createTerrain(opts = {}) {
-  // Allow passing selection, else read from global, else empty
+  // Read selection (or window global)
   const selection = opts.selection || (typeof window !== 'undefined' ? window.EXCAVATION_SELECTION : null) || {};
   const tileSize  = typeof selection.tileSize === 'number' ? selection.tileSize : 1;
-  const tiles     = Array.isArray(selection.tiles) ? selection.tiles : [];
+
+  // Center tile defaults to (0,0) if not provided
+  const center = (Array.isArray(selection.tiles) && selection.tiles[0]) || { i: 0, j: 0 };
+  const ci = Number.isFinite(center.i) ? center.i : 0;
+  const cj = Number.isFinite(center.j) ? center.j : 0;
+
+  // Area to lower: 30×30 tiles “around” the center tile.
+  // For an even size (30), we’ll take 15 to the - side and 14 to the + side (total 30).
+  const halfMinus = 15;
+  const halfPlus  = 14;
+  const minI = ci - halfMinus, maxI = ci + halfPlus;
+  const minJ = cj - halfMinus, maxJ = cj + halfPlus;
+
+  // World grid we render: 100×100 tiles centered on origin => i,j in [-50..49]
+  const GRID = 100;
+  const HALF = GRID / 2; // 50
 
   const group = new THREE.Group();
   group.name = 'terrain_root';
 
-  // ----- Materials (procedural-ish) -----
-  const metalMat = new THREE.MeshStandardMaterial({
-    color: 0x7a7a7a, metalness: 1.0, roughness: 0.25
-  });
-
-  // Minimal “procedural concrete” via a tiny noise ShaderMaterial
+  // Procedural-ish concrete
   const concreteMat = makeConcreteMaterial();
 
-  // ----- Ground plane 100x100 at y=0 -----
-  // world extent: 100 x 100 meters centered at origin => from -50..+50 on X/Z
-  const groundSize = 100 * tileSize;
-  const groundGeo  = new THREE.PlaneGeometry(groundSize, groundSize, 100, 100);
-  const ground     = new THREE.Mesh(groundGeo, concreteMat);
-  ground.rotation.x = -Math.PI / 2;
-  ground.receiveShadow = true;
-  ground.name = 'ground_terrain';
-  group.add(ground);
-
-  if (tiles.length === 0) {
-    // Nothing else to build; return the base ground
-    return group;
-  }
-
-  // ----- Build the pit floor at y = -15 for each provided tile -----
-  const depth = 15; // from y=0 down to -15
+  // Single plane tile, Instanced across the grid
   const tileGeo = new THREE.PlaneGeometry(tileSize, tileSize);
-  tileGeo.rotateX(-Math.PI / 2);
+  tileGeo.rotateX(-Math.PI / 2); // face up
 
-  // Use InstancedMesh for performance
-  const pitFloor = new THREE.InstancedMesh(tileGeo, metalMat, tiles.length);
-  pitFloor.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-  pitFloor.castShadow = false;
-  pitFloor.receiveShadow = true;
-  pitFloor.name = 'metal_floor';
+  const count = GRID * GRID;
+  const tiles = new THREE.InstancedMesh(tileGeo, concreteMat, count);
+  tiles.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+  tiles.name = 'ground_terrain';
+  tiles.receiveShadow = true;
 
+  // Place every tile; lower the 30×30 region to -15
+  const depth = 15;
   const m = new THREE.Matrix4();
-  for (let idx = 0; idx < tiles.length; idx++) {
-    const t = tiles[idx];
-    const x = t.i * tileSize;
-    const z = t.j * tileSize;
-    m.makeTranslation(x, -depth, z);
-    pitFloor.setMatrixAt(idx, m);
+  let idx = 0;
+  for (let j = -HALF; j < HALF; j++) {
+    for (let i = -HALF; i < HALF; i++) {
+      const inPit = (i >= minI && i <= maxI && j >= minJ && j <= maxJ);
+      const y = inPit ? -depth : 0;
+      const x = (i + 0.5) * tileSize;
+      const z = (j + 0.5) * tileSize;
+      m.makeTranslation(x, y, z);
+      tiles.setMatrixAt(idx++, m);
+    }
   }
-  pitFloor.instanceMatrix.needsUpdate = true;
-  group.add(pitFloor);
+  tiles.instanceMatrix.needsUpdate = true;
 
-  // ----- Metal perimeter walls from -15 up to 0 around the selection -----
-  // We’ll build a simple rectangular perimeter using the bounds of the tiles.
-  const { minI, maxI, minJ, maxJ } = getBounds(tiles);
-
-  // Outer rectangle at ground level (y=0), walls drop to -depth
-  const wallHeight = depth;
-  const wallThickness = 0.2 * tileSize;
-
-  // Lengths along each side (span the tile bounds in world units)
-  const spanX = (maxI - minI + 1) * tileSize;
-  const spanZ = (maxJ - minJ + 1) * tileSize;
-
-  // Create 4 boxes: +X edge, -X edge, +Z edge, -Z edge
-  const wallYCenter = -depth / 2; // halfway between 0 and -depth
-
-  const walls = new THREE.Group();
-  walls.name = 'metal_walls';
-
-  // Along X (front/back)
-  walls.add(makeWall(spanX, wallHeight, wallThickness,  (minI + maxI + 1) * 0.5 * tileSize, wallYCenter, (minJ - 0.5) * tileSize, metalMat)); // -Z side
-  walls.add(makeWall(spanX, wallHeight, wallThickness,  (minI + maxI + 1) * 0.5 * tileSize, wallYCenter, (maxJ + 0.5) * tileSize, metalMat)); // +Z side
-
-  // Along Z (left/right)
-  const wallZRot = Math.PI / 2;
-  walls.add(makeWall(spanZ, wallHeight, wallThickness,  (minI - 0.5) * tileSize, wallYCenter, (minJ + maxJ + 1) * 0.5 * tileSize, metalMat, wallZRot)); // -X side
-  walls.add(makeWall(spanZ, wallHeight, wallThickness,  (maxI + 0.5) * tileSize, wallYCenter, (minJ + maxJ + 1) * 0.5 * tileSize, metalMat, wallZRot)); // +X side
-
-  group.add(walls);
-
+  group.add(tiles);
   return group;
 }
 
-// Helpers
-function getBounds(tiles) {
-  let minI = Infinity, maxI = -Infinity, minJ = Infinity, maxJ = -Infinity;
-  for (const t of tiles) {
-    if (t.i < minI) minI = t.i;
-    if (t.i > maxI) maxI = t.i;
-    if (t.j < minJ) minJ = t.j;
-    if (t.j > maxJ) maxJ = t.j;
-  }
-  // if something went weird, avoid Infinities
-  if (!isFinite(minI)) { minI = 0; maxI = -1; }
-  if (!isFinite(minJ)) { minJ = 0; maxJ = -1; }
-  return { minI, maxI, minJ, maxJ };
-}
-
-function makeWall(length, height, thickness, x, y, z, material, rotY = 0) {
-  const geo = new THREE.BoxGeometry(length, height, thickness);
-  const mesh = new THREE.Mesh(geo, material);
-  mesh.position.set(x, y, z);
-  mesh.rotation.y = rotY;
-  mesh.castShadow = true;
-  mesh.receiveShadow = true;
-  return mesh;
-}
-
-// Very small “procedural” concrete shader: per-fragment noise + speckle
+/* ---------- tiny “procedural concrete” shader ---------- */
 function makeConcreteMaterial() {
   const uniforms = {
-    uTime: { value: 0 },
-    uColorA: { value: new THREE.Color(0xbdbdbd) }, // light gray
-    uColorB: { value: new THREE.Color(0x9e9e9e) }, // mid gray
+    uColorA: { value: new THREE.Color(0xbdbdbd) },
+    uColorB: { value: new THREE.Color(0x9e9e9e) },
   };
 
   const vertex = `
     varying vec2 vUv;
     void main() {
-      vUv = uv * 10.0; // scale for more detail
+      vUv = uv * 10.0; // more detail
       gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
     }
   `;
 
-  // Cheap hash/noise
   const fragment = `
     varying vec2 vUv;
     uniform vec3 uColorA;
@@ -156,27 +99,16 @@ function makeConcreteMaterial() {
       float n2 = noise(vUv * 8.0);
       float speck = step(0.97, fract(n2 * 7.0 + n));
       vec3 base = mix(uColorA, uColorB, n);
-      base *= (1.0 - 0.05 * speck); // tiny dark speckles
-      // very subtle AO-ish darkening
+      base *= (1.0 - 0.05 * speck);
       base *= 0.95 + 0.05 * noise(vUv * 0.5);
       gl_FragColor = vec4(base, 1.0);
     }
   `;
 
-  const mat = new THREE.ShaderMaterial({
+  return new THREE.ShaderMaterial({
     uniforms,
     vertexShader: vertex,
     fragmentShader: fragment,
     lights: false
   });
-
-  // Wrap with MeshStandardMaterial-like properties using onBeforeCompile if desired.
-  // Keep it simple: use ShaderMaterial for color, rely on scene lights for shading via base Lambertian look.
-  // To participate in lighting, we'd need a full PBR shader; this minimal version is for visuals only.
-  // If you want it lit, swap to MeshStandardMaterial with a canvas-generated texture.
-
-  // To still receive light/shadows in a basic way, we can convert it to a standard material with a procedurally
-  // generated canvas texture. Keeping ShaderMaterial for brevity/clarity here.
-
-  return mat;
 }
