@@ -1,5 +1,6 @@
 // src/effects/EngineFX.js
-import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.163.0/build/three.module.js';
+import * as THREE from 'three';
+import { FlameFragmentShader } from './FlameShader.js';
 
 function fract(x){ return x - Math.floor(x); }
 function n2(p){ return fract(Math.sin(p.dot(new THREE.Vector2(127.1,311.7))) * 43758.5453); }
@@ -10,9 +11,6 @@ function mix(a,b,t){ return a*(1.0-t)+b*t; }
 function smoothstep(e0,e1,x){ x = clamp((x-e0)/(e1-e0),0.0,1.0); return x*x*(3.0-2.0*x); }
 
 export class EngineFX {
-  // ────────────────────────────────────────────────────────────────────────────
-  // #5 Shared material: one ShaderMaterial for ALL flames (no program switches)
-  // ────────────────────────────────────────────────────────────────────────────
   static _sharedMaterial = null;
 
   static _createSharedMaterial(){
@@ -42,53 +40,13 @@ export class EngineFX {
         uOrangeShift:      { value: -0.2 }
       },
       vertexShader: `
-        varying vec3 vNormal;
         varying float y_norm;
         void main(){
           // NOTE: base flame height used in EngineFX is 40.0 (see geometry)
           y_norm = position.y / -40.0;
-          vNormal = normalize(normalMatrix * normal);
           gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0);
         }`,
-      fragmentShader: `
-        precision mediump float;
-        varying vec3 vNormal;
-        varying float y_norm;
-        uniform float uTime,uIntensity,uDiamondsStrength,uDiamondsFreq,uRimStrength,uRimSpeed;
-        uniform float uCyanMul,uOrangeMul,uWhiteMul;
-        uniform vec3  uCyan,uWhite,uOrange;
-        uniform float uTailStart,uTailFeather,uTailNoise;
-        uniform float uBottomDepth,uBottomFeather;
-        uniform float uOrangeShift;
-
-        float n2(vec2 p){ return fract(sin(dot(p, vec2(127.1,311.7))) * 43758.5453); }
-        float fbm(vec2 p){ float a=0.0,w=0.5; for(int i=0;i<4;i++){ a+=w*n2(p); p=p*2.03+1.7; w*=0.5; } return a; }
-
-        void main(){
-          float bands = 0.5 + 0.5 * sin(y_norm * uDiamondsFreq * 6.2831853);
-          float diamonds = mix(1.0, bands, clamp(uDiamondsStrength,0.0,2.0));
-          diamonds = mix(diamonds, 1.0, smoothstep(0.70, 1.0, y_norm));
-
-          vec3 col = mix(uWhite*uWhiteMul, uCyan*uCyanMul, smoothstep(0.0,0.25,y_norm));
-          float o0 = 0.30 + uOrangeShift;
-          float o1 = 0.85 + uOrangeShift;
-          col = mix(col, uOrange*uOrangeMul, smoothstep(o0,o1,y_norm));
-          col *= diamonds;
-
-          float tail = 1.0 - smoothstep(uTailStart, 1.0, y_norm);
-          tail = pow(max(tail,0.0), max(uTailFeather,0.0001));
-          float tailJitter = (fbm(vec2(y_norm*18.0, uTime*1.3)) - 0.5) * uTailNoise;
-          float alphaTail  = clamp(tail + tailJitter, 0.0, 1.0);
-
-          float bottom = smoothstep(0.0, max(uBottomDepth, 1e-5), y_norm);
-          bottom = pow(bottom, max(uBottomFeather, 0.0001));
-
-          float rim = fbm(vec2(y_norm*10.0, uTime*uRimSpeed)) * uRimStrength;
-
-          float alpha = (alphaTail * bottom + rim) * uIntensity;
-          if (alpha < 0.01) discard;
-          gl_FragColor = vec4(col * alpha, alpha);
-        }`
+      fragmentShader: FlameFragmentShader
     });
   }
 
@@ -171,7 +129,6 @@ export class EngineFX {
     this._applyVisibility();
 
     // Bind per-draw uniform push (this keeps ONE material for all flames)
-    const sharedMat = EngineFX.getSharedMaterial();
     this.mesh.onBeforeRender = (_r, _s, _c, _g, material) => {
       const u = material.uniforms;
       // only write the small per-flame values here (cheap uniform updates)
@@ -192,7 +149,6 @@ export class EngineFX {
     };
   }
 
-  // expose pick target
   getRaycastTargets(){ return [this.mesh]; }
 
   setIgnition(on){
@@ -221,10 +177,9 @@ export class EngineFX {
       patch.lightColor = c.getHex();
     }
     Object.assign(this.params, patch);
-    // Update transforms/light immediately
     this._applyTransforms();
     this._applyLight();
-    // Update our per-flame uniform snapshot (NOT the shared material)
+    // Update our per-flame uniform snapshot
     this._u.uIntensity        = this.params.intensity;
     this._u.uDiamondsStrength = this.params.diamondsStrength;
     this._u.uDiamondsFreq     = this.params.diamondsFreq;
@@ -243,9 +198,7 @@ export class EngineFX {
   getParams(){ return { ...this.params }; }
 
   update(delta,t){
-    // One global time is fine for all flames; it’s the same material anyway.
     EngineFX.getSharedMaterial().uniforms.uTime.value = t;
-
     if (this.params.enginesOn) {
       this._updateFlameGeometry(t);
       if (this.pointLight) {
