@@ -1,5 +1,5 @@
 // src/effects/EngineFX.js
-// Defaults updated per request; enginesOff by default. Includes JS fract() fix and soft tail fade.
+// Adds ignition sound with 4s pre-roll before the flame shows.
 
 import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.163.0/build/three.module.js';
 
@@ -24,9 +24,14 @@ export class EngineFX {
     this.flameHeightBase = 40.0;
     this.segments = 32;
 
+    // ignition flow
+    this.ignitionDelayMs = 4000;   // 4 seconds pre-roll
+    this.ignitionTimer   = null;
+    this.ignitionPending = false;
+
     // === DEFAULTS (enginesOff) ===
     this.params = {
-      enginesOn: false,              // OFF by default (per request)
+      enginesOn: false,
       flameWidthFactor: 0.7,
       flameHeightFactor: 0.8,
       flameYOffset: 7.6,
@@ -47,11 +52,22 @@ export class EngineFX {
       groupOffsetY: -3.0,
       groupOffsetZ: 1.2,
 
-      // NEW: soft tail fade controls
-      tailFadeStart: 0.82,  // where the tail begins to fade (0..1 along flame)
-      tailFeather:   1.6,   // softness/length of fade (power)
-      tailNoise:     0.15   // slight noise so the edge isn’t a perfect line
+      // tail fade controls
+      tailFadeStart: 0.82,
+      tailFeather:   1.6,
+      tailNoise:     0.15
     };
+
+    // --- audio (ignition) ---
+    this.listener = new THREE.AudioListener();
+    this.camera.add(this.listener);
+
+    this.audio = new THREE.Audio(this.listener);
+    this.audio.setLoop(false);
+    this.audio.setVolume(0.9);
+
+    this._audioLoaded = false;
+    this._loadIgnitionAudio('src/assets/RocketIgnition.wav'); // pre-load
 
     this.group = new THREE.Group();
     this.scene.add(this.group);
@@ -72,7 +88,39 @@ export class EngineFX {
   }
 
   // ----- Public API -----
-  setIgnition(on){ this.params.enginesOn = !!on; this._applyVisibility(); }
+  /**
+   * When turning ON:
+   *  - play ignition audio immediately (user gesture safe)
+   *  - after 4s, show flame
+   * When turning OFF: stop audio and hide flame immediately
+   */
+  setIgnition(on){
+    if (on) {
+      if (this.params.enginesOn || this.ignitionPending) {
+        // already on / arming — just ensure audio is playing
+        this._playIgnitionAudio();
+        return;
+      }
+      this.ignitionPending = true;
+      this._playIgnitionAudio();
+
+      clearTimeout(this.ignitionTimer);
+      this.ignitionTimer = setTimeout(() => {
+        this.params.enginesOn = true;
+        this.ignitionPending = false;
+        this._applyVisibility();
+      }, this.ignitionDelayMs);
+    } else {
+      // cutoff immediately
+      clearTimeout(this.ignitionTimer);
+      this.ignitionPending = false;
+      this.params.enginesOn = false;
+      this._applyVisibility();
+      // stop audio if it’s still going
+      try { if (this.audio && this.audio.isPlaying) this.audio.stop(); } catch {}
+    }
+  }
+
   getIgnition(){ return this.params.enginesOn; }
   setParams(patch){ Object.assign(this.params, patch); this._applyTransforms(); this._applyUniforms(); }
   getParams(){ return { ...this.params }; }
@@ -81,6 +129,36 @@ export class EngineFX {
     const mat = this.mesh?.material;
     if (mat?.uniforms) mat.uniforms.uTime.value = t;
     if (this.params.enginesOn) this._updateFlameGeometry(t);
+  }
+
+  // ----- Audio helpers -----
+  _loadIgnitionAudio(url){
+    const loader = new THREE.AudioLoader();
+    loader.load(
+      url,
+      (buffer) => {
+        this.audio.setBuffer(buffer);
+        this._audioLoaded = true;
+      },
+      undefined,
+      (err) => { console.error('Ignition audio load failed:', err); }
+    );
+  }
+
+  async _playIgnitionAudio(){
+    try {
+      // iOS requires resume() from a user gesture; calling here is safe.
+      if (this.listener.context.state !== 'running') {
+        await this.listener.context.resume();
+      }
+      if (!this._audioLoaded) return; // still loading — will not block ignition timer
+      // restart from start every press
+      if (this.audio.isPlaying) this.audio.stop();
+      this.audio.offset = 0;
+      this.audio.play();
+    } catch (e) {
+      console.warn('Ignition audio could not play:', e);
+    }
   }
 
   // ----- Internals -----
@@ -107,7 +185,7 @@ export class EngineFX {
     u.uOrangeMul.value        = this.params.colorOrange;
     u.uWhiteMul.value         = this.params.colorWhite;
 
-    // NEW
+    // tail fade
     u.uTailStart.value   = this.params.tailFadeStart;
     u.uTailFeather.value = this.params.tailFeather;
     u.uTailNoise.value   = this.params.tailNoise;
@@ -158,7 +236,6 @@ export class EngineFX {
       pos.setZ(i, Math.sin(ang) * ro);
       pos.setY(i, y0 * this.params.flameHeightFactor);
 
-      // gentle expand-in near the nozzle to avoid a hard ring
       if (y_norm < 0.05) {
         const f = smoothstep(0.05, 0.0, y_norm);
         pos.setX(i, pos.getX(i) * f);
@@ -187,7 +264,7 @@ export class EngineFX {
         uWhite:  { value: new THREE.Color(0xffffff) },
         uOrange: { value: new THREE.Color(0xffac57) },
 
-        // NEW tail fade uniforms
+        // tail fade uniforms
         uTailStart:   { value: this.params.tailFadeStart },
         uTailFeather: { value: this.params.tailFeather },
         uTailNoise:   { value: this.params.tailNoise }
@@ -196,8 +273,7 @@ export class EngineFX {
         varying vec3 vNormal;
         varying float y_norm;
         void main(){
-          // NOTE: 40.0 matches flameHeightBase; y translated so 0 at nozzle, -40 at tail
-          y_norm = position.y / -40.0;
+          y_norm = position.y / -40.0; // matches flameHeightBase
           vNormal = normalize(normalMatrix * normal);
           gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0);
         }`,
@@ -211,7 +287,6 @@ export class EngineFX {
         uniform float uCyanMul, uOrangeMul, uWhiteMul;
         uniform vec3  uCyan, uWhite, uOrange;
 
-        // NEW
         uniform float uTailStart;   // ~0.82
         uniform float uTailFeather; // ~1.6
         uniform float uTailNoise;   // ~0.15
@@ -220,7 +295,6 @@ export class EngineFX {
         float fbm(vec2 p){ float a=0.0, w=0.5; for(int i=0;i<4;i++){ a+=w*n2(p); p=p*2.03+1.7; w*=0.5; } return a; }
 
         void main(){
-          // --- color profile (kept from previous version) ---
           float bands = 0.5 + 0.5*sin(y_norm*uDiamondsFreq*6.2831853);
           float diamonds = mix(1.0, bands, clamp(uDiamondsStrength,0.0,2.0));
           diamonds = mix(diamonds, 1.0, smoothstep(0.70, 1.0, y_norm));
@@ -229,19 +303,13 @@ export class EngineFX {
           col = mix(col,                   uOrange*uOrangeMul, smoothstep(0.30, 0.85, y_norm));
           col *= diamonds;
 
-          // --- alpha: soft start + SOFT TAIL FADE ---
-          // Ease-in near the nozzle (avoid hard ring)
           float alphaStart = smoothstep(0.00, 0.06, y_norm);
 
-          // Tail fade starts at uTailStart -> 1.0, feathered and slightly noisy
           float baseTail   = 1.0 - smoothstep(uTailStart, 1.0, y_norm);
           baseTail         = pow(max(baseTail, 0.0), max(uTailFeather, 0.0001));
-
-          // Small jitter so the edge doesn't look like a cutout
           float tailJitter = (fbm(vec2(y_norm*18.0, uTime*1.3)) - 0.5) * uTailNoise;
           float alphaTail  = clamp(baseTail + tailJitter, 0.0, 1.0);
 
-          // Optional rim shimmer
           float rim = fbm(vec2(y_norm * 10.0, uTime*uRimSpeed)) * uRimStrength;
 
           float alpha = (alphaStart * alphaTail + rim) * uIntensity;
