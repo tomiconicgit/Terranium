@@ -3,7 +3,7 @@
 
 import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.163.0/build/three.module.js';
 
-// Scene bits (all terrain is created in Terrain.js)
+// Scene bits
 import { createTerrain }  from './scene/Terrain.js';
 import { createSkyDome }  from './scene/SkyDome.js';
 import { createLighting } from './scene/Lighting.js';
@@ -39,9 +39,7 @@ export class Main {
     const { ambientLight, sunLight } = createLighting();
     this.scene.add(ambientLight, sunLight, sunLight.target);
 
-    this.terrain = createTerrain({
-      selection: window.EXCAVATION_SELECTION || null
-    });
+    this.terrain = createTerrain({ selection: window.EXCAVATION_SELECTION || null });
     this.scene.add(this.terrain);
     this.scene.add(createSkyDome());
 
@@ -111,14 +109,15 @@ export class Main {
     }, this.debugger);
   }
 
+  // <-- NEW DEFAULTS (your JSON) -->
   defaultFXParams() {
     return {
-      enginesOn: false,
+      enginesOn: true,
       flameWidthFactor: 0.7,
       flameHeightFactor: 0.8,
       flameYOffset: 7.6,
-      intensity: 1.0,
-      taper: 0.2,
+      intensity: 1.5,
+      taper: 0.0,
       bulge: 1.0,
       tear: 1.0,
       turbulence: 0.5,
@@ -127,12 +126,21 @@ export class Main {
       diamondsFreq: 2.8,
       rimStrength: 0.0,
       rimSpeed: 4.1,
-      colorCyan: 0.4,
+      colorCyan: 0.2,
       colorOrange: 3.0,
-      colorWhite: 1.0,
+      colorWhite: 0.9,
       groupOffsetX: 3.1,
       groupOffsetY: -3.0,
-      groupOffsetZ: 1.2
+      groupOffsetZ: 1.2,
+      tailFadeStart: 0.3,
+      tailFeather: 4.0,
+      tailNoise: 0.2,
+
+      // NEW (orange band shift + light)
+      orangeShift: 0.0,
+      lightIntensity: 12.0,
+      lightDistance: 120.0,
+      lightColor: '#ffb869'
     };
   }
 
@@ -151,6 +159,7 @@ export class Main {
           if (obj.name === 'SuperHeavy') {
             this.fx = new EngineFX(model, this.scene, this.camera);
             this.fx.setParams(this.defaultFXParams());
+            // keep engines off until the user presses Ignite (avoids autoplay issues)
             this.fx.setIgnition(false);
             this.effects.push(this.fx);
             this.enginePanel.setReady(true);
@@ -200,20 +209,18 @@ export class Main {
     this.camera.translateX(this.playerVelocity.x);
     this.camera.translateZ(this.playerVelocity.z);
 
-    // Ray down → intersect ANY mesh in terrain_root
     const rayOrigin = new THREE.Vector3(this.camera.position.x, 80, this.camera.position.z);
     this.raycaster.set(rayOrigin, this.rayDown);
 
+    // hit anything inside terrain_root
     const terrainMeshes = [];
-    this.terrain.traverse(obj => { if (obj.isMesh) terrainMeshes.push(obj); });
-
+    this.terrain.traverse(o => { if (o.isMesh) terrainMeshes.push(o); });
     const hits = this.raycaster.intersectObjects(terrainMeshes, true);
     if (hits.length > 0) {
       this.camera.position.y = hits[0].point.y + this.playerHeight;
     }
   }
 
-  // ---------- Perf / window ----------
   onWindowResize() {
     this.camera.aspect = window.innerWidth / window.innerHeight;
     this.camera.updateProjectionMatrix();
