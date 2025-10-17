@@ -1,4 +1,4 @@
-// src/Main.js — adds Animated GLB export (morph cache) and keeps individual baked flames.
+// src/Main.js — loads bakedFlames from Mapping.js and spawns permanent EngineFX.
 import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.163.0/build/three.module.js';
 import { GLTFExporter } from 'three/addons/exporters/GLTFExporter.js';
 import { createTerrain }  from './scene/Terrain.js';
@@ -10,7 +10,7 @@ import { ImportModelUI }  from './ui/ImportModel.js';
 import { ModelSlidersUI } from './ui/ModelSliders.js';
 import { EnginePanelUI }  from './ui/EnginePanel.js';
 import { HighlighterUI }  from './ui/Highlighter.js';
-import { worldObjects }   from './world/Mapping.js';
+import { worldObjects, bakedFlames }   from './world/Mapping.js';
 import { loadModel }      from './ModelLoading.js';
 import { EngineFX }       from './effects/EngineFX.js';
 
@@ -51,7 +51,7 @@ export class Main {
     this.effects = [];
     this.fx = null;          // editable flame
     this.fixedFX = [];       // user-placed flames (individual)
-    this.bakedFX = [];       // permanent baked flames (if any)
+    this.bakedFX = [];       // permanent baked flames
     this.activeFixedIndex = -1;
 
     // Move mode (drag X/Z by touch)
@@ -90,7 +90,11 @@ export class Main {
     this.enginePanel = new EnginePanelUI({
       get: () => (this.fx ? this.fx.getParams() : this.defaultFXParams()),
       set: (patch) => { if (this.fx) this.fx.setParams(patch); },
-      setIgnition: (on) => { if (this.fx) this.fx.setIgnition(on); for (const f of this.fixedFX) f.setIgnition(on); for (const f of this.bakedFX) f.setIgnition(on); },
+      setIgnition: (on) => {
+        if (this.fx) this.fx.setIgnition(on);
+        for (const f of this.fixedFX) f.setIgnition(on);
+        for (const f of this.bakedFX) f.setIgnition(on);
+      },
       getIgnition: () => (this.fx ? this.fx.getIgnition() : false),
 
       onPanelOpen: () => { this.controlsPaused = true; this.controls.setPaused(true); },
@@ -203,8 +207,24 @@ export class Main {
           this.effects.push(this.fx);
           this.enginePanel.setReady(true);
 
-          // NOTE: if you later want permanent baked flames, create them here and push to this.bakedFX & this.effects
-          // e.g.: const bf = new EngineFX(model,this.scene,this.camera); bf.setParams({...this.defaultFXParams(), groupOffsetX: X, groupOffsetZ: Z}); bf.setIgnition(false); this.bakedFX.push(bf); this.effects.push(bf);
+          // === Create baked flames from Mapping.js ===
+          if (Array.isArray(bakedFlames) && bakedFlames.length) {
+            bakedFlames.forEach(entry => {
+              const f = new EngineFX(model, this.scene, this.camera);
+              // start with the same look as the editable default, then override offsets
+              const p = this.defaultFXParams();
+              f.setParams({
+                ...p,
+                groupOffsetX: entry.groupOffsetX,
+                groupOffsetY: entry.groupOffsetY,
+                groupOffsetZ: entry.groupOffsetZ
+              });
+              f.setIgnition(false);
+              this.bakedFX.push(f);
+              this.effects.push(f);
+            });
+            this.debugger?.log(`Spawned ${this.bakedFX.length} baked flames from Mapping.js`);
+          }
         }
       },(error)=>{ this.debugger?.handleError(error, `StaticModel: ${obj.name}`); });
     });
@@ -256,7 +276,7 @@ export class Main {
     },1000);
   }
 
-  // ===== Animated GLB Export (morph target cache) =====
+  // ===== Animated GLB Export (morph cache) =====
   async exportAnimatedGLB({ durationSec = 2.0, fps = 24, include = 'all' } = {}) {
     const src = [];
     if (include === 'all' || include === 'editable') { if (this.fx) src.push(this.fx); }
@@ -264,7 +284,6 @@ export class Main {
     if (include === 'all' || include === 'baked')    { src.push(...this.bakedFX); }
     if (src.length === 0) throw new Error('No flames to export.');
 
-    // ensure visible for bake
     for (const f of src) f.setIgnition(true);
 
     const frames = Math.max(2, Math.round(durationSec * fps));
@@ -302,7 +321,7 @@ export class Main {
       const mesh = new THREE.Mesh(baseGeo, mat);
       mesh.name = `Flame_${i}`;
       mesh.position.copy(fx.group.position);
-      mesh.position.y += fx.mesh.position.y; // include flameYOffset
+      mesh.position.y += fx.mesh.position.y;
       mesh.rotation.copy(fx.group.rotation);
       mesh.scale.copy(fx.group.scale);
       mesh.updateMatrixWorld();
@@ -345,7 +364,6 @@ export class Main {
     for (const f of src) f.setIgnition(false);
   }
 
-  // JSON snapshot of all flames (editable + placed + baked)
   exportAllFlamesJSON() {
     const out = [];
     const pushFX = (f, type, index=null) => {
