@@ -1,5 +1,5 @@
 // src/ui/Highlighter.js
-// Camera-look tile highlighter with lock & copy selection.
+// Camera-look tile highlighter with lock, line selection, unhighlight, and copy JSON.
 
 import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.163.0/build/three.module.js';
 
@@ -16,11 +16,15 @@ export class HighlighterUI {
     this.active = false;
     this.tileSize = 1.0;  // meters per tile
     this.hoverMesh = null;
-    this.selection = [];  // [{i,j,y}]
-    this.selectionMeshes = [];
+    this.selection = [];          // [{key,i,j,y}]
+    this.selectionMeshes = [];    // Meshes corresponding to selection entries (same order)
     this.raycaster = new THREE.Raycaster();
+    this.downcaster = new THREE.Raycaster(); // for vertical sampling
 
     this.terrainTargets = this._collectTerrainMeshes();
+
+    // Line selection
+    this.lineStart = null; // {i,j}
 
     this._buildUI();
   }
@@ -48,32 +52,48 @@ export class HighlighterUI {
     container.appendChild(btn);
     this.button = btn;
 
-    // Panel (appears when active)
+    // Panel (appears when active) — moved further right so it doesn’t cover center view
     const panel = document.createElement('div');
     panel.id = 'highlighter-panel';
     panel.classList.add('no-look');
     panel.style.cssText = `
-      position:fixed; top:80px; left:390px; z-index:10; background:rgba(30,30,36,0.90);
+      position:fixed; top:80px; left:520px; z-index:10; background:rgba(30,30,36,0.90);
       color:#fff; border:1px solid rgba(255,255,255,0.2); border-radius:8px;
-      width:260px; padding:12px; display:none; box-shadow:0 5px 15px rgba(0,0,0,0.35);
+      width:300px; padding:12px; display:none; box-shadow:0 5px 15px rgba(0,0,0,0.35);
       backdrop-filter:blur(8px); -webkit-overflow-scrolling: touch; touch-action: pan-y;`;
 
     panel.innerHTML = `
       <h4 style="margin:0 0 10px;border-bottom:1px solid #444;padding-bottom:6px;">Highlighter</h4>
+
       <div style="display:flex; gap:8px; margin-bottom:8px;">
         <button id="hl-lock" style="flex:1;">Lock Tile</button>
-        <button id="hl-clear" style="flex:1;">Clear</button>
+        <button id="hl-unlock" style="flex:1;">Unhighlight Tile</button>
       </div>
+
+      <div style="display:flex; gap:8px; margin-bottom:8px;">
+        <button id="hl-line-start" style="flex:1;">Start Line</button>
+        <button id="hl-line-end" style="flex:1;">End Line</button>
+      </div>
+
       <div style="display:flex; gap:8px;">
         <button id="hl-copy" style="flex:1;">Copy Selection</button>
+        <button id="hl-clear" style="flex:1;">Clear</button>
+      </div>
+
+      <div style="display:flex; gap:8px; margin-top:8px;">
         <button id="hl-close" style="flex:1;">Close</button>
       </div>
+
       <p id="hl-status" style="margin:8px 0 0; font-size:.9em; color:#ccc;">Tiles: 0</p>
+      <p id="hl-hint" style="margin:4px 0 0; font-size:.85em; color:#9aa;">Tip: Start Line, walk, then End Line to fill the straight path.</p>
     `;
     document.body.appendChild(panel);
     this.panel = panel;
 
     panel.querySelector('#hl-lock').onclick = () => this.lockCurrentTile();
+    panel.querySelector('#hl-unlock').onclick = () => this.unhighlightCurrentTile();
+    panel.querySelector('#hl-line-start').onclick = () => this.setLineStart();
+    panel.querySelector('#hl-line-end').onclick = () => this.finishLine();
     panel.querySelector('#hl-clear').onclick = () => this.clearSelection();
     panel.querySelector('#hl-copy').onclick = () => this.copySelection();
     panel.querySelector('#hl-close').onclick = () => this.toggle(false);
@@ -89,6 +109,7 @@ export class HighlighterUI {
       if (!this.hoverMesh) this._createHoverMesh();
     } else {
       if (this.hoverMesh) { this.scene.remove(this.hoverMesh); this.hoverMesh = null; }
+      this.lineStart = null;
     }
   }
 
@@ -115,48 +136,135 @@ export class HighlighterUI {
     return mesh;
   }
 
-  _intersectGround() {
-    // Ray from camera forward
+  _intersectGroundForward() {
+    // Ray from camera forward (where player is looking)
     const dir = new THREE.Vector3();
     this.camera.getWorldDirection(dir);
     this.raycaster.set(this.camera.position, dir);
     const hits = this.raycaster.intersectObjects(this.terrainTargets, true);
     return hits[0] || null;
-    }
+  }
+
+  _intersectGroundDown(x, z, maxHeight = 200) {
+    // Vertical raycast down at (x, z) to sample exact ground Y
+    const origin = new THREE.Vector3(x, maxHeight, z);
+    const down = new THREE.Vector3(0, -1, 0);
+    this.downcaster.set(origin, down);
+    const hits = this.downcaster.intersectObjects(this.terrainTargets, true);
+    return hits[0] || null;
+  }
+
+  _currentTileFromView() {
+    const hit = this._intersectGroundForward();
+    if (!hit) return null;
+    const p = hit.point;
+    const i = Math.floor(p.x / this.tileSize);
+    const j = Math.floor(p.z / this.tileSize);
+    return { i, j, y: p.y };
+  }
 
   update() {
     if (!this.active || !this.hoverMesh) return;
-    const hit = this._intersectGround();
-    if (!hit) { this.hoverMesh.visible = false; return; }
+    const t = this._currentTileFromView();
+    if (!t) { this.hoverMesh.visible = false; return; }
 
-    const p = hit.point;
-    const i = Math.floor(p.x / this.tileSize);
-    const j = Math.floor(p.z / this.tileSize);
-
-    // Center of the tile
-    const cx = (i + 0.5) * this.tileSize;
-    const cz = (j + 0.5) * this.tileSize;
+    const cx = (t.i + 0.5) * this.tileSize;
+    const cz = (t.j + 0.5) * this.tileSize;
 
     this.hoverMesh.visible = true;
-    this.hoverMesh.position.set(cx, p.y + 0.02, cz);
+    this.hoverMesh.position.set(cx, t.y + 0.02, cz);
   }
 
+  // ---------- Single-tile operations ----------
   lockCurrentTile() {
-    const hit = this._intersectGround();
-    if (!hit) return;
-    const p = hit.point;
-    const i = Math.floor(p.x / this.tileSize);
-    const j = Math.floor(p.z / this.tileSize);
-    const y = p.y;
+    const t = this._currentTileFromView();
+    if (!t) return;
+    this._lockTile(t.i, t.j, t.y);
+  }
 
-    // Prevent duplicates
+  unhighlightCurrentTile() {
+    const t = this._currentTileFromView();
+    if (!t) return;
+    this._removeTile(t.i, t.j);
+  }
+
+  // ---------- Line selection ----------
+  setLineStart() {
+    const t = this._currentTileFromView();
+    if (!t) return;
+    this.lineStart = { i: t.i, j: t.j };
+    this._setStatus(`Line start set at (${t.i},${t.j}).`);
+  }
+
+  finishLine() {
+    if (!this.lineStart) {
+      this._setStatus('Set a Start Line first.');
+      return;
+    }
+    const t2 = this._currentTileFromView();
+    if (!t2) return;
+
+    const { i: i0, j: j0 } = this.lineStart;
+    const { i: i1, j: j1 } = t2;
+
+    // Bresenham’s integer line fill
+    const tiles = this._bresenham(i0, j0, i1, j1);
+    let added = 0;
+    for (const { i, j } of tiles) {
+      // sample proper ground y at tile center
+      const cx = (i + 0.5) * this.tileSize;
+      const cz = (j + 0.5) * this.tileSize;
+      const hit = this._intersectGroundDown(cx, cz);
+      const y = hit ? hit.point.y : 0;
+      if (this._lockTile(i, j, y)) added++;
+    }
+
+    this._setStatus(`Line added ${added} tiles from (${i0},${j0}) to (${i1},${j1}).`);
+    this.lineStart = null; // reset after completing line
+  }
+
+  _bresenham(x0, y0, x1, y1) {
+    // Returns array of {i,j} for all grid cells on a line
+    const pts = [];
+    let dx = Math.abs(x1 - x0);
+    let dy = Math.abs(y1 - y0);
+    let sx = x0 < x1 ? 1 : -1;
+    let sy = y0 < y1 ? 1 : -1;
+    let err = dx - dy;
+    let x = x0, y = y0;
+
+    for (;;) {
+      pts.push({ i: x, j: y });
+      if (x === x1 && y === y1) break;
+      const e2 = 2 * err;
+      if (e2 > -dy) { err -= dy; x += sx; }
+      if (e2 <  dx) { err += dx; y += sy; }
+    }
+    return pts;
+  }
+
+  // ---------- Selection management ----------
+  _lockTile(i, j, y) {
     const key = `${i},${j}`;
-    if (this.selection.find(t => t.key === key)) return;
-
+    if (this.selection.find(t => t.key === key)) return false; // already present
     const mesh = this._makeLockedMesh(i, j, y);
     this.selection.push({ key, i, j, y: Number(y.toFixed(3)) });
     this.selectionMeshes.push(mesh);
     this._updateStatus();
+    return true;
+  }
+
+  _removeTile(i, j) {
+    const key = `${i},${j}`;
+    const idx = this.selection.findIndex(t => t.key === key);
+    if (idx === -1) return false;
+    const mesh = this.selectionMeshes[idx];
+    this.scene.remove(mesh);
+    this.selection.splice(idx, 1);
+    this.selectionMeshes.splice(idx, 1);
+    this._updateStatus();
+    this._setStatus(`Unhighlighted (${i},${j}).`);
+    return true;
   }
 
   clearSelection() {
@@ -164,6 +272,7 @@ export class HighlighterUI {
     this.selectionMeshes.length = 0;
     this.selection.length = 0;
     this._updateStatus();
+    this._setStatus('Selection cleared.');
   }
 
   copySelection() {
@@ -173,12 +282,17 @@ export class HighlighterUI {
     };
     const str = JSON.stringify(payload, null, 2);
     navigator.clipboard.writeText(str)
-      .then(() => this.debugger?.log('Highlight selection copied.'))
+      .then(() => this._setStatus('Selection copied to clipboard.'))
       .catch(err => this.debugger?.handleError(err, 'Highlighter.Copy'));
   }
 
   _updateStatus() {
     const el = this.panel.querySelector('#hl-status');
     if (el) el.textContent = `Tiles: ${this.selection.length}`;
+  }
+
+  _setStatus(text) {
+    const el = this.panel.querySelector('#hl-status');
+    if (el) el.textContent = `Tiles: ${this.selection.length} — ${text}`;
   }
 }
