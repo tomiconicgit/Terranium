@@ -116,7 +116,6 @@ export class Main {
     groupOffsetX:+p.groupOffsetX.toFixed(3), groupOffsetY:+p.groupOffsetY.toFixed(3), groupOffsetZ:+p.groupOffsetZ.toFixed(3) }; }); }
   setMoveMode(on){ this.flameMoveMode=!!on; if (!on){ this._dragActive=false; this._dragTarget=null; } }
 
-  // picking/drag handlers unchanged...
   _clientToNDC(x,y){ const rect=this.canvas.getBoundingClientRect(); return { x:((x-rect.left)/rect.width)*2-1, y:-((y-rect.top)/rect.height)*2+1 }; }
   _pickFlameAt(x,y){
     const targets = [];
@@ -151,20 +150,23 @@ export class Main {
         model.position.set(obj.position.x,obj.position.y,obj.position.z);
         model.scale.set(obj.scale.x,obj.scale.y,obj.scale.z);
         model.rotation.set(obj.rotation.x,obj.rotation.y,obj.rotation.z);
-        this.scene.add(model); this.rocketModel = model;
+        this.scene.add(model);
         this.debugger?.log(`Loaded static model: ${obj.name}`);
 
         if (obj.name === 'SuperHeavy') {
+          this.rocketModel = model; // Store reference to the rocket
+          
           // 1) Editable single flame (with audio & UI)
-          this.fx = new EngineFX(model,this.scene,this.camera);
+          this.fx = new EngineFX(this.rocketModel, this.scene, this.camera);
           this.fx.setParams(this.defaultFXParams());
           this.fx.setIgnition(false);
           this.effects.push(this.fx);
 
           // 2) Instanced baked flames (GPU-friendly)
           this.instanced = new InstancedFlames(
-            model, this.scene, this.camera,
-            bakedFlameOffsets, this.fx.getParams()
+            this.rocketModel,
+            bakedFlameOffsets, 
+            this.fx.getParams()
           );
           this.instanced.setIgnition(false);
           this.effects.push(this.instanced);
