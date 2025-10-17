@@ -29,8 +29,8 @@ export class InstancedFlames {
 
     this.params = Object.assign({
       enginesOn: false,
-      flameWidthFactor: 0.7,
-      flameHeightFactor: 0.8,
+      flameWidthFactor: 1.0,  // MODIFIED: Changed from 0.7 to match editable flame size
+      flameHeightFactor: 1.0, // MODIFIED: Changed from 0.8 to match editable flame size
       flameYOffset: 7.6,
       intensity: 1.5,
       taper: 0.0,
@@ -194,7 +194,7 @@ export class InstancedFlames {
     const u = this.material?.uniforms;
     if (!u) return;
 
-    u.uIntensity.value = this.params.intensity; // <-- FIX: Respect intensity parameter
+    u.uIntensity.value = this.params.intensity;
     u.uDiamondsStrength.value = this.params.diamondsStrength;
     u.uDiamondsFreq.value = this.params.diamondsFreq;
     u.uRimStrength.value = this.params.rimStrength;
@@ -217,7 +217,7 @@ export class InstancedFlames {
       blending: THREE.AdditiveBlending,
       uniforms: {
         uTime: { value: 0.0 },
-        uIntensity: { value: this.params.intensity }, // <-- FIX: Use initial intensity
+        uIntensity: { value: this.params.intensity },
         uDiamondsStrength: { value: this.params.diamondsStrength },
         uDiamondsFreq: { value: this.params.diamondsFreq },
         uRimStrength: { value: this.params.rimStrength },
@@ -239,7 +239,6 @@ export class InstancedFlames {
         varying float y_norm;
         void main() {
           y_norm = position.y / -40.0;
-          // FIX: Apply instance matrix to correctly position each flame
           gl_Position = projectionMatrix * modelViewMatrix * instanceMatrix * vec4(position, 1.0);
         }
       `,
