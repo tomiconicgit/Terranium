@@ -96,7 +96,7 @@ export class EngineFX {
       uTailFeather:      this.params.tailFeather,
       uTailNoise:        this.params.tailNoise,
       uBottomDepth:      this.params.bottomFadeDepth,
-      uBottomFeather:    this.params.bottomFadeFeather,
+      uBottomFeather:    this.params.bottomFeather,
       uOrangeShift:      this.params.orangeShift
     };
 
@@ -192,7 +192,7 @@ export class EngineFX {
     this._u.uTailFeather      = this.params.tailFeather;
     this._u.uTailNoise        = this.params.tailNoise;
     this._u.uBottomDepth      = this.params.bottomFadeDepth;
-    this._u.uBottomFeather    = this.params.bottomFadeFeather;
+    this._u.uBottomFeather    = this.params.bottomFeather;
     this._u.uOrangeShift      = this.params.orangeShift;
   }
   getParams(){ return { ...this.params }; }
