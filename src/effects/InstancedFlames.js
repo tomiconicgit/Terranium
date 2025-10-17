@@ -27,7 +27,7 @@ export class InstancedFlames {
   constructor(rocketRoot, offsets = [], paramsBaseline = {}) {
     this.rocketRoot = rocketRoot;
 
-    // These defaults will be OVERWRITTEN by the paramsBaseline object.
+    // Defaults overridden by paramsBaseline
     this.params = Object.assign({
       enginesOn: false,
       flameWidthFactor: 0.7,
@@ -35,7 +35,7 @@ export class InstancedFlames {
       flameYOffset: 7.6,
       intensity: 1.5,
       taper: 0.0,
-      bulge: 1.0,
+      bulge: 1.0,                // panel now allows up to 3.0; code supports >1
       tear: 1.0,
       turbulence: 0.5,
       noiseSpeed: 2.2,
@@ -52,6 +52,11 @@ export class InstancedFlames {
       bottomFadeDepth: 0.12,
       bottomFadeFeather: 0.80,
       orangeShift: -0.2,
+
+      // NEW: editable base colors (match EngineFX)
+      colorWhiteHex:  '#ffffff',
+      colorCyanHex:   '#80fbfd',
+      colorOrangeHex: '#ffac57',
     }, paramsBaseline || {});
 
     this.flameWidthBase = 3.5;
@@ -84,12 +89,12 @@ export class InstancedFlames {
     this.rocketRoot.add(this.mesh);
     this._applyInstanceMatrices(offsets);
     this._applyVisibility();
+    this._applyUniforms();
   }
 
   // If your rocket model scale changes at runtime, call this and then setOffsets(...)
   _refreshInverseParentScale() {
     const s = new THREE.Vector3(1, 1, 1);
-    // Use world scale so we always neutralize whatever chain exists above rocketRoot
     this.rocketRoot.updateWorldMatrix(true, false);
     this.rocketRoot.getWorldScale(s);
     this._invParentScale.set(
@@ -110,7 +115,6 @@ export class InstancedFlames {
       this.rocketRoot.add(this.mesh);
       old.dispose?.();
     }
-    // Recompute in case parent scale changed
     this._refreshInverseParentScale();
     this._applyInstanceMatrices(offsets);
   }
@@ -134,14 +138,17 @@ export class InstancedFlames {
   }
 
   setParams(patch) {
+    if (!patch) return;
+
+    // Colors: accept hex strings like "#aabbcc"
+    ['colorWhiteHex','colorCyanHex','colorOrangeHex'].forEach(k=>{
+      if (typeof patch[k] === 'string') {
+        try { new THREE.Color(patch[k]); } catch { delete patch[k]; }
+      }
+    });
+
     Object.assign(this.params, patch || {});
     this._applyUniforms();
-    // If flameYOffset changed, we must rebuild instance matrices
-    if (patch && ('flameYOffset' in patch)) {
-      // Reuse current offsets by reading back the matrices (or the original baked list if you have it externally)
-      // For simplicity assume caller keeps the baked list and will call setOffsets again when positions change.
-      // No-op here; we only need to re-run _applyInstanceMatrices if offsets are re-sent.
-    }
   }
 
   update(delta, t) {
@@ -197,30 +204,22 @@ export class InstancedFlames {
   }
 
   _applyInstanceMatrices(offsets) {
-    // Neutralize parent (rocketRoot) scale so these instance transforms are in *world* units
-    const inv = this._invParentScale; // Vector3
+    const inv = this._invParentScale;
     const dummy = new THREE.Object3D();
-
     for (let i = 0; i < this.mesh.count; i++) {
       const o = offsets[i] || { groupOffsetX: 0, groupOffsetY: 0, groupOffsetZ: 0 };
-
-      // Convert intended world offsets into parent-local space by multiplying by inverse scale.
       const px = o.groupOffsetX * inv.x;
       const py = (10.0 + this.params.flameYOffset + o.groupOffsetY) * inv.y;
       const pz = o.groupOffsetZ * inv.z;
 
       dummy.position.set(px, py, pz);
-
-      // Apply inverse scale so that after parent scaling, the flame's *size* matches world space (like the editable flame).
+      // neutralize parent scale so resulting world scale == editable flame
       dummy.scale.set(inv.x, inv.y, inv.z);
-
       dummy.rotation.set(0, 0, 0);
       dummy.updateMatrix();
       this.mesh.setMatrixAt(i, dummy.matrix);
     }
     this.mesh.instanceMatrix.needsUpdate = true;
-
-    // Keep instanced mesh object itself untransformed.
     this.mesh.position.set(0, 0, 0);
     this.mesh.rotation.set(0, 0, 0);
     this.mesh.scale.set(1, 1, 1);
@@ -248,6 +247,11 @@ export class InstancedFlames {
     u.uBottomDepth.value = this.params.bottomFadeDepth;
     u.uBottomFeather.value = this.params.bottomFeather;
     u.uOrangeShift.value = this.params.orangeShift;
+
+    // NEW: base color uniforms from hex
+    try { u.uWhite.value.set(this.params.colorWhiteHex); } catch {}
+    try { u.uCyan.value.set(this.params.colorCyanHex); } catch {}
+    try { u.uOrange.value.set(this.params.colorOrangeHex); } catch {}
   }
 
   _makeFlameMaterial() {
@@ -265,9 +269,9 @@ export class InstancedFlames {
         uCyanMul: { value: this.params.colorCyan },
         uOrangeMul: { value: this.params.colorOrange },
         uWhiteMul: { value: this.params.colorWhite },
-        uCyan: { value: new THREE.Color(0x80fbfd) },
-        uWhite: { value: new THREE.Color(0xffffff) },
-        uOrange: { value: new THREE.Color(0xffac57) },
+        uCyan: { value: new THREE.Color(this.params.colorCyanHex) },
+        uWhite: { value: new THREE.Color(this.params.colorWhiteHex) },
+        uOrange: { value: new THREE.Color(this.params.colorOrangeHex) },
         uTailStart: { value: this.params.tailFadeStart },
         uTailFeather: { value: this.params.tailFeather },
         uTailNoise: { value: this.params.tailNoise },
@@ -280,7 +284,6 @@ export class InstancedFlames {
         void main() {
           // NOTE: base flame height is 40.0 (same as EngineFX)
           y_norm = position.y / -40.0;
-          // Instanced: instanceMatrix is baked with inverse parent scale and local-space translation.
           gl_Position = projectionMatrix * modelViewMatrix * instanceMatrix * vec4(position, 1.0);
         }
       `,
