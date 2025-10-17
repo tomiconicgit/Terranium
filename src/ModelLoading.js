@@ -1,8 +1,8 @@
 // src/ModelLoading.js
 
-import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.163.0/build/three.module.js';
-import { GLTFLoader } from 'https://cdn.jsdelivr.net/npm/three@0.163.0/examples/jsm/loaders/GLTFLoader.js';
-import { DRACOLoader } from 'https://cdn.jsdelivr.net/npm/three@0.163.0/examples/jsm/loaders/DRACOLoader.js';
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
 
 // Create a single instance of the loaders
 const gltfLoader = new GLTFLoader();
@@ -32,13 +32,18 @@ export function loadModel(source, onLoad, onError) {
             });
 
             onLoad(model);
-        }, onError);
+        }, (error) => {
+            onError(new Error(`GLTF parsing failed: ${error.message || 'Unknown error'}`));
+        });
     };
 
     if (typeof source === 'string') {
         // Source is a URL, fetch it first
         fetch(source)
-            .then(response => response.arrayBuffer())
+            .then(response => {
+                if (!response.ok) throw new Error(`HTTP error! Status: ${response.status}`);
+                return response.arrayBuffer();
+            })
             .then(data => loadFn(data))
             .catch(err => onError(err));
     } else if (source instanceof ArrayBuffer) {
