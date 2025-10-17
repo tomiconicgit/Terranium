@@ -36,8 +36,7 @@ export class Debugger {
         card.className = `debugger-card ${type}`;
         
         const title = document.createElement('h4');
-        // Corrected Emojis
-        title.textContent = type === 'error' ? '🛑 Error Detected' : '⚠️ System Warning';
+        title.textContent = type === 'error' ? 'Error Detected' : 'System Warning';
         
         const description = document.createElement('p');
         description.textContent = message;
