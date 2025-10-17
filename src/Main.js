@@ -1,22 +1,18 @@
 // src/Main.js
-// Boots the app. Terrain generation lives ONLY in src/scene/Terrain.js.
 
 import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.163.0/build/three.module.js';
 
-// Scene bits
 import { createTerrain }  from './scene/Terrain.js';
 import { createSkyDome }  from './scene/SkyDome.js';
 import { createLighting } from './scene/Lighting.js';
 import { createCamera }   from './scene/Camera.js';
 
-// Controls + UI
 import { TouchPad }       from './controls/TouchPad.js';
 import { ImportModelUI }  from './ui/ImportModel.js';
 import { ModelSlidersUI } from './ui/ModelSliders.js';
 import { EnginePanelUI }  from './ui/EnginePanel.js';
 import { HighlighterUI }  from './ui/Highlighter.js';
 
-// Assets + FX
 import { worldObjects }   from './world/Mapping.js';
 import { loadModel }      from './ModelLoading.js';
 import { EngineFX }       from './effects/EngineFX.js';
@@ -51,8 +47,9 @@ export class Main {
     this.raycaster = new THREE.Raycaster();
     this.rayDown   = new THREE.Vector3(0, -1, 0);
 
-    this.effects = [];
-    this.fx      = null; // the single editable flame
+    this.effects = [];     // all FX (baked + editable) for updates
+    this.bakedFX = [];     // references to the 5 baked flames
+    this.fx      = null;   // single editable flame
 
     this.clock = new THREE.Clock();
     this.frameCount = 0;
@@ -101,15 +98,20 @@ export class Main {
 
     this.modelSliders = new ModelSlidersUI(this.debugger);
 
+    // Wire panel to control ALL flames together for ignition
     this.enginePanel = new EnginePanelUI({
       get: () => (this.fx ? this.fx.getParams() : this.defaultFXParams()),
       set: (patch) => { if (this.fx) this.fx.setParams(patch); },
-      setIgnition: (on) => { if (this.fx) this.fx.setIgnition(on); },
+      setIgnition: (on) => {
+        // Toggle every flame (baked + editable)
+        for (const f of this.bakedFX) f.setIgnition(on);
+        if (this.fx) this.fx.setIgnition(on);
+      },
       getIgnition: () => (this.fx ? this.fx.getIgnition() : false)
     }, this.debugger);
   }
 
-  // ----- CURRENT DEFAULTS (your latest) -----
+  // Current defaults (matching your panel shots)
   defaultFXParams() {
     return {
       enginesOn: true,
@@ -148,21 +150,14 @@ export class Main {
     };
   }
 
-  // Helper: create a baked (fixed) flame instance
-  _spawnBakedFlame(rocket, offX, offY, offZ) {
-    const p = this.defaultFXParams();
+  // Helper: create a flame and ensure it starts OFF
+  _spawnFlame(rocket, paramsOverride = {}) {
     const fx = new EngineFX(rocket, this.scene, this.camera);
-    fx.setParams({
-      ...p,
-      groupOffsetX: offX,
-      groupOffsetY: offY,
-      groupOffsetZ: offZ
-    });
-    // ignite immediately; mute so multiple flames don't layer audio
-    try { fx.audio?.setVolume(0.0); } catch {}
-    fx.setIgnition(true);
+    fx.setParams({ ...this.defaultFXParams(), ...paramsOverride });
+    fx.setIgnition(false);    // IMPORTANT: start off, wait for button
     this.effects.push(fx);
     return fx;
+    // audio volume left intact so it plays correctly on ignite
   }
 
   loadStaticModels() {
@@ -180,20 +175,19 @@ export class Main {
           if (obj.name === 'SuperHeavy') {
             const base = this.defaultFXParams();
 
-            // --------- 5 BAKED FLAMES ----------
-            // 1) the existing baked (base offsets)
-            this._spawnBakedFlame(model, base.groupOffsetX, base.groupOffsetY, base.groupOffsetZ);
-            // 2–5) your requested extra coordinates (X, Y) using same Z
-            this._spawnBakedFlame(model,  9.3,   0.5, base.groupOffsetZ);
-            this._spawnBakedFlame(model, 11.6,   6.0, base.groupOffsetZ);
-            this._spawnBakedFlame(model, 10.0,  12.5, base.groupOffsetZ);
-            this._spawnBakedFlame(model, 14.2,  14.0, base.groupOffsetZ);
+            // ---- 5 BAKED FLAMES (start OFF) ----
+            this.bakedFX.push(this._spawnFlame(model, { // existing baked
+              groupOffsetX: base.groupOffsetX,
+              groupOffsetY: base.groupOffsetY,
+              groupOffsetZ: base.groupOffsetZ
+            }));
+            this.bakedFX.push(this._spawnFlame(model, { groupOffsetX:  9.3, groupOffsetY:  0.5, groupOffsetZ: base.groupOffsetZ }));
+            this.bakedFX.push(this._spawnFlame(model, { groupOffsetX: 11.6, groupOffsetY:  6.0, groupOffsetZ: base.groupOffsetZ }));
+            this.bakedFX.push(this._spawnFlame(model, { groupOffsetX: 10.0, groupOffsetY: 12.5, groupOffsetZ: base.groupOffsetZ }));
+            this.bakedFX.push(this._spawnFlame(model, { groupOffsetX: 14.2, groupOffsetY: 14.0, groupOffsetZ: base.groupOffsetZ }));
 
-            // --------- 6th EDITABLE FLAME ----------
-            this.fx = new EngineFX(model, this.scene, this.camera);
-            this.fx.setParams(base);      // start from same defaults
-            this.fx.setIgnition(false);   // wait for user via panel
-            this.effects.push(this.fx);
+            // ---- 6th EDITABLE FLAME (panel controls) ----
+            this.fx = this._spawnFlame(model, base);
 
             this.enginePanel.setReady(true);
           }
@@ -245,7 +239,6 @@ export class Main {
     const rayOrigin = new THREE.Vector3(this.camera.position.x, 80, this.camera.position.z);
     this.raycaster.set(rayOrigin, this.rayDown);
 
-    // hit anything inside terrain_root
     const terrainMeshes = [];
     this.terrain.traverse(o => { if (o.isMesh) terrainMeshes.push(o); });
     const hits = this.raycaster.intersectObjects(terrainMeshes, true);
