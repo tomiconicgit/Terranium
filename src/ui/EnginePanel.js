@@ -1,7 +1,6 @@
 // src/ui/EnginePanel.js
-// Sliders: step = 1
-// Number boxes: step = 0.10
-// Large ranges preserved. Two-way bound (box keeps 0.1 precision).
+// Sliders: step = 1 (int) | Number boxes: step = 0.10 (precise)
+// Now includes tail fade controls: tailFadeStart, tailFeather, tailNoise
 
 export class EnginePanelUI {
   constructor(api, dbg) {
@@ -57,14 +56,14 @@ export class EnginePanelUI {
     panel.appendChild(btnRow);
 
     // helper to add a slider+box row
-    const addRow = (id, label, min, max, value) => {
+    const addRow = (id, label, min, max, value, stepBox = 0.1) => {
       const wrap = document.createElement('div');
       wrap.className = 'slider-group';
       wrap.style.marginBottom = '12px';
       wrap.innerHTML = `
         <label style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;gap:8px;">
           <span>${label}</span>
-          <input type="number" id="${id}-box" step="0.1" min="${min}" max="${max}" value="${value}"
+          <input type="number" id="${id}-box" step="${stepBox}" min="${min}" max="${max}" value="${value}"
                  style="width:110px;padding:4px 6px;background:#1f1f28;border:1px solid #444;color:#fff;border-radius:4px;">
         </label>
         <input type="range" id="${id}" min="${min}" max="${max}" step="1" value="${Math.round(value)}"
@@ -80,7 +79,6 @@ export class EnginePanelUI {
       slider.oninput = () => {
         const iv = clampInt(parseFloat(slider.value), min, max);
         slider.value = String(iv);
-        // keep box showing user's last precise value if close; otherwise reflect integer
         if (Math.abs(parseFloat(box.value) - iv) > 0.49) box.value = iv.toFixed(1);
         this._applyFromSliders();
       };
@@ -92,17 +90,16 @@ export class EnginePanelUI {
         v = clampFloat(v, min, max);
         v = round1(v); // 0.1 precision
         box.value = v.toFixed(1);
-        // slider shows nearest integer position within range
         const iv = clampInt(Math.round(v), min, max);
         slider.value = String(iv);
         this._applyFromBoxes();
       };
     };
 
-    // current values to seed UI
+    // seed values
     const c = this.api.get?.() ?? {};
-
-    const make = (id, label, min, max, key) => addRow(id, label, min, max, (c[key] ?? 0));
+    const make = (id, label, min, max, key, stepBox = 0.1) =>
+      addRow(id, label, min, max, (c[key] ?? 0), stepBox);
 
     // layout
     make('fw','Flame Width ×',            0.01,   80.0,  'flameWidthFactor');
@@ -136,6 +133,20 @@ export class EnginePanelUI {
     make('gx','FX Offset X (m)',         -800.0,   800.0, 'groupOffsetX');
     make('gy','FX Offset Y (m)',        -2400.0,  2400.0, 'groupOffsetY');
     make('gz','FX Offset Z (m)',         -800.0,   800.0, 'groupOffsetZ');
+
+    this._hr(panel);
+
+    // ========= NEW: Tail fade controls =========
+    // y_norm runs 0 (nozzle) -> 1 (tail). Start the fade somewhere near the bottom.
+    make('tfs','Tail Fade Start (0–1)',   0.00,     1.00, 'tailFadeStart');   // step box 0.1 by default
+    make('tff','Tail Feather (softness)', 0.10,     4.00, 'tailFeather');     // power curve
+    make('tfn','Tail Noise',              0.00,     0.40, 'tailNoise');
+
+    const hint = document.createElement('p');
+    hint.style.cssText = 'margin:6px 0 0; color:#9aa; font-size:.85em;';
+    hint.textContent = 'Tip: lower Tail Fade Start (e.g. 0.70–0.85) to see the flame fade earlier.';
+    panel.appendChild(hint);
+    // ==========================================
 
     const copyBtn = document.createElement('button');
     copyBtn.id = 'copy-engine-config';
@@ -189,6 +200,11 @@ export class EnginePanelUI {
       groupOffsetX:      vI('gx'),
       groupOffsetY:      vI('gy'),
       groupOffsetZ:      vI('gz'),
+
+      // NEW
+      tailFadeStart:     vI('tfs'),
+      tailFeather:       vI('tff'),
+      tailNoise:         vI('tfn'),
     });
   }
 
@@ -221,6 +237,11 @@ export class EnginePanelUI {
       groupOffsetX:      vF('gx'),
       groupOffsetY:      vF('gy'),
       groupOffsetZ:      vF('gz'),
+
+      // NEW
+      tailFadeStart:     vF('tfs'),
+      tailFeather:       vF('tff'),
+      tailNoise:         vF('tfn'),
     });
   }
 
@@ -238,8 +259,8 @@ export class EnginePanelUI {
       let v = parseFloat(val);
       if (isNaN(v)) return;
       v = clampFloat(v, min, max);
-      box.value = round1(v).toFixed(1);              // keep precise in box
-      slider.value = String(clampInt(Math.round(v), min, max)); // nearest int for slider
+      box.value = round1(v).toFixed(1);                          // precise in box
+      slider.value = String(clampInt(Math.round(v), min, max));   // nearest int on slider
     };
 
     set('fw', c.flameWidthFactor);
@@ -265,6 +286,11 @@ export class EnginePanelUI {
     set('gx', c.groupOffsetX);
     set('gy', c.groupOffsetY);
     set('gz', c.groupOffsetZ);
+
+    // NEW
+    set('tfs', c.tailFadeStart);
+    set('tff', c.tailFeather);
+    set('tfn', c.tailNoise);
   }
 }
 
