@@ -14,6 +14,14 @@ export class EnginePanelUI {
     this.cutoffBtn = null;
     this.fixedSelect = null;
     this.moveToggle  = null;
+
+    // Local color state so we can reflect current values
+    this.colorInputs = {
+      white: null,
+      cyan: null,
+      orange: null
+    };
+
     this._build();
   }
 
@@ -40,7 +48,10 @@ export class EnginePanelUI {
       const opening = !(this.panel.style.display === 'block');
       this.panel.style.display = opening ? 'block' : 'none';
       try { opening ? this.api.onPanelOpen?.() : this.api.onPanelClose?.(); } catch {}
-      if (opening) this._refreshFixedList();
+      if (opening) {
+        this._refreshFixedList();
+        this._syncValuesFromAPI();
+      }
     };
     container.appendChild(openBtn);
     this.openBtn = openBtn;
@@ -129,31 +140,6 @@ export class EnginePanelUI {
     panel.appendChild(fixedRow);
     this.fixedSelect = select;
 
-    // Export row
-    const exportRow = document.createElement('div');
-    exportRow.style.cssText = 'display:flex; gap:10px; margin: 6px 0 12px;';
-    const exportJsonBtn = document.createElement('button');
-    exportJsonBtn.style.flex = '1'; exportJsonBtn.textContent = 'Export Flames JSON';
-    exportJsonBtn.onclick = async () => {
-      try {
-        const jsonStr = this.api.exportAllFlamesJSON?.() ?? '[]';
-        const blob = new Blob([jsonStr], { type: 'application/json' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a'); a.href = url; a.download = 'flames.json'; a.click();
-        setTimeout(()=>URL.revokeObjectURL(url), 250);
-      } catch (e) { this.debugger?.handleError(e, 'ExportJSON'); }
-    };
-    const exportGLBBtn = document.createElement('button');
-    exportGLBBtn.style.flex = '1'; exportGLBBtn.textContent = 'Export Animated GLB';
-    exportGLBBtn.title = 'Bake geometry cache (morph target) animation into one .glb';
-    exportGLBBtn.onclick = async () => {
-      try { await this.api.exportAnimatedGLB?.({ durationSec: 2.0, fps: 24, include: 'all' }); }
-      catch (e) { this.debugger?.handleError(e, 'ExportGLB'); }
-    };
-    exportRow.appendChild(exportJsonBtn);
-    exportRow.appendChild(exportGLBBtn);
-    panel.appendChild(exportRow);
-
     // helper to add slider+box rows
     const addRow = (id, label, min, max, key, stepBox = 0.1, stepSlider = 1) => {
       const wrap = document.createElement('div');
@@ -201,7 +187,8 @@ export class EnginePanelUI {
     this._hr(panel);
     make('in','Intensity ×',                      0.0,    5.0, 'intensity', 0.1, 0.1);
     make('tp','Taper (0=wide,1=thin)',            0.0,    1.0, 'taper', 0.01, 0.01);
-    make('bg','Bulge (mid-body)',                 0.0,    1.0, 'bulge', 0.01, 0.01);
+    // ↑↑ Increased ceiling from 1.0 → 3.0
+    make('bg','Bulge (mid-body)',                 0.0,    3.0, 'bulge', 0.01, 0.01);
     make('td','TearDrop (pinch)',                 0.0,    1.0, 'tear', 0.01, 0.01);
     make('tb','Turbulence',                       0.0,    1.0, 'turbulence', 0.01, 0.01);
     make('ns','Noise Speed',                      0.0,    5.0, 'noiseSpeed', 0.01, 0.01);
@@ -215,9 +202,44 @@ export class EnginePanelUI {
     make('rp','Rim Speed',                         0.0,    6.0, 'rimSpeed', 0.01, 0.01);
 
     this._hr(panel);
-    make('cb','Color: Cyan',                       0.0,    3.0, 'colorCyan', 0.01, 0.01);
-    make('co','Color: Orange',                     0.0,    3.0, 'colorOrange', 0.01, 0.01);
-    make('cw','Color: White Core',                 0.0,    3.0, 'colorWhite', 0.01, 0.01);
+    // Existing color multipliers
+    make('cb','Color: Cyan ×',                     0.0,    3.0, 'colorCyan', 0.01, 0.01);
+    make('co','Color: Orange ×',                   0.0,    3.0, 'colorOrange', 0.01, 0.01);
+    make('cw','Color: White Core ×',               0.0,    3.0, 'colorWhite', 0.01, 0.01);
+
+    // NEW: base color pickers (hex)
+    const colorsCard = document.createElement('div');
+    colorsCard.style.cssText = 'padding:10px;border:1px solid #444;border-radius:6px;margin-top:8px;background:#1b1b22;';
+    colorsCard.innerHTML = `<div style="font-weight:600;margin-bottom:8px;">Base Colors</div>`;
+    const mkColor = (id, label) => {
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex;align-items:center;justify-content:space-between;margin:6px 0;';
+      const span = document.createElement('span'); span.textContent = label;
+      const input = document.createElement('input');
+      input.type = 'color';
+      input.id = id;
+      input.style.cssText = 'width:44px;height:30px;border:none;background:transparent;cursor:pointer;';
+      row.appendChild(span);
+      row.appendChild(input);
+      colorsCard.appendChild(row);
+      return input;
+    };
+    this.colorInputs.white  = mkColor('colorWhiteHex',  'White Core');
+    this.colorInputs.cyan   = mkColor('colorCyanHex',   'Cyan');
+    this.colorInputs.orange = mkColor('colorOrangeHex', 'Orange');
+    panel.appendChild(colorsCard);
+
+    // Hook color changes
+    const handleColor = (key) => (e) => {
+      const hex = String(e.target.value || '').trim();
+      const patch = {};
+      patch[key] = hex;
+      try { this.api.set?.(patch); }
+      catch (err) { this.debugger?.handleError(err, 'EnginePanel.Color'); }
+    };
+    this.colorInputs.white.oninput  = handleColor('colorWhiteHex');
+    this.colorInputs.cyan.oninput   = handleColor('colorCyanHex');
+    this.colorInputs.orange.oninput = handleColor('colorOrangeHex');
 
     this._hr(panel);
     make('gx','FX Offset X (m)',                -800.0,  800.0, 'groupOffsetX', 0.1, 0.1);
@@ -288,6 +310,11 @@ export class EnginePanelUI {
       if (!Number.isFinite(v)) continue;
       patch[def.key] = v;
     }
+    // also include color hexes if present
+    const safe = (el, fallback) => (el && typeof el.value === 'string' && el.value.trim()) || fallback;
+    patch.colorWhiteHex  = safe(this.colorInputs.white,  '#ffffff');
+    patch.colorCyanHex   = safe(this.colorInputs.cyan,   '#80fbfd');
+    patch.colorOrangeHex = safe(this.colorInputs.orange, '#ffac57');
     return patch;
   }
 
@@ -313,6 +340,10 @@ export class EnginePanelUI {
       if (def.slider) def.slider.value = String(v);
       if (def.box)    def.box.value = (def.slider?.step && def.slider.step.indexOf('.')>=0) ? v.toFixed(2) : v.toFixed(1);
     }
+    // colors
+    if (this.colorInputs.white)  this.colorInputs.white.value  = (c.colorWhiteHex  || '#ffffff');
+    if (this.colorInputs.cyan)   this.colorInputs.cyan.value   = (c.colorCyanHex   || '#80fbfd');
+    if (this.colorInputs.orange) this.colorInputs.orange.value = (c.colorOrangeHex || '#ffac57');
   }
 
   _refreshButtons() {
