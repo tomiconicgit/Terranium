@@ -27,12 +27,13 @@ export class EngineFX {
     this.ignitionTimer   = null;
     this.ignitionPending = false;
 
-    // defaults (synced with Main.defaultFXParams)
+    // <-- UPDATED defaults to match Main.defaultFXParams -->
     this.params = {
       enginesOn: true,
       flameWidthFactor: 0.7,
       flameHeightFactor: 0.8,
       flameYOffset: 7.6,
+
       intensity: 1.5,
       taper: 0.0,
       bulge: 1.0,
@@ -41,21 +42,25 @@ export class EngineFX {
       noiseSpeed: 2.2,
       diamondsStrength: 0.9,
       diamondsFreq: 2.8,
+
       rimStrength: 0.0,
       rimSpeed: 4.1,
-      colorCyan: 0.2,
+
+      colorCyan: 0.5,
       colorOrange: 3.0,
       colorWhite: 0.9,
+
       groupOffsetX: 3.1,
       groupOffsetY: -3.0,
       groupOffsetZ: 1.2,
+
       tailFadeStart: 0.3,
       tailFeather: 4.0,
       tailNoise: 0.2,
 
-      orangeShift: 0.0,         // NEW: move orange band up/down
-      lightIntensity: 12.0,      // NEW: emissive light
-      lightDistance: 120.0,
+      orangeShift: -0.2,
+      lightIntensity: 50.0,
+      lightDistance: 800.0,
       lightColor: '#ffb869'
     };
 
@@ -82,7 +87,7 @@ export class EngineFX {
       this.initialVertices.push(new THREE.Vector3().fromBufferAttribute(pos, i));
     }
 
-    // NEW: emissive point light (follows nozzle)
+    // Emissive point light (follows nozzle)
     this.pointLight = new THREE.PointLight(0xffb869, this.params.lightIntensity, this.params.lightDistance);
     this.pointLight.castShadow = false;
     this.group.add(this.pointLight);
@@ -201,7 +206,7 @@ export class EngineFX {
     u.uTailFeather.value = this.params.tailFeather;
     u.uTailNoise.value   = this.params.tailNoise;
 
-    u.uOrangeShift.value = this.params.orangeShift;   // NEW
+    u.uOrangeShift.value = this.params.orangeShift;   // band shift
   }
 
   _applyLight(){
@@ -291,7 +296,7 @@ export class EngineFX {
         uTailFeather: { value: this.params.tailFeather },
         uTailNoise:   { value: this.params.tailNoise },
 
-        // NEW: shift where orange begins/ends
+        // shift where orange begins/ends
         uOrangeShift: { value: this.params.orangeShift }
       },
       vertexShader: `
@@ -316,7 +321,7 @@ export class EngineFX {
         uniform float uTailFeather;
         uniform float uTailNoise;
 
-        uniform float uOrangeShift; // NEW
+        uniform float uOrangeShift;
 
         float n2(vec2 p){ return fract(sin(dot(p, vec2(127.1,311.7))) * 43758.5453); }
         float fbm(vec2 p){ float a=0.0, w=0.5; for(int i=0;i<4;i++){ a+=w*n2(p); p=p*2.03+1.7; w*=0.5; } return a; }
