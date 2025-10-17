@@ -1,4 +1,4 @@
-// src/Main.js — updated to wire InstancedFlames (baked, GPU-instanced)
+// src/Main.js — back to individually baked flames + JSON export + WebM recording
 import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.163.0/build/three.module.js';
 import { createTerrain }  from './scene/Terrain.js';
 import { createSkyDome }  from './scene/SkyDome.js';
@@ -12,7 +12,6 @@ import { HighlighterUI }  from './ui/Highlighter.js';
 import { worldObjects, bakedFlames }   from './world/Mapping.js';
 import { loadModel }      from './ModelLoading.js';
 import { EngineFX }       from './effects/EngineFX.js';
-import { InstancedFlames } from './effects/InstancedFlames.js';
 
 export class Main {
   constructor(debuggerInstance) {
@@ -36,10 +35,10 @@ export class Main {
 
     this.raycaster = new THREE.Raycaster(); this.rayDown = new THREE.Vector3(0, -1, 0);
 
-    this.effects = [];        // everything updated per-frame (editable + instanced + (any) fixed)
+    this.effects = [];        // everything updated per-frame
     this.fx = null;           // editable flame
-    this.instanced = null;    // GPU-instanced baked set
-    this.fixedFX = [];        // optional placed copies
+    this.bakedFX = [];        // individually baked flames (EngineFX each)
+    this.fixedFX = [];        // placed copies
     this.activeFixedIndex = -1;
 
     // Move mode
@@ -49,6 +48,10 @@ export class Main {
     this._dragBase  = { x: 0, z: 0 };
     this._dragTarget = null;
     this._bindMoveHandlers();
+
+    // Recording
+    this._recorder = null;
+    this._recordChunks = [];
 
     this.clock = new THREE.Clock(); this.frameCount = 0;
 
@@ -69,11 +72,13 @@ export class Main {
       get: () => (this.fx ? this.fx.getParams() : this.defaultFXParams()),
       set: (patch) => {
         if (this.fx) this.fx.setParams(patch);
-        if (this.instanced) this.instanced.setParams(patch);   // keep batch visually in sync
+        // Keep all existing flames visually in sync for shared look tweaks
+        for (const f of this.bakedFX) f.setParams(patch);
+        for (const f of this.fixedFX) f.setParams(patch);
       },
       setIgnition: (on) => {
         if (this.fx) this.fx.setIgnition(on);
-        if (this.instanced) this.instanced.setIgnition(on);
+        for (const f of this.bakedFX) f.setIgnition(on);
         for (const f of this.fixedFX) f.setIgnition(on);
       },
       getIgnition: () => (this.fx ? this.fx.getIgnition() : false),
@@ -87,6 +92,10 @@ export class Main {
 
       getFixedList: () => this.getFixedList(),
       copyFixedJSON: () => JSON.stringify(this.getFixedList(), null, 2),
+
+      // NEW: export/record
+      exportAllFlamesJSON: () => this.exportAllFlamesJSON(),
+      recordAnimation: () => this.recordAnimationWebM({ durationMs: 8000, fps: 60 }) // 8s demo
     }, this.debugger);
   }
 
@@ -115,13 +124,13 @@ export class Main {
     groupOffsetX:+p.groupOffsetX.toFixed(3), groupOffsetY:+p.groupOffsetY.toFixed(3), groupOffsetZ:+p.groupOffsetZ.toFixed(3) }; }); }
   setMoveMode(on){ this.flameMoveMode=!!on; if (!on){ this._dragActive=false; this._dragTarget=null; } }
 
-  // ---- picking helpers (unchanged) ----
+  // ---- picking helpers ----
   _clientToNDC(x,y){ const rect=this.canvas.getBoundingClientRect(); return { x:((x-rect.left)/rect.width)*2-1, y:-((y-rect.top)/rect.height)*2+1 }; }
   _pickFlameAt(x,y){
     const targets = [];
     if (this.fx) targets.push(...this.fx.getRaycastTargets());
-    if (this.instanced) targets.push(...this.instanced.getRaycastTargets()); // not for dragging (batch), but okay to pick
     for (const f of this.fixedFX) targets.push(...f.getRaycastTargets());
+    for (const f of this.bakedFX) targets.push(...f.getRaycastTargets());
     if (!targets.length) return null;
     const ndc = this._clientToNDC(x,y); this.raycaster.setFromCamera(ndc, this.camera);
     const hits = this.raycaster.intersectObjects(targets, true);
@@ -133,7 +142,6 @@ export class Main {
     const start = (x,y)=>{
       if (!this.flameMoveMode) return;
       const fx = this._pickFlameAt(x,y);
-      // Only allow dragging of editable or a fixed single EngineFX, not the instanced batch.
       if (!fx || !(fx instanceof EngineFX)) return;
       this._dragTarget = fx; this._dragActive = true; this._dragStart.x = x; this._dragStart.y = y;
       const p = fx.getParams(); this._dragBase.x = p.groupOffsetX; this._dragBase.z = p.groupOffsetZ;
@@ -166,21 +174,104 @@ export class Main {
         this.debugger?.log(`Loaded static model: ${obj.name}`);
 
         if (obj.name === 'SuperHeavy') {
-          // Editable single flame
+          // Editable flame
           this.fx = new EngineFX(model,this.scene,this.camera);
           this.fx.setParams(this.defaultFXParams());
           this.fx.setIgnition(false);
           this.effects.push(this.fx);
-          // Instanced baked flames
-          this.instanced = new InstancedFlames(model, this.scene, bakedFlames);
-          this.instanced.setParams(this.defaultFXParams());
-          this.instanced.setIgnition(false);
-          this.effects.push(this.instanced);
+
+          // Individually baked flames
+          for (const entry of bakedFlames) {
+            const f = new EngineFX(model, this.scene, this.camera);
+            f.setParams({
+              ...this.defaultFXParams(),
+              groupOffsetX: entry.groupOffsetX,
+              groupOffsetY: entry.groupOffsetY,
+              groupOffsetZ: entry.groupOffsetZ
+            });
+            f.setIgnition(false);
+            this.bakedFX.push(f);
+            this.effects.push(f);
+          }
 
           this.enginePanel.setReady(true);
         }
       },(error)=>{ this.debugger?.handleError(error, `StaticModel: ${obj.name}`); });
     });
+  }
+
+  // ====== Export JSON of all flames (editable + placed + baked) ======
+  exportAllFlamesJSON() {
+    const out = [];
+
+    const pushFX = (f, type, index=null) => {
+      const p = f.getParams();
+      out.push({
+        type, index,
+        groupOffsetX: +p.groupOffsetX.toFixed(3),
+        groupOffsetY: +p.groupOffsetY.toFixed(3),
+        groupOffsetZ: +p.groupOffsetZ.toFixed(3),
+        // include core look params so “procedural” is reproducible
+        flameWidthFactor: p.flameWidthFactor,
+        flameHeightFactor: p.flameHeightFactor,
+        flameYOffset: p.flameYOffset,
+        intensity: p.intensity,
+        taper: p.taper,
+        bulge: p.bulge,
+        tear: p.tear,
+        turbulence: p.turbulence,
+        noiseSpeed: p.noiseSpeed,
+        diamondsStrength: p.diamondsStrength,
+        diamondsFreq: p.diamondsFreq,
+        rimStrength: p.rimStrength,
+        rimSpeed: p.rimSpeed,
+        colorCyan: p.colorCyan,
+        colorOrange: p.colorOrange,
+        colorWhite: p.colorWhite,
+        tailFadeStart: p.tailFadeStart,
+        tailFeather: p.tailFeather,
+        tailNoise: p.tailNoise,
+        bottomFadeDepth: p.bottomFadeDepth,
+        bottomFadeFeather: p.bottomFadeFeather,
+        orangeShift: p.orangeShift
+      });
+    };
+
+    if (this.fx) pushFX(this.fx, 'editable', 0);
+    this.fixedFX.forEach((f,i)=> pushFX(f, 'placed', i));
+    this.bakedFX.forEach((f,i)=> pushFX(f, 'baked', i));
+
+    return JSON.stringify(out, null, 2);
+  }
+
+  // ====== Record animation as WebM (canvas capture) ======
+  async recordAnimationWebM({ durationMs = 8000, fps = 60 } = {}) {
+    // Start with engines OFF; then Ignite so the 2800ms delay shows correctly
+    this.enginePanel?.setIgnition?.(false);
+    await new Promise(r=>setTimeout(r, 200)); // tiny settle
+    this.enginePanel?.setIgnition?.(true);
+
+    const stream = this.canvas.captureStream(fps);
+    let mime = 'video/webm;codecs=vp9';
+    if (!MediaRecorder.isTypeSupported(mime)) mime = 'video/webm;codecs=vp8';
+    if (!MediaRecorder.isTypeSupported(mime)) mime = 'video/webm';
+
+    this._recordChunks = [];
+    this._recorder = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 8_000_000 });
+    this._recorder.ondataavailable = e => { if (e.data && e.data.size) this._recordChunks.push(e.data); };
+    this._recorder.onstop = () => {
+      const blob = new Blob(this._recordChunks, { type: mime });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = 'flames.webm'; a.click();
+      setTimeout(()=>URL.revokeObjectURL(url), 500);
+      this._recordChunks = [];
+      // Auto cutoff at end
+      this.enginePanel?.setIgnition?.(false);
+    };
+
+    this._recorder.start();
+    setTimeout(() => { try{ this._recorder.stop(); } catch{} }, durationMs);
   }
 
   start(){ this.animate(); }
