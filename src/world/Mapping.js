@@ -1,6 +1,6 @@
 // src/world/Mapping.js
 //
-// Static world objects + individually baked flames (no instancing).
+// Defines static (baked) world objects and baked flame offsets.
 //
 
 export const worldObjects = [
@@ -13,7 +13,7 @@ export const worldObjects = [
   }
 ];
 
-// 🔥 Individually baked flames (each will be its own EngineFX)
+// 🔥 Individually-baked flames (no instancing)
 export const bakedFlames = [
   { "index": 0,  "groupOffsetX": 3.1,  "groupOffsetY": -3, "groupOffsetZ": 1.2  },
   { "index": 1,  "groupOffsetX": 4.06, "groupOffsetY": -3, "groupOffsetZ": 5.31 },
