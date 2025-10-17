@@ -1,14 +1,14 @@
 // src/effects/EngineFX.js
 // Ignition has a 2800 ms pre-roll before the flame becomes visible.
-// Includes orange-band shift and a point light that follows the flame.
+// Includes orange-band shift, nozzle light, and bottom-up tail erase.
 
 import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.163.0/build/three.module.js';
 
 function fract(x) { return x - Math.floor(x); }
 function n2(p){ return fract(Math.sin(p.dot(new THREE.Vector2(127.1,311.7))) * 43758.5453); }
 function fbm(p){
-  let a=0.0, w=0.5;
-  for(let i=0;i<4;i++){ a+=w*n2(p); p.multiplyScalar(2.03).add(new THREE.Vector2(1.7,1.7)); w*=0.5; }
+  let a = 0.0, w = 0.5;
+  for (let i = 0; i < 4; i++) { a += w * n2(p); p.multiplyScalar(2.03).add(new THREE.Vector2(1.7,1.7)); w *= 0.5; }
   return a;
 }
 
@@ -22,14 +22,14 @@ export class EngineFX {
     this.flameHeightBase = 40.0;
     this.segments = 32;
 
-    // ignition flow (UPDATED: 2800 ms)
+    // ignition flow
     this.ignitionDelayMs = 2800;
     this.ignitionTimer   = null;
     this.ignitionPending = false;
 
-    // Defaults (kept in sync with Main.defaultFXParams)
+    // Defaults (keep synced with Main.defaultFXParams)
     this.params = {
-      enginesOn: true,               // logical default; we'll call setIgnition(false) after construct
+      enginesOn: true,               // Main will call setIgnition(false) on create
       flameWidthFactor: 0.7,
       flameHeightFactor: 0.8,
       flameYOffset: 7.6,
@@ -55,7 +55,7 @@ export class EngineFX {
       groupOffsetZ: 1.2,
 
       tailFadeStart: 0.3,
-      tailFeather: 4.0,
+      tailFeather: 4.0,   // now acts as bottom-up erase strength
       tailNoise: 0.2,
 
       orangeShift: -0.2,
@@ -122,6 +122,7 @@ export class EngineFX {
   getIgnition(){ return this.params.enginesOn; }
 
   setParams(patch){
+    // allow color strings for light
     if (patch.lightColor && typeof patch.lightColor === 'string') {
       const c = new THREE.Color(patch.lightColor);
       patch.lightColor = c.getHex();
@@ -140,6 +141,7 @@ export class EngineFX {
 
     if (this.params.enginesOn) {
       this._updateFlameGeometry(t);
+      // subtle flicker for the light
       if (this.pointLight) {
         const base = this.params.lightIntensity;
         const wob  = (Math.sin(t * 18.0) + Math.sin(t * 7.3)) * 0.08 * base;
@@ -184,6 +186,7 @@ export class EngineFX {
     this.mesh.position.y = this.params.flameYOffset;
 
     if (this.pointLight) {
+      // keep the light near the nozzle (slightly below)
       this.pointLight.position.set(0, this.params.flameYOffset - 1.0, 0);
     }
   }
@@ -203,7 +206,7 @@ export class EngineFX {
     u.uTailFeather.value = this.params.tailFeather;
     u.uTailNoise.value   = this.params.tailNoise;
 
-    u.uOrangeShift.value = this.params.orangeShift;
+    u.uOrangeShift.value = this.params.orangeShift;   // band shift
   }
 
   _applyLight(){
@@ -290,7 +293,7 @@ export class EngineFX {
         uOrange: { value: new THREE.Color(0xffac57) },
 
         uTailStart:   { value: this.params.tailFadeStart },
-        uTailFeather: { value: this.params.tailFeather },
+        uTailFeather: { value: this.params.tailFeather }, // bottom-up erase strength
         uTailNoise:   { value: this.params.tailNoise },
 
         uOrangeShift: { value: this.params.orangeShift }
@@ -299,6 +302,7 @@ export class EngineFX {
         varying vec3 vNormal;
         varying float y_norm;
         void main(){
+          // Normalize to 0..1 from nozzle (0) to tail (1)
           y_norm = position.y / -40.0; // matches flameHeightBase
           vNormal = normalize(normalMatrix * normal);
           gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0);
@@ -314,36 +318,54 @@ export class EngineFX {
         uniform vec3  uCyan, uWhite, uOrange;
 
         uniform float uTailStart;
-        uniform float uTailFeather;
+        uniform float uTailFeather; // acts as bottom-up erase amount
         uniform float uTailNoise;
 
         uniform float uOrangeShift;
 
         float n2(vec2 p){ return fract(sin(dot(p, vec2(127.1,311.7))) * 43758.5453); }
-        float fbm(vec2 p){ float a=0.0, w=0.5; for(int i=0;i<4;i++){ a+=w+n2(p); p=p*2.03+1.7; w*=0.5; } return a; }
+        float fbm(vec2 p){
+          float a = 0.0, w = 0.5;
+          for (int i=0; i<4; i++) { a += w * n2(p); p = p*2.03 + 1.7; w *= 0.5; }
+          return a;
+        }
 
         void main(){
-          float bands = 0.5 + 0.5*sin(y_norm*uDiamondsFreq*6.2831853);
+          // Mach diamonds
+          float bands = 0.5 + 0.5 * sin(y_norm * uDiamondsFreq * 6.2831853);
           float diamonds = mix(1.0, bands, clamp(uDiamondsStrength,0.0,2.0));
           diamonds = mix(diamonds, 1.0, smoothstep(0.70, 1.0, y_norm));
 
+          // Base color ramps
           vec3 col = mix(uWhite*uWhiteMul, uCyan*uCyanMul,  smoothstep(0.0, 0.25, y_norm));
           float o0 = 0.30 + uOrangeShift;
           float o1 = 0.85 + uOrangeShift;
           col = mix(col, uOrange*uOrangeMul, smoothstep(o0, o1, y_norm));
-
           col *= diamonds;
 
+          // Nozzle fade-in (keeps tiny core tight)
           float alphaStart = smoothstep(0.00, 0.06, y_norm);
 
+          // Tail fade from top (overall taper)
           float baseTail   = 1.0 - smoothstep(uTailStart, 1.0, y_norm);
-          baseTail         = pow(max(baseTail, 0.0), max(uTailFeather, 0.0001));
           float tailJitter = (fbm(vec2(y_norm*18.0, uTime*1.3)) - 0.5) * uTailNoise;
           float alphaTail  = clamp(baseTail + tailJitter, 0.0, 1.0);
 
+          // --- Bottom-up erase driven by uTailFeather ---
+          // Map your slider range (0.10–6.00) roughly to 0..1
+          float feather01  = clamp((uTailFeather - 0.10) / (6.00 - 0.10), 0.0, 1.0);
+          // Max fraction of plume height to erase from bottom
+          float eraseDepth = 0.60 * feather01;
+          // 0 near nozzle (erased), 1 above eraseDepth (fully visible)
+          float bottomErase = smoothstep(0.0, eraseDepth + 1e-5, y_norm);
+
+          // Rim shimmer
           float rim = fbm(vec2(y_norm * 10.0, uTime*uRimSpeed)) * uRimStrength;
 
           float alpha = (alphaStart * alphaTail + rim) * uIntensity;
+
+          // Apply bottom-up erase last
+          alpha *= bottomErase;
 
           if (alpha < 0.01) discard;
           gl_FragColor = vec4(col * alpha, alpha);
