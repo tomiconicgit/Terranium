@@ -1,5 +1,6 @@
-// src/Main.js — back to individually baked flames + JSON export + WebM recording
+// src/Main.js — adds Animated GLB export (morph cache) and keeps individual baked flames.
 import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.163.0/build/three.module.js';
+import { GLTFExporter } from 'three/addons/exporters/GLTFExporter.js';
 import { createTerrain }  from './scene/Terrain.js';
 import { createSkyDome }  from './scene/SkyDome.js';
 import { createLighting } from './scene/Lighting.js';
@@ -9,13 +10,14 @@ import { ImportModelUI }  from './ui/ImportModel.js';
 import { ModelSlidersUI } from './ui/ModelSliders.js';
 import { EnginePanelUI }  from './ui/EnginePanel.js';
 import { HighlighterUI }  from './ui/Highlighter.js';
-import { worldObjects, bakedFlames }   from './world/Mapping.js';
+import { worldObjects }   from './world/Mapping.js';
 import { loadModel }      from './ModelLoading.js';
 import { EngineFX }       from './effects/EngineFX.js';
 
 export class Main {
   constructor(debuggerInstance) {
     this.debugger = debuggerInstance;
+
     this.canvas   = document.getElementById('game-canvas');
     this.renderer = new THREE.WebGLRenderer({ canvas: this.canvas, antialias: true });
     this.renderer.setSize(window.innerWidth, window.innerHeight);
@@ -23,25 +25,36 @@ export class Main {
     this.renderer.shadowMap.enabled = true;
 
     this.scene = new THREE.Scene();
-    this.camera = createCamera(); this.camera.rotation.order = 'YXZ'; this.scene.add(this.camera);
-    const { ambientLight, sunLight } = createLighting(); this.scene.add(ambientLight, sunLight, sunLight.target);
+
+    this.camera = createCamera();
+    this.camera.rotation.order = 'YXZ';
+    this.scene.add(this.camera);
+
+    const { ambientLight, sunLight } = createLighting();
+    this.scene.add(ambientLight, sunLight, sunLight.target);
 
     this.terrain = createTerrain({ selection: window.EXCAVATION_SELECTION || null });
-    this.scene.add(this.terrain); this.scene.add(createSkyDome());
+    this.scene.add(this.terrain);
+    this.scene.add(createSkyDome());
 
-    this.controls = new TouchPad(); this.controlsPaused = false;
+    this.controls = new TouchPad();
+    this.controlsPaused = false;
 
-    this.playerVelocity = new THREE.Vector3(); this.lookSpeed = 0.004; this.playerHeight = 2.0;
+    this.playerVelocity = new THREE.Vector3();
+    this.lookSpeed = 0.004;
+    this.playerHeight = 2.0;
 
-    this.raycaster = new THREE.Raycaster(); this.rayDown = new THREE.Vector3(0, -1, 0);
+    this.raycaster = new THREE.Raycaster();
+    this.rayDown = new THREE.Vector3(0, -1, 0);
 
-    this.effects = [];        // everything updated per-frame
-    this.fx = null;           // editable flame
-    this.bakedFX = [];        // individually baked flames (EngineFX each)
-    this.fixedFX = [];        // placed copies
+    // Effects containers
+    this.effects = [];
+    this.fx = null;          // editable flame
+    this.fixedFX = [];       // user-placed flames (individual)
+    this.bakedFX = [];       // permanent baked flames (if any)
     this.activeFixedIndex = -1;
 
-    // Move mode
+    // Move mode (drag X/Z by touch)
     this.flameMoveMode = false;
     this._dragActive = false;
     this._dragStart = { x: 0, y: 0 };
@@ -49,38 +62,35 @@ export class Main {
     this._dragTarget = null;
     this._bindMoveHandlers();
 
-    // Recording
-    this._recorder = null;
-    this._recordChunks = [];
+    this.clock = new THREE.Clock();
+    this.frameCount = 0;
 
-    this.clock = new THREE.Clock(); this.frameCount = 0;
+    this.initModelSystems();
+    this.loadStaticModels();
 
-    this.initModelSystems(); this.loadStaticModels();
-
-    try { this.highlighter = new HighlighterUI({ scene:this.scene, camera:this.camera, terrainGroup:this.terrain, debugger:this.debugger }); }
-    catch(e){ this.debugger?.handleError(e,'HighlighterInit'); }
+    try {
+      this.highlighter = new HighlighterUI({
+        scene: this.scene, camera: this.camera, terrainGroup: this.terrain, debugger: this.debugger
+      });
+    } catch(e){ this.debugger?.handleError(e,'HighlighterInit'); }
 
     window.addEventListener('resize', () => this.onWindowResize(), false);
-    this.initPerformanceMonitor(); this.start();
+    this.initPerformanceMonitor();
+    this.start();
   }
 
   initModelSystems() {
-    this.importModelUI = new ImportModelUI(this.scene,(m)=>{ this.modelSliders.setActiveModel(m); },this.debugger);
+    this.importModelUI = new ImportModelUI(
+      this.scene,
+      (m)=>{ this.modelSliders.setActiveModel(m); },
+      this.debugger
+    );
     this.modelSliders = new ModelSlidersUI(this.debugger);
 
     this.enginePanel = new EnginePanelUI({
       get: () => (this.fx ? this.fx.getParams() : this.defaultFXParams()),
-      set: (patch) => {
-        if (this.fx) this.fx.setParams(patch);
-        // Keep all existing flames visually in sync for shared look tweaks
-        for (const f of this.bakedFX) f.setParams(patch);
-        for (const f of this.fixedFX) f.setParams(patch);
-      },
-      setIgnition: (on) => {
-        if (this.fx) this.fx.setIgnition(on);
-        for (const f of this.bakedFX) f.setIgnition(on);
-        for (const f of this.fixedFX) f.setIgnition(on);
-      },
+      set: (patch) => { if (this.fx) this.fx.setParams(patch); },
+      setIgnition: (on) => { if (this.fx) this.fx.setIgnition(on); for (const f of this.fixedFX) f.setIgnition(on); for (const f of this.bakedFX) f.setIgnition(on); },
       getIgnition: () => (this.fx ? this.fx.getIgnition() : false),
 
       onPanelOpen: () => { this.controlsPaused = true; this.controls.setPaused(true); },
@@ -93,9 +103,8 @@ export class Main {
       getFixedList: () => this.getFixedList(),
       copyFixedJSON: () => JSON.stringify(this.getFixedList(), null, 2),
 
-      // NEW: export/record
       exportAllFlamesJSON: () => this.exportAllFlamesJSON(),
-      recordAnimation: () => this.recordAnimationWebM({ durationMs: 8000, fps: 60 }) // 8s demo
+      exportAnimatedGLB: (opts) => this.exportAnimatedGLB(opts),
     }, this.debugger);
   }
 
@@ -114,7 +123,8 @@ export class Main {
     if (!this.fx || !this.rocketModel) return -1;
     const p = this.fx.getParams();
     const f = new EngineFX(this.rocketModel, this.scene, this.camera);
-    f.setParams(p); f.setIgnition(false);
+    f.setParams(p);
+    f.setIgnition(false);
     this.fixedFX.push(f); this.effects.push(f);
     this.activeFixedIndex = this.fixedFX.length - 1;
     return this.activeFixedIndex;
@@ -125,14 +135,18 @@ export class Main {
   setMoveMode(on){ this.flameMoveMode=!!on; if (!on){ this._dragActive=false; this._dragTarget=null; } }
 
   // ---- picking helpers ----
-  _clientToNDC(x,y){ const rect=this.canvas.getBoundingClientRect(); return { x:((x-rect.left)/rect.width)*2-1, y:-((y-rect.top)/rect.height)*2+1 }; }
+  _clientToNDC(x,y){
+    const rect = this.canvas.getBoundingClientRect();
+    return { x: ((x - rect.left) / rect.width) * 2 - 1, y: -((y - rect.top) / rect.height) * 2 + 1 };
+  }
   _pickFlameAt(x,y){
     const targets = [];
     if (this.fx) targets.push(...this.fx.getRaycastTargets());
     for (const f of this.fixedFX) targets.push(...f.getRaycastTargets());
     for (const f of this.bakedFX) targets.push(...f.getRaycastTargets());
     if (!targets.length) return null;
-    const ndc = this._clientToNDC(x,y); this.raycaster.setFromCamera(ndc, this.camera);
+    const ndc = this._clientToNDC(x,y);
+    this.raycaster.setFromCamera(ndc, this.camera);
     const hits = this.raycaster.intersectObjects(targets, true);
     if (!hits.length) return null;
     const m = hits[0].object;
@@ -142,23 +156,31 @@ export class Main {
     const start = (x,y)=>{
       if (!this.flameMoveMode) return;
       const fx = this._pickFlameAt(x,y);
-      if (!fx || !(fx instanceof EngineFX)) return;
-      this._dragTarget = fx; this._dragActive = true; this._dragStart.x = x; this._dragStart.y = y;
-      const p = fx.getParams(); this._dragBase.x = p.groupOffsetX; this._dragBase.z = p.groupOffsetZ;
+      if (!fx) return;
+      this._dragTarget = fx;
+      this._dragActive = true;
+      this._dragStart.x = x; this._dragStart.y = y;
+      const p = fx.getParams();
+      this._dragBase.x = p.groupOffsetX; this._dragBase.z = p.groupOffsetZ;
     };
     const move = (x,y,e)=>{
       if (!this._dragActive || !this._dragTarget) return;
       if (e) e.preventDefault();
-      const dx = x - this._dragStart.x; const dy = y - this._dragStart.y; const SCALE = 0.03;
-      const nx = this._dragBase.x + dx * SCALE; const nz = this._dragBase.z + dy * SCALE;
+      const dx = x - this._dragStart.x;
+      const dy = y - this._dragStart.y;
+      const SCALE = 0.03;
+      const nx = this._dragBase.x + dx * SCALE;
+      const nz = this._dragBase.z + dy * SCALE;
       this._dragTarget.setParams({ groupOffsetX:nx, groupOffsetZ:nz });
     };
     const end = ()=>{ this._dragActive=false; this._dragTarget=null; };
+
     this.canvas.addEventListener('pointerdown', (e)=> start(e.clientX,e.clientY), { passive:true });
     this.canvas.addEventListener('pointermove', (e)=> move(e.clientX,e.clientY,e), { passive:false });
     window.addEventListener('pointerup', end, { passive:true });
+
     this.canvas.addEventListener('touchstart', (e)=>{ const t=e.changedTouches[0]; if(!t) return; start(t.clientX,t.clientY); }, { passive:true });
-    this.canvas.addEventListener('touchmove', (e)=>{ const t=e.changedTouches[0]; if(!t) return; move(t.clientX,t.clientY,e); }, { passive:false });
+    this.canvas.addEventListener('touchmove',  (e)=>{ const t=e.changedTouches[0]; if(!t) return; move(t.clientX,t.clientY,e); }, { passive:false });
     window.addEventListener('touchend', end, { passive:true });
     window.addEventListener('touchcancel', end, { passive:true });
   }
@@ -177,101 +199,15 @@ export class Main {
           // Editable flame
           this.fx = new EngineFX(model,this.scene,this.camera);
           this.fx.setParams(this.defaultFXParams());
-          this.fx.setIgnition(false);
+          this.fx.setIgnition(false); // start OFF
           this.effects.push(this.fx);
-
-          // Individually baked flames
-          for (const entry of bakedFlames) {
-            const f = new EngineFX(model, this.scene, this.camera);
-            f.setParams({
-              ...this.defaultFXParams(),
-              groupOffsetX: entry.groupOffsetX,
-              groupOffsetY: entry.groupOffsetY,
-              groupOffsetZ: entry.groupOffsetZ
-            });
-            f.setIgnition(false);
-            this.bakedFX.push(f);
-            this.effects.push(f);
-          }
-
           this.enginePanel.setReady(true);
+
+          // NOTE: if you later want permanent baked flames, create them here and push to this.bakedFX & this.effects
+          // e.g.: const bf = new EngineFX(model,this.scene,this.camera); bf.setParams({...this.defaultFXParams(), groupOffsetX: X, groupOffsetZ: Z}); bf.setIgnition(false); this.bakedFX.push(bf); this.effects.push(bf);
         }
       },(error)=>{ this.debugger?.handleError(error, `StaticModel: ${obj.name}`); });
     });
-  }
-
-  // ====== Export JSON of all flames (editable + placed + baked) ======
-  exportAllFlamesJSON() {
-    const out = [];
-
-    const pushFX = (f, type, index=null) => {
-      const p = f.getParams();
-      out.push({
-        type, index,
-        groupOffsetX: +p.groupOffsetX.toFixed(3),
-        groupOffsetY: +p.groupOffsetY.toFixed(3),
-        groupOffsetZ: +p.groupOffsetZ.toFixed(3),
-        // include core look params so “procedural” is reproducible
-        flameWidthFactor: p.flameWidthFactor,
-        flameHeightFactor: p.flameHeightFactor,
-        flameYOffset: p.flameYOffset,
-        intensity: p.intensity,
-        taper: p.taper,
-        bulge: p.bulge,
-        tear: p.tear,
-        turbulence: p.turbulence,
-        noiseSpeed: p.noiseSpeed,
-        diamondsStrength: p.diamondsStrength,
-        diamondsFreq: p.diamondsFreq,
-        rimStrength: p.rimStrength,
-        rimSpeed: p.rimSpeed,
-        colorCyan: p.colorCyan,
-        colorOrange: p.colorOrange,
-        colorWhite: p.colorWhite,
-        tailFadeStart: p.tailFadeStart,
-        tailFeather: p.tailFeather,
-        tailNoise: p.tailNoise,
-        bottomFadeDepth: p.bottomFadeDepth,
-        bottomFadeFeather: p.bottomFadeFeather,
-        orangeShift: p.orangeShift
-      });
-    };
-
-    if (this.fx) pushFX(this.fx, 'editable', 0);
-    this.fixedFX.forEach((f,i)=> pushFX(f, 'placed', i));
-    this.bakedFX.forEach((f,i)=> pushFX(f, 'baked', i));
-
-    return JSON.stringify(out, null, 2);
-  }
-
-  // ====== Record animation as WebM (canvas capture) ======
-  async recordAnimationWebM({ durationMs = 8000, fps = 60 } = {}) {
-    // Start with engines OFF; then Ignite so the 2800ms delay shows correctly
-    this.enginePanel?.setIgnition?.(false);
-    await new Promise(r=>setTimeout(r, 200)); // tiny settle
-    this.enginePanel?.setIgnition?.(true);
-
-    const stream = this.canvas.captureStream(fps);
-    let mime = 'video/webm;codecs=vp9';
-    if (!MediaRecorder.isTypeSupported(mime)) mime = 'video/webm;codecs=vp8';
-    if (!MediaRecorder.isTypeSupported(mime)) mime = 'video/webm';
-
-    this._recordChunks = [];
-    this._recorder = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 8_000_000 });
-    this._recorder.ondataavailable = e => { if (e.data && e.data.size) this._recordChunks.push(e.data); };
-    this._recorder.onstop = () => {
-      const blob = new Blob(this._recordChunks, { type: mime });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url; a.download = 'flames.webm'; a.click();
-      setTimeout(()=>URL.revokeObjectURL(url), 500);
-      this._recordChunks = [];
-      // Auto cutoff at end
-      this.enginePanel?.setIgnition?.(false);
-    };
-
-    this._recorder.start();
-    setTimeout(() => { try{ this._recorder.stop(); } catch{} }, durationMs);
   }
 
   start(){ this.animate(); }
@@ -288,11 +224,17 @@ export class Main {
   updatePlayer(deltaTime){
     if (this.controlsPaused) return;
     const moveSpeed = 5.0*deltaTime, mv=this.controls.moveVector, lv=this.controls.lookVector;
-    if (lv.length()>0){ this.camera.rotation.y -= lv.x*this.lookSpeed; this.camera.rotation.x -= lv.y*this.lookSpeed;
+    if (lv.length()>0){
+      this.camera.rotation.y -= lv.x*this.lookSpeed;
+      this.camera.rotation.x -= lv.y*this.lookSpeed;
       this.camera.rotation.x = Math.max(-Math.PI/2, Math.min(Math.PI/2, this.camera.rotation.x));
-      this.controls.lookVector.set(0,0); }
-    this.playerVelocity.z = mv.y*moveSpeed; this.playerVelocity.x = mv.x*moveSpeed;
-    this.camera.translateX(this.playerVelocity.x); this.camera.translateZ(this.playerVelocity.z);
+      this.controls.lookVector.set(0,0);
+    }
+    this.playerVelocity.z = mv.y*moveSpeed;
+    this.playerVelocity.x = mv.x*moveSpeed;
+    this.camera.translateX(this.playerVelocity.x);
+    this.camera.translateZ(this.playerVelocity.z);
+
     const rayOrigin = new THREE.Vector3(this.camera.position.x,80,this.camera.position.z);
     this.raycaster.set(rayOrigin,this.rayDown);
     const terrainMeshes=[]; this.terrain.traverse(o=>{ if (o.isMesh) terrainMeshes.push(o); });
@@ -300,6 +242,135 @@ export class Main {
     if (hits.length>0) this.camera.position.y = hits[0].point.y + this.playerHeight;
   }
 
-  onWindowResize(){ this.camera.aspect = window.innerWidth/window.innerHeight; this.camera.updateProjectionMatrix(); this.renderer.setSize(window.innerWidth,window.innerHeight); }
-  initPerformanceMonitor(){ setInterval(()=>{ if (this.frameCount>0 && this.frameCount<30) this.debugger?.warn(`Low framerate detected: ${this.frameCount} FPS`,'Performance'); this.frameCount=0; },1000); }
+  onWindowResize(){
+    this.camera.aspect = window.innerWidth/window.innerHeight;
+    this.camera.updateProjectionMatrix();
+    this.renderer.setSize(window.innerWidth,window.innerHeight);
+  }
+
+  initPerformanceMonitor(){
+    setInterval(()=>{
+      if (this.frameCount>0 && this.frameCount<30)
+        this.debugger?.warn(`Low framerate detected: ${this.frameCount} FPS`,'Performance');
+      this.frameCount=0;
+    },1000);
+  }
+
+  // ===== Animated GLB Export (morph target cache) =====
+  async exportAnimatedGLB({ durationSec = 2.0, fps = 24, include = 'all' } = {}) {
+    const src = [];
+    if (include === 'all' || include === 'editable') { if (this.fx) src.push(this.fx); }
+    if (include === 'all' || include === 'placed')   { src.push(...this.fixedFX); }
+    if (include === 'all' || include === 'baked')    { src.push(...this.bakedFX); }
+    if (src.length === 0) throw new Error('No flames to export.');
+
+    // ensure visible for bake
+    for (const f of src) f.setIgnition(true);
+
+    const frames = Math.max(2, Math.round(durationSec * fps));
+    const group = new THREE.Group();
+    group.name = 'BakedFlames';
+
+    const clonePositions = (geom) => {
+      const arr = geom.attributes.position.array;
+      return new THREE.Float32BufferAttribute(new Float32Array(arr), 3);
+    };
+
+    const allTracks = [];
+    let clipTimeMax = 0;
+
+    for (let i = 0; i < src.length; i++) {
+      const fx = src[i];
+      const baseGeo = fx.mesh.geometry.clone();
+      baseGeo.morphAttributes = {}; baseGeo.morphAttributes.position = [];
+
+      for (let f = 0; f < frames; f++) {
+        const t = f / fps;
+        fx.update(0, t);
+        const posAttr = clonePositions(fx.mesh.geometry);
+        baseGeo.morphAttributes.position.push(posAttr);
+      }
+
+      const mat = new THREE.MeshStandardMaterial({
+        color: 0xffffff,
+        emissive: 0xffb869,
+        emissiveIntensity: 1.0,
+        transparent: true,
+        opacity: 0.6,
+        depthWrite: false
+      });
+      const mesh = new THREE.Mesh(baseGeo, mat);
+      mesh.name = `Flame_${i}`;
+      mesh.position.copy(fx.group.position);
+      mesh.position.y += fx.mesh.position.y; // include flameYOffset
+      mesh.rotation.copy(fx.group.rotation);
+      mesh.scale.copy(fx.group.scale);
+      mesh.updateMatrixWorld();
+      group.add(mesh);
+
+      for (let f = 0; f < frames; f++) {
+        const t0 = f / fps;
+        const t1 = (f + 1) / fps;
+        clipTimeMax = Math.max(clipTimeMax, t1);
+        const track = new THREE.NumberKeyframeTrack(
+          `.objects[${mesh.uuid}].morphTargetInfluences[${f}]`,
+          [t0, t1],
+          [1, 0]
+        );
+        allTracks.push(track);
+      }
+    }
+
+    const clip = new THREE.AnimationClip('FlameLoop', clipTimeMax, allTracks);
+    group.animations = [clip];
+
+    group.traverse(o => {
+      if (o.isMesh && o.geometry?.morphAttributes?.position) {
+        o.morphTargetDictionary = {};
+        const count = o.geometry.morphAttributes.position.length;
+        for (let i = 0; i < count; i++) o.morphTargetDictionary[`F${i}`] = i;
+      }
+    });
+
+    const exporter = new GLTFExporter();
+    exporter.parse(group, (glb) => {
+      const blob = new Blob([glb], { type: 'model/gltf-binary' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = 'flames_animated.glb'; a.click();
+      setTimeout(()=>URL.revokeObjectURL(url), 250);
+      this.debugger?.log('Animated GLB exported.');
+    }, { binary: true, includeCustomExtensions: false });
+
+    for (const f of src) f.setIgnition(false);
+  }
+
+  // JSON snapshot of all flames (editable + placed + baked)
+  exportAllFlamesJSON() {
+    const out = [];
+    const pushFX = (f, type, index=null) => {
+      const p = f.getParams();
+      out.push({
+        type, index,
+        groupOffsetX:+p.groupOffsetX.toFixed(3),
+        groupOffsetY:+p.groupOffsetY.toFixed(3),
+        groupOffsetZ:+p.groupOffsetZ.toFixed(3),
+        flameWidthFactor:p.flameWidthFactor,
+        flameHeightFactor:p.flameHeightFactor,
+        flameYOffset:p.flameYOffset,
+        intensity:p.intensity, taper:p.taper, bulge:p.bulge, tear:p.tear,
+        turbulence:p.turbulence, noiseSpeed:p.noiseSpeed,
+        diamondsStrength:p.diamondsStrength, diamondsFreq:p.diamondsFreq,
+        rimStrength:p.rimStrength, rimSpeed:p.rimSpeed,
+        colorCyan:p.colorCyan, colorOrange:p.colorOrange, colorWhite:p.colorWhite,
+        tailFadeStart:p.tailFadeStart, tailFeather:p.tailFeather, tailNoise:p.tailNoise,
+        bottomFadeDepth:p.bottomFadeDepth, bottomFadeFeather:p.bottomFadeFeather,
+        orangeShift:p.orangeShift
+      });
+    };
+    if (this.fx) pushFX(this.fx,'editable',0);
+    this.fixedFX.forEach((f,i)=>pushFX(f,'placed',i));
+    this.bakedFX .forEach((f,i)=>pushFX(f,'baked',i));
+    return JSON.stringify(out, null, 2);
+  }
 }
