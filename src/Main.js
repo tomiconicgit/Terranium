@@ -12,8 +12,9 @@ import { HighlighterUI }  from './ui/Highlighter.js';
 import { worldObjects }   from './world/Mapping.js';
 import { loadModel }      from './ModelLoading.js';
 import { EngineFX }       from './effects/EngineFX.js';
-import { InstancedFlames } from './effects/InstancedFlames.js';
-import { bakedFlameOffsets } from './world/BakedFlames.js';
+// ⬇️ Instanced system left in the project, but not imported/used while you collect positions
+// import { InstancedFlames } from './effects/InstancedFlames.js';
+// import { bakedFlameOffsets } from './world/BakedFlames.js';
 
 export class Main {
   constructor(debuggerInstance) {
@@ -39,7 +40,10 @@ export class Main {
 
     this.effects = [];
     this.fx = null;
+
+    // Instanced system kept “off” while you gather exact positions:
     this.instanced = null;
+
     this.fixedFX = []; this.activeFixedIndex = -1;
 
     this.flameMoveMode = false;
@@ -69,7 +73,7 @@ export class Main {
       get: () => (this.fx ? this.fx.getParams() : this.defaultFXParams()),
       set: (patch) => {
         if (this.fx) this.fx.setParams(patch);
-        // Sync instanced flames with UI changes for visual consistency
+        // Instanced is disabled for now, but keep the sync guard for later
         if (this.instanced) this.instanced.setParams(patch);
       },
       setIgnition: (on) => {
@@ -158,18 +162,20 @@ export class Main {
         if (obj.name === 'SuperHeavy') {
           this.rocketModel = model;
           
+          // === Editable single flame ===
           this.fx = new EngineFX(this.rocketModel, this.scene, this.camera);
           this.fx.setParams(this.defaultFXParams());
           this.fx.setIgnition(false);
           this.effects.push(this.fx);
 
-          this.instanced = new InstancedFlames(
-            this.rocketModel,
-            bakedFlameOffsets, 
-            this.fx.getParams()
-          );
-          this.instanced.setIgnition(false);
-          this.effects.push(this.instanced);
+          // === Instanced flames DISABLED while you collect positions ===
+          // this.instanced = new InstancedFlames(
+          //   this.rocketModel,
+          //   bakedFlameOffsets, 
+          //   this.fx.getParams()
+          // );
+          // this.instanced.setIgnition(false);
+          // this.effects.push(this.instanced);
 
           this.enginePanel.setReady(true);
         }
