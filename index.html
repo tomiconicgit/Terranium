@@ -7,12 +7,10 @@
     content="width=device-width, initial-scale=1.0, user-scalable=no">
   <title>Terranium</title>
 
-  <!-- PWA -->
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="apple-touch-icon" href="/icons/icon-192x192.png">
   <meta name="theme-color" content="#121828">
 
-  <!-- Import map: allows bare imports "three" and "three/addons/..." -->
   <script type="importmap">
   {
     "imports": {
@@ -23,11 +21,9 @@
   </script>
 
   <link rel="stylesheet" href="style.css">
-  <!-- Load the robust loader AFTER the import map -->
   <script type="module" src="Loader.js" defer></script>
 </head>
 <body>
-  <!-- Loader UI -->
   <div id="loader-container">
     <div class="loader-card">
       <div class="loader-image-side">
@@ -55,10 +51,8 @@
     </div>
   </div>
 
-  <!-- In-game debugger notifications (kept above canvas so it’s clickable) -->
   <div id="debugger-notifications"></div>
 
-  <!-- Game canvas -->
   <canvas id="game-canvas"></canvas>
 
   <noscript>
