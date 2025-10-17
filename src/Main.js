@@ -1,4 +1,4 @@
-// src/Main.js — updated to add InstancedFlames baked set (GPU instancing)
+// src/Main.js — updated to wire InstancedFlames (baked, GPU-instanced)
 import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.163.0/build/three.module.js';
 import { createTerrain }  from './scene/Terrain.js';
 import { createSkyDome }  from './scene/SkyDome.js';
@@ -36,10 +36,10 @@ export class Main {
 
     this.raycaster = new THREE.Raycaster(); this.rayDown = new THREE.Vector3(0, -1, 0);
 
-    this.effects = [];             // all updatable effects (editable + instanced)
-    this.fx = null;                // editable flame (EngineFX)
-    this.instanced = null;         // baked instanced flames
-    this.fixedFX = [];             // (legacy) left intact; not used with instancing
+    this.effects = [];        // everything updated per-frame (editable + instanced + (any) fixed)
+    this.fx = null;           // editable flame
+    this.instanced = null;    // GPU-instanced baked set
+    this.fixedFX = [];        // optional placed copies
     this.activeFixedIndex = -1;
 
     // Move mode
@@ -48,7 +48,6 @@ export class Main {
     this._dragStart = { x: 0, y: 0 };
     this._dragBase  = { x: 0, z: 0 };
     this._dragTarget = null;
-    this._dragInstanceId = null;   // for InstancedFlames
     this._bindMoveHandlers();
 
     this.clock = new THREE.Clock(); this.frameCount = 0;
@@ -68,24 +67,25 @@ export class Main {
 
     this.enginePanel = new EnginePanelUI({
       get: () => (this.fx ? this.fx.getParams() : this.defaultFXParams()),
-      set: (patch) => { 
+      set: (patch) => {
         if (this.fx) this.fx.setParams(patch);
-        if (this.instanced) this.instanced.setParams(patch); // keep visuals in sync
+        if (this.instanced) this.instanced.setParams(patch);   // keep batch visually in sync
       },
-      setIgnition: (on) => { 
+      setIgnition: (on) => {
         if (this.fx) this.fx.setIgnition(on);
         if (this.instanced) this.instanced.setIgnition(on);
+        for (const f of this.fixedFX) f.setIgnition(on);
       },
       getIgnition: () => (this.fx ? this.fx.getIgnition() : false),
 
       onPanelOpen: () => { this.controlsPaused = true; this.controls.setPaused(true); },
       onPanelClose: () => { this.controlsPaused = false; this.controls.setPaused(false); this.setMoveMode(false); },
 
-      placeFlame: () => this.placeFixedFlame(),           // legacy
-      setMoveMode: (on) => this.setMoveMode(on),          // drag support
-      selectFixed: (idx) => this.setActiveFixed(idx),     // legacy
+      placeFlame: () => this.placeFixedFlame(),
+      setMoveMode: (on) => this.setMoveMode(on),
+      selectFixed: (idx) => this.setActiveFixed(idx),
 
-      getFixedList: () => this.getFixedList(),            // legacy
+      getFixedList: () => this.getFixedList(),
       copyFixedJSON: () => JSON.stringify(this.getFixedList(), null, 2),
     }, this.debugger);
   }
@@ -101,7 +101,6 @@ export class Main {
     orangeShift:-0.2, lightIntensity:50.0, lightDistance:800.0, lightColor:'#ffb869'
   };}
 
-  // (legacy place/select/copy for individual non-instanced flames)
   placeFixedFlame(){
     if (!this.fx || !this.rocketModel) return -1;
     const p = this.fx.getParams();
@@ -114,87 +113,42 @@ export class Main {
   setActiveFixed(idx){ if (idx>=0 && idx<this.fixedFX.length){ this.activeFixedIndex=idx; return true; } this.activeFixedIndex=-1; return false; }
   getFixedList(){ return this.fixedFX.map((f,i)=>{ const p=f.getParams(); return { index:i,
     groupOffsetX:+p.groupOffsetX.toFixed(3), groupOffsetY:+p.groupOffsetY.toFixed(3), groupOffsetZ:+p.groupOffsetZ.toFixed(3) }; }); }
-  setMoveMode(on){ this.flameMoveMode=!!on; if (!on){ this._dragActive=false; this._dragTarget=null; this._dragInstanceId=null; } }
+  setMoveMode(on){ this.flameMoveMode=!!on; if (!on){ this._dragActive=false; this._dragTarget=null; } }
 
-  // ---- picking helpers ----
-  _clientToNDC(x,y){
-    const rect = this.canvas.getBoundingClientRect();
-    return {
-      x: ((x - rect.left) / rect.width) * 2 - 1,
-      y: -((y - rect.top) / rect.height) * 2 + 1
-    };
-  }
+  // ---- picking helpers (unchanged) ----
+  _clientToNDC(x,y){ const rect=this.canvas.getBoundingClientRect(); return { x:((x-rect.left)/rect.width)*2-1, y:-((y-rect.top)/rect.height)*2+1 }; }
   _pickFlameAt(x,y){
     const targets = [];
     if (this.fx) targets.push(...this.fx.getRaycastTargets());
-    if (this.instanced) targets.push(...this.instanced.getRaycastTargets());
+    if (this.instanced) targets.push(...this.instanced.getRaycastTargets()); // not for dragging (batch), but okay to pick
     for (const f of this.fixedFX) targets.push(...f.getRaycastTargets());
     if (!targets.length) return null;
-
-    const ndc = this._clientToNDC(x,y);
-    this.raycaster.setFromCamera(ndc, this.camera);
+    const ndc = this._clientToNDC(x,y); this.raycaster.setFromCamera(ndc, this.camera);
     const hits = this.raycaster.intersectObjects(targets, true);
     if (!hits.length) return null;
-
-    const hit = hits[0];
-    const m = hit.object;
-    const manager = m.userData.__engineFX || null;
-    if (!manager) return null;
-
-    // If instanced, remember which instance we hit
-    this._dragInstanceId = (typeof hit.instanceId === 'number') ? hit.instanceId : null;
-    return manager;
+    const m = hits[0].object;
+    return m.userData.__engineFX || null;
   }
-
   _bindMoveHandlers(){
     const start = (x,y)=>{
       if (!this.flameMoveMode) return;
-      const fx = this._pickFlameAt(x,y); // must touch a flame to start
-      if (!fx) return;
-      this._dragTarget = fx;
-      this._dragActive = true;
-      this._dragStart.x = x; this._dragStart.y = y;
-
-      // base X/Z from current selection
-      if (fx === this.instanced && this._dragInstanceId != null) {
-        // read current matrix for that instance
-        const mat = new THREE.Matrix4();
-        this.instanced.mesh.getMatrixAt(this._dragInstanceId, mat);
-        this._dragBase.x = mat.elements[12];
-        this._dragBase.z = mat.elements[14];
-      } else if (fx === this.fx) {
-        const p = fx.getParams();
-        this._dragBase.x = p.groupOffsetX; this._dragBase.z = p.groupOffsetZ;
-      } else {
-        const p = fx.getParams();
-        this._dragBase.x = p.groupOffsetX; this._dragBase.z = p.groupOffsetZ;
-      }
+      const fx = this._pickFlameAt(x,y);
+      // Only allow dragging of editable or a fixed single EngineFX, not the instanced batch.
+      if (!fx || !(fx instanceof EngineFX)) return;
+      this._dragTarget = fx; this._dragActive = true; this._dragStart.x = x; this._dragStart.y = y;
+      const p = fx.getParams(); this._dragBase.x = p.groupOffsetX; this._dragBase.z = p.groupOffsetZ;
     };
-
     const move = (x,y,e)=>{
       if (!this._dragActive || !this._dragTarget) return;
       if (e) e.preventDefault();
-      const dx = x - this._dragStart.x;
-      const dy = y - this._dragStart.y;
-      const SCALE = 0.03; // m per pixel
-      const nx = this._dragBase.x + dx * SCALE;
-      const nz = this._dragBase.z + dy * SCALE;
-
-      if (this._dragTarget === this.instanced && this._dragInstanceId != null) {
-        this.instanced.setInstanceOffset(this._dragInstanceId, { groupOffsetX:nx, groupOffsetZ:nz });
-      } else {
-        this._dragTarget.setParams({ groupOffsetX:nx, groupOffsetZ:nz });
-      }
+      const dx = x - this._dragStart.x; const dy = y - this._dragStart.y; const SCALE = 0.03;
+      const nx = this._dragBase.x + dx * SCALE; const nz = this._dragBase.z + dy * SCALE;
+      this._dragTarget.setParams({ groupOffsetX:nx, groupOffsetZ:nz });
     };
-
-    const end = ()=>{ this._dragActive=false; this._dragTarget=null; this._dragInstanceId=null; };
-
-    // Pointer
+    const end = ()=>{ this._dragActive=false; this._dragTarget=null; };
     this.canvas.addEventListener('pointerdown', (e)=> start(e.clientX,e.clientY), { passive:true });
     this.canvas.addEventListener('pointermove', (e)=> move(e.clientX,e.clientY,e), { passive:false });
     window.addEventListener('pointerup', end, { passive:true });
-
-    // Touch
     this.canvas.addEventListener('touchstart', (e)=>{ const t=e.changedTouches[0]; if(!t) return; start(t.clientX,t.clientY); }, { passive:true });
     this.canvas.addEventListener('touchmove', (e)=>{ const t=e.changedTouches[0]; if(!t) return; move(t.clientX,t.clientY,e); }, { passive:false });
     window.addEventListener('touchend', end, { passive:true });
@@ -212,21 +166,16 @@ export class Main {
         this.debugger?.log(`Loaded static model: ${obj.name}`);
 
         if (obj.name === 'SuperHeavy') {
-          // 1) Editable flame
+          // Editable single flame
           this.fx = new EngineFX(model,this.scene,this.camera);
           this.fx.setParams(this.defaultFXParams());
-          this.fx.setIgnition(false); // start OFF
+          this.fx.setIgnition(false);
           this.effects.push(this.fx);
-
-          // 2) Instanced baked flames
-          try {
-            this.instanced = new InstancedFlames(model, this.scene, bakedFlames);
-            this.instanced.setParams(this.defaultFXParams()); // sync visuals
-            this.instanced.setIgnition(false);
-            this.effects.push(this.instanced);
-          } catch (e) {
-            this.debugger?.handleError(e, 'InstancedFlames');
-          }
+          // Instanced baked flames
+          this.instanced = new InstancedFlames(model, this.scene, bakedFlames);
+          this.instanced.setParams(this.defaultFXParams());
+          this.instanced.setIgnition(false);
+          this.effects.push(this.instanced);
 
           this.enginePanel.setReady(true);
         }
@@ -239,7 +188,7 @@ export class Main {
     requestAnimationFrame(()=>this.animate());
     const dt = this.clock.getDelta(), t = this.clock.elapsedTime;
     if (dt>0) this.updatePlayer(dt);
-    for (const fx of this.effects) fx.update?.(dt,t);
+    for (const fx of this.effects) fx.update(dt,t);
     if (this.highlighter?.update) this.highlighter.update(dt);
     this.renderer.render(this.scene,this.camera);
     this.frameCount++;
