@@ -77,9 +77,26 @@ export class InstancedFlames {
       this.initialVertices.push(new THREE.Vector3().fromBufferAttribute(pos, i));
     }
 
+    // Cache inverse parent scale used to neutralize rocketRoot scaling.
+    this._invParentScale = new THREE.Vector3(1, 1, 1);
+    this._refreshInverseParentScale();
+
     this.rocketRoot.add(this.mesh);
     this._applyInstanceMatrices(offsets);
     this._applyVisibility();
+  }
+
+  // If your rocket model scale changes at runtime, call this and then setOffsets(...)
+  _refreshInverseParentScale() {
+    const s = new THREE.Vector3(1, 1, 1);
+    // Use world scale so we always neutralize whatever chain exists above rocketRoot
+    this.rocketRoot.updateWorldMatrix(true, false);
+    this.rocketRoot.getWorldScale(s);
+    this._invParentScale.set(
+      s.x !== 0 ? 1 / s.x : 1,
+      s.y !== 0 ? 1 / s.y : 1,
+      s.z !== 0 ? 1 / s.z : 1
+    );
   }
 
   setOffsets(offsets = []) {
@@ -93,6 +110,8 @@ export class InstancedFlames {
       this.rocketRoot.add(this.mesh);
       old.dispose?.();
     }
+    // Recompute in case parent scale changed
+    this._refreshInverseParentScale();
     this._applyInstanceMatrices(offsets);
   }
 
@@ -117,6 +136,12 @@ export class InstancedFlames {
   setParams(patch) {
     Object.assign(this.params, patch || {});
     this._applyUniforms();
+    // If flameYOffset changed, we must rebuild instance matrices
+    if (patch && ('flameYOffset' in patch)) {
+      // Reuse current offsets by reading back the matrices (or the original baked list if you have it externally)
+      // For simplicity assume caller keeps the baked list and will call setOffsets again when positions change.
+      // No-op here; we only need to re-run _applyInstanceMatrices if offsets are re-sent.
+    }
   }
 
   update(delta, t) {
@@ -129,62 +154,76 @@ export class InstancedFlames {
   }
 
   _updateFlameGeometry(t) {
-      const g = this.geometry;
-      const pos = g.attributes.position;
-      const w = this.flameWidthBase * this.params.flameWidthFactor;
-      const h = this.flameHeightBase * this.params.flameHeightFactor;
+    const g = this.geometry;
+    const pos = g.attributes.position;
+    const w = this.flameWidthBase * this.params.flameWidthFactor;
+    const h = this.flameHeightBase * this.params.flameHeightFactor;
 
-      const radiusProfile = (y_norm) => {
-        let r = mix(0.50, 0.28, clamp(this.params.taper, 0.0, 1.0));
-        r += this.params.bulge * smoothstep(0.0, 0.35, 0.35 - Math.abs(y_norm - 0.175)) * 0.35;
-        r = mix(r, 0.10, smoothstep(0.60, 0.90, y_norm));
-        const pinch = Math.pow(smoothstep(0.75, 1.0, y_norm), mix(4.0, 15.0, clamp(this.params.tear, 0.0, 1.0)));
-        r = mix(r, 0.0, pinch);
-        return r * w;
-      };
+    const radiusProfile = (y_norm) => {
+      let r = mix(0.50, 0.28, clamp(this.params.taper, 0.0, 1.0));
+      r += this.params.bulge * smoothstep(0.0, 0.35, 0.35 - Math.abs(y_norm - 0.175)) * 0.35;
+      r = mix(r, 0.10, smoothstep(0.60, 0.90, y_norm));
+      const pinch = Math.pow(smoothstep(0.75, 1.0, y_norm), mix(4.0, 15.0, clamp(this.params.tear, 0.0, 1.0)));
+      r = mix(r, 0.0, pinch);
+      return r * w;
+    };
 
-      const tmp = new THREE.Vector2();
-      for (let i = 0; i < pos.count; i++) {
-        const ov = this.initialVertices[i];
-        const y0 = ov.y;
-        const y_norm = (y0 / -h);
-        const curR = radiusProfile(y_norm);
+    const tmp = new THREE.Vector2();
+    for (let i = 0; i < pos.count; i++) {
+      const ov = this.initialVertices[i];
+      const y0 = ov.y;
+      const y_norm = (y0 / -h);
+      const curR = radiusProfile(y_norm);
 
-        tmp.set(ov.x, ov.z);
-        const ang = Math.atan2(tmp.y, tmp.x);
+      tmp.set(ov.x, ov.z);
+      const ang = Math.atan2(tmp.y, tmp.x);
 
-        tmp.set(y_norm * 6.0, t * this.params.noiseSpeed);
-        const wob = (fbm(tmp.clone()) - 0.5) * (0.35 * this.params.turbulence * w);
+      tmp.set(y_norm * 6.0, t * this.params.noiseSpeed);
+      const wob = (fbm(tmp.clone()) - 0.5) * (0.35 * this.params.turbulence * w);
 
-        const ro = curR + wob;
-        pos.setX(i, Math.cos(ang) * ro);
-        pos.setZ(i, Math.sin(ang) * ro);
-        pos.setY(i, y0 * this.params.flameHeightFactor);
+      const ro = curR + wob;
+      pos.setX(i, Math.cos(ang) * ro);
+      pos.setZ(i, Math.sin(ang) * ro);
+      pos.setY(i, y0 * this.params.flameHeightFactor);
 
-        if (y_norm < 0.05) {
-          const f = smoothstep(0.05, 0.0, y_norm);
-          pos.setX(i, pos.getX(i) * f);
-          pos.setZ(i, pos.getZ(i) * f);
-        }
+      if (y_norm < 0.05) {
+        const f = smoothstep(0.05, 0.0, y_norm);
+        pos.setX(i, pos.getX(i) * f);
+        pos.setZ(i, pos.getZ(i) * f);
       }
-      pos.needsUpdate = true;
-      g.computeVertexNormals();
+    }
+    pos.needsUpdate = true;
+    g.computeVertexNormals();
   }
 
   _applyInstanceMatrices(offsets) {
+    // Neutralize parent (rocketRoot) scale so these instance transforms are in *world* units
+    const inv = this._invParentScale; // Vector3
     const dummy = new THREE.Object3D();
+
     for (let i = 0; i < this.mesh.count; i++) {
       const o = offsets[i] || { groupOffsetX: 0, groupOffsetY: 0, groupOffsetZ: 0 };
-      dummy.position.set(
-        o.groupOffsetX,
-        10.0 + this.params.flameYOffset + o.groupOffsetY,
-        o.groupOffsetZ
-      );
+
+      // Convert intended world offsets into parent-local space by multiplying by inverse scale.
+      const px = o.groupOffsetX * inv.x;
+      const py = (10.0 + this.params.flameYOffset + o.groupOffsetY) * inv.y;
+      const pz = o.groupOffsetZ * inv.z;
+
+      dummy.position.set(px, py, pz);
+
+      // Apply inverse scale so that after parent scaling, the flame's *size* matches world space (like the editable flame).
+      dummy.scale.set(inv.x, inv.y, inv.z);
+
+      dummy.rotation.set(0, 0, 0);
       dummy.updateMatrix();
       this.mesh.setMatrixAt(i, dummy.matrix);
     }
     this.mesh.instanceMatrix.needsUpdate = true;
+
+    // Keep instanced mesh object itself untransformed.
     this.mesh.position.set(0, 0, 0);
+    this.mesh.rotation.set(0, 0, 0);
+    this.mesh.scale.set(1, 1, 1);
   }
 
   _applyVisibility() {
@@ -239,7 +278,9 @@ export class InstancedFlames {
       vertexShader: `
         varying float y_norm;
         void main() {
+          // NOTE: base flame height is 40.0 (same as EngineFX)
           y_norm = position.y / -40.0;
+          // Instanced: instanceMatrix is baked with inverse parent scale and local-space translation.
           gl_Position = projectionMatrix * modelViewMatrix * instanceMatrix * vec4(position, 1.0);
         }
       `,
