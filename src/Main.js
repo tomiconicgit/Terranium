@@ -37,12 +37,11 @@ export class Main {
 
     this.raycaster = new THREE.Raycaster(); this.rayDown = new THREE.Vector3(0, -1, 0);
 
-    this.effects = [];            // all FX that need update()
-    this.fx = null;               // editable single flame (with audio & UI)
-    this.instanced = null;        // many baked flames using InstancedMesh
+    this.effects = [];
+    this.fx = null;
+    this.instanced = null;
     this.fixedFX = []; this.activeFixedIndex = -1;
 
-    // move/drag logic remains as before for single/fixed flames
     this.flameMoveMode = false;
     this._dragActive = false;
     this._dragStart = { x: 0, y: 0 };
@@ -62,6 +61,7 @@ export class Main {
   }
 
   initModelSystems() {
+    // Note: The order here is important as they attach to the same UI container
     this.importModelUI = new ImportModelUI(this.scene,(m)=>{ this.modelSliders.setActiveModel(m); },this.debugger);
     this.modelSliders = new ModelSlidersUI(this.debugger);
 
@@ -69,7 +69,8 @@ export class Main {
       get: () => (this.fx ? this.fx.getParams() : this.defaultFXParams()),
       set: (patch) => {
         if (this.fx) this.fx.setParams(patch);
-        if (this.instanced) this.instanced.setParams(patch); // keep visuals in sync
+        // Sync instanced flames with UI changes for visual consistency
+        if (this.instanced) this.instanced.setParams(patch);
       },
       setIgnition: (on) => {
         if (this.fx) this.fx.setIgnition(on);
@@ -77,22 +78,18 @@ export class Main {
         for (const f of this.fixedFX) f.setIgnition(on);
       },
       getIgnition: () => (this.fx ? this.fx.getIgnition() : false),
-
       onPanelOpen: () => { this.controlsPaused = true; this.controls.setPaused(true); },
       onPanelClose: () => { this.controlsPaused = false; this.controls.setPaused(false); this.setMoveMode(false); },
-
       placeFlame: () => this.placeFixedFlame(),
       setMoveMode: (on) => this.setMoveMode(on),
       selectFixed: (idx) => this.setActiveFixed(idx),
-
       getFixedList: () => this.getFixedList(),
       copyFixedJSON: () => JSON.stringify(this.getFixedList(), null, 2),
     }, this.debugger);
   }
 
   defaultFXParams(){ return {
-    enginesOn:false,
-    flameWidthFactor:0.7, flameHeightFactor:0.8, flameYOffset:7.6,
+    enginesOn:false, flameWidthFactor:0.7, flameHeightFactor:0.8, flameYOffset:7.6,
     intensity:1.5, taper:0.0, bulge:1.0, tear:1.0, turbulence:0.5, noiseSpeed:2.2,
     diamondsStrength:0.9, diamondsFreq:2.8, rimStrength:0.0, rimSpeed:4.1,
     colorCyan:0.5, colorOrange:3.0, colorWhite:0.9,
@@ -111,12 +108,16 @@ export class Main {
     this.activeFixedIndex = this.fixedFX.length - 1;
     return this.activeFixedIndex;
   }
+  
   setActiveFixed(idx){ if (idx>=0 && idx<this.fixedFX.length){ this.activeFixedIndex=idx; return true; } this.activeFixedIndex=-1; return false; }
+  
   getFixedList(){ return this.fixedFX.map((f,i)=>{ const p=f.getParams(); return { index:i,
     groupOffsetX:+p.groupOffsetX.toFixed(3), groupOffsetY:+p.groupOffsetY.toFixed(3), groupOffsetZ:+p.groupOffsetZ.toFixed(3) }; }); }
+  
   setMoveMode(on){ this.flameMoveMode=!!on; if (!on){ this._dragActive=false; this._dragTarget=null; } }
 
   _clientToNDC(x,y){ const rect=this.canvas.getBoundingClientRect(); return { x:((x-rect.left)/rect.width)*2-1, y:-((y-rect.top)/rect.height)*2+1 }; }
+  
   _pickFlameAt(x,y){
     const targets = [];
     if (this.fx) targets.push(...this.fx.getRaycastTargets());
@@ -127,6 +128,7 @@ export class Main {
     if (!hits.length) return null;
     return hits[0].object.userData.__engineFX || null;
   }
+  
   _bindMoveHandlers(){
     const start=(x,y)=>{ if(!this.flameMoveMode) return; const fx=this._pickFlameAt(x,y); if(!fx) return;
       this._dragTarget=fx; this._dragActive=true; this._dragStart.x=x; this._dragStart.y=y;
@@ -154,15 +156,13 @@ export class Main {
         this.debugger?.log(`Loaded static model: ${obj.name}`);
 
         if (obj.name === 'SuperHeavy') {
-          this.rocketModel = model; // Store reference to the rocket
+          this.rocketModel = model;
           
-          // 1) Editable single flame (with audio & UI)
           this.fx = new EngineFX(this.rocketModel, this.scene, this.camera);
           this.fx.setParams(this.defaultFXParams());
           this.fx.setIgnition(false);
           this.effects.push(this.fx);
 
-          // 2) Instanced baked flames (GPU-friendly)
           this.instanced = new InstancedFlames(
             this.rocketModel,
             bakedFlameOffsets, 
