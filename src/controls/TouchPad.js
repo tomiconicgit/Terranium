@@ -11,7 +11,21 @@ export class TouchPad {
     this.activeLookId = null;
     this.lookStart = new THREE.Vector2();
 
+    // NEW: pause flag so UI can disable look/joystick
+    this.paused = false;
+
     this.addEventListeners();
+  }
+
+  /** Pause/resume all control capture (used when Engine Panel is open). */
+  setPaused(p) {
+    this.paused = !!p;
+    if (this.paused) {
+      this.activeLookId = null;
+      this.lookVector.set(0, 0);
+      this.moveVector.set(0, 0);
+      this.joystickNub.style.transform = 'translate(0, 0)';
+    }
   }
 
   createJoystick() {
@@ -38,13 +52,13 @@ export class TouchPad {
   }
 
   addEventListeners() {
-    // Joystick (we do preventDefault here so the page doesn’t scroll)
+    // Joystick
     this.joystickContainer.addEventListener('touchstart', (e) => this.onJoystickMove(e), { passive: false });
     this.joystickContainer.addEventListener('touchmove',  (e) => this.onJoystickMove(e), { passive: false });
     this.joystickContainer.addEventListener('touchend',   () => this.onJoystickEnd(),   { passive: true  });
     this.joystickContainer.addEventListener('touchcancel',() => this.onJoystickEnd(),   { passive: true  });
 
-    // Camera look — **do not** preventDefault on UI touches
+    // Camera look — do not preventDefault on UI touches
     window.addEventListener('touchstart', (e) => this.onLookStart(e), { passive: true  });
     window.addEventListener('touchmove',  (e) => this.onLookMove(e),  { passive: false });
     window.addEventListener('touchend',   (e) => this.onLookEnd(e),   { passive: true  });
@@ -53,6 +67,7 @@ export class TouchPad {
 
   // ── Joystick ────────────────────────────────────────────────────────────────
   onJoystickMove(event) {
+    if (this.paused) return; // disable while UI is open
     event.preventDefault();
     const touch = event.touches[0];
     const rect = this.joystickBase.getBoundingClientRect();
@@ -76,9 +91,9 @@ export class TouchPad {
     this.moveVector.set(0, 0);
   }
 
-  // ── Camera look ─────────────────────────────────────────────────────────────
+  // ── Camera look ────────────────────────────────────────────────────────────
   onLookStart(event) {
-    // ignore touches that start on UI elements (do NOT preventDefault)
+    if (this.paused) return; // panel open → ignore look startup
     for (const touch of event.changedTouches) {
       if (this._isUITarget(touch.target) || touch.target === this.joystickBase) continue;
       this.activeLookId = touch.identifier;
@@ -88,11 +103,11 @@ export class TouchPad {
   }
 
   onLookMove(event) {
+    if (this.paused) return;
     if (this.activeLookId === null) return;
 
     for (const touch of event.changedTouches) {
       if (touch.identifier === this.activeLookId) {
-        // If this finger moves over UI later, just stop updating (don’t cancel UI)
         if (this._isUITarget(touch.target)) return;
 
         const currentPos = new THREE.Vector2(touch.clientX, touch.clientY);
