@@ -2,8 +2,7 @@
 
 import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.163.0/build/three.module.js';
 
-// Scene bits
-import { createTerrain }    from './scene/Terrain.js';
+// Scene bits (we keep Sky, Lighting, Camera)
 import { createSkyDome }    from './scene/SkyDome.js';
 import { createLighting }   from './scene/Lighting.js';
 import { createCamera }     from './scene/Camera.js';
@@ -20,8 +19,8 @@ import { worldObjects }     from './world/Mapping.js';
 import { loadModel }        from './ModelLoading.js';
 import { EngineFX }         from './effects/EngineFX.js';
 
-// (Optional) Simple dig-out pass. If you’re not using it, you can remove these two lines.
-import { applySimpleExcavation } from './scene/Excavation.js';
+// Your new Terrain.js only exports the simple dig-out helper
+import { applySimpleExcavation } from './scene/Terrain.js';
 
 export class Main {
   constructor(debuggerInstance) {
@@ -44,7 +43,7 @@ export class Main {
     this.scene.add(ambientLight, sunLight, sunLight.target);
 
     // Terrain + sky
-    this.terrain = createTerrain();
+    this.terrain = this._createBasicTerrain();   // <— we build tiles here now
     this.scene.add(this.terrain, createSkyDome());
 
     // Controls
@@ -68,7 +67,7 @@ export class Main {
     this.initModelSystems();
     this.loadStaticModels();
 
-    // Optional: apply a dig-out selection if provided on window (keeps Main.js short)
+    // Optional: apply a dig-out selection if provided on window
     // Example: window.EXCAVATION_SELECTION = { tileSize: 1, tiles: [{i:0,j:0},{i:1,j:0}, ...] }
     if (window.EXCAVATION_SELECTION) {
       try {
@@ -85,9 +84,14 @@ export class Main {
       }
     }
 
-    // Highlighter tool (tile picking & JSON copy UX)
+    // Highlighter tool (tile picking & JSON copy UX) — constructor takes an options object
     try {
-      this.highlighter = new HighlighterUI(this.scene, this.camera, this.terrain, this.debugger);
+      this.highlighter = new HighlighterUI({
+        scene: this.scene,
+        camera: this.camera,
+        terrainGroup: this.terrain,
+        debugger: this.debugger
+      });
     } catch (e) {
       this.debugger?.handleError(e, 'HighlighterInit');
     }
@@ -105,7 +109,7 @@ export class Main {
       { name: 'Debugger Systems',         path: './Debugger.js' },
       { name: 'Core Engine (Three.js)',   path: 'three.module.js' },
       { name: 'UI Systems',               path: './ui/' },
-      { name: 'World Terrain',            path: './scene/Terrain.js' },
+      { name: 'World Terrain',            path: '(inline in Main.js)' },
       { name: 'Atmosphere & Sky',         path: './scene/SkyDome.js' },
       { name: 'Lighting Engine',          path: './scene/Lighting.js' },
       { name: 'Player Camera',            path: './scene/Camera.js' },
@@ -115,6 +119,50 @@ export class Main {
       { name: 'Engine Panel',             path: './ui/EnginePanel.js' },
       { name: 'Finalizing...',            path: '...' },
     ];
+  }
+
+  // ---------- Minimal tiled terrain (mesh-per-tile) ----------
+  _createBasicTerrain() {
+    // Tune these to your world size
+    const tileSize = 1;        // meters per tile
+    const halfTiles = 32;      // grid from -32..+31 (64x64 tiles)
+    const y = 0;               // flat ground
+
+    const group = new THREE.Group();
+    group.name = 'terrain_root';
+    group.userData.tileSize = tileSize;
+
+    const mat = new THREE.MeshStandardMaterial({
+      color: 0xd8c7a1, roughness: 1.0, metalness: 0.0
+    });
+
+    const geo = new THREE.PlaneGeometry(tileSize, tileSize);
+    geo.rotateX(-Math.PI / 2);
+
+    for (let j = -halfTiles; j < halfTiles; j++) {
+      for (let i = -halfTiles; i < halfTiles; i++) {
+        const m = new THREE.Mesh(geo, mat);
+        m.name = `tile_${i}_${j}`;
+        m.position.set((i + 0.5) * tileSize, y, (j + 0.5) * tileSize);
+        m.receiveShadow = true;
+        // store indices for excavation lookup fallback
+        m.userData.i = i;
+        m.userData.j = j;
+        group.add(m);
+      }
+    }
+
+    // A big “sand_terrain” underlay so your ray tests still find something
+    const underGeo = new THREE.PlaneGeometry(tileSize * halfTiles * 2 + 10, tileSize * halfTiles * 2 + 10);
+    underGeo.rotateX(-Math.PI / 2);
+    const underMat = new THREE.MeshStandardMaterial({ color: 0xcdbb8d, roughness: 1.0 });
+    const under = new THREE.Mesh(underGeo, underMat);
+    under.name = 'sand_terrain';
+    under.position.y = y - 0.01;
+    under.receiveShadow = true;
+    group.add(under);
+
+    return group;
   }
 
   // ---------- UI systems ----------
@@ -206,6 +254,9 @@ export class Main {
     // tick effects
     for (const fx of this.effects) fx.update(dt, t);
 
+    // tick highlighter hover
+    if (this.highlighter?.update) this.highlighter.update();
+
     this.renderer.render(this.scene, this.camera);
     this.frameCount++;
   }
@@ -229,7 +280,7 @@ export class Main {
     this.camera.translateX(this.playerVelocity.x);
     this.camera.translateZ(this.playerVelocity.z);
 
-    // Ground follow against terrain meshes (platform + sand planes)
+    // Ground follow against terrain meshes (platform + sand plane)
     const rayOrigin = new THREE.Vector3(this.camera.position.x, 80, this.camera.position.z);
     this.raycaster.set(rayOrigin, this.rayDown);
 
