@@ -3,11 +3,6 @@
 import { loadModel } from '../ModelLoading.js';
 
 export class ImportModelUI {
-    /**
-     * @param {THREE.Scene} scene - The main scene to add the model to.
-     * @param {function(THREE.Group): void} onModelLoaded - Callback to notify other modules of the new model.
-     * @param {Debugger} debuggerInstance - For error reporting.
-     */
     constructor(scene, onModelLoaded, debuggerInstance) {
         this.scene = scene;
         this.onModelLoaded = onModelLoaded;
@@ -16,8 +11,12 @@ export class ImportModelUI {
     }
 
     createButton() {
-        const container = document.createElement('div');
-        container.id = 'ui-container';
+        // Find the container in the HTML instead of creating it
+        const container = document.getElementById('ui-container');
+        if (!container) {
+            this.debugger.handleError(new Error('UI container not found for ImportModelUI.'), 'Init');
+            return;
+        }
         
         const button = document.createElement('button');
         button.id = 'import-model-btn';
@@ -44,7 +43,6 @@ export class ImportModelUI {
                     (model) => {
                         this.debugger.log('Model loaded successfully.');
                         this.scene.add(model);
-                        // Notify other UI components about the new model
                         this.onModelLoaded(model);
                     },
                     (error) => {
@@ -56,6 +54,7 @@ export class ImportModelUI {
         };
 
         container.appendChild(button);
-        document.body.appendChild(container);
+        // The file input can be appended to the body as it's invisible
+        document.body.appendChild(fileInput);
     }
 }
