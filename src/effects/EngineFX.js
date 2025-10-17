@@ -1,6 +1,6 @@
 // src/effects/EngineFX.js
-// Adds ignition sound with 4s pre-roll before the flame shows.
-// Now includes an orange-band shift and a point light that follows the flame.
+// Ignition has a 2800 ms pre-roll before the flame becomes visible.
+// Includes orange-band shift and a point light that follows the flame.
 
 import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.163.0/build/three.module.js';
 
@@ -22,14 +22,14 @@ export class EngineFX {
     this.flameHeightBase = 40.0;
     this.segments = 32;
 
-    // ignition flow
-    this.ignitionDelayMs = 2900;
+    // ignition flow (UPDATED: 2800 ms)
+    this.ignitionDelayMs = 2800;
     this.ignitionTimer   = null;
     this.ignitionPending = false;
 
-    // <-- UPDATED defaults to match Main.defaultFXParams -->
+    // Defaults (kept in sync with Main.defaultFXParams)
     this.params = {
-      enginesOn: true,
+      enginesOn: true,               // logical default; we'll call setIgnition(false) after construct
       flameWidthFactor: 0.7,
       flameHeightFactor: 0.8,
       flameYOffset: 7.6,
@@ -122,7 +122,6 @@ export class EngineFX {
   getIgnition(){ return this.params.enginesOn; }
 
   setParams(patch){
-    // allow color strings for light
     if (patch.lightColor && typeof patch.lightColor === 'string') {
       const c = new THREE.Color(patch.lightColor);
       patch.lightColor = c.getHex();
@@ -141,7 +140,6 @@ export class EngineFX {
 
     if (this.params.enginesOn) {
       this._updateFlameGeometry(t);
-      // subtle flicker for the light
       if (this.pointLight) {
         const base = this.params.lightIntensity;
         const wob  = (Math.sin(t * 18.0) + Math.sin(t * 7.3)) * 0.08 * base;
@@ -186,7 +184,6 @@ export class EngineFX {
     this.mesh.position.y = this.params.flameYOffset;
 
     if (this.pointLight) {
-      // keep the light near the nozzle (slightly below)
       this.pointLight.position.set(0, this.params.flameYOffset - 1.0, 0);
     }
   }
@@ -206,7 +203,7 @@ export class EngineFX {
     u.uTailFeather.value = this.params.tailFeather;
     u.uTailNoise.value   = this.params.tailNoise;
 
-    u.uOrangeShift.value = this.params.orangeShift;   // band shift
+    u.uOrangeShift.value = this.params.orangeShift;
   }
 
   _applyLight(){
@@ -296,7 +293,6 @@ export class EngineFX {
         uTailFeather: { value: this.params.tailFeather },
         uTailNoise:   { value: this.params.tailNoise },
 
-        // shift where orange begins/ends
         uOrangeShift: { value: this.params.orangeShift }
       },
       vertexShader: `
@@ -324,16 +320,14 @@ export class EngineFX {
         uniform float uOrangeShift;
 
         float n2(vec2 p){ return fract(sin(dot(p, vec2(127.1,311.7))) * 43758.5453); }
-        float fbm(vec2 p){ float a=0.0, w=0.5; for(int i=0;i<4;i++){ a+=w*n2(p); p=p*2.03+1.7; w*=0.5; } return a; }
+        float fbm(vec2 p){ float a=0.0, w=0.5; for(int i=0;i<4;i++){ a+=w+n2(p); p=p*2.03+1.7; w*=0.5; } return a; }
 
         void main(){
           float bands = 0.5 + 0.5*sin(y_norm*uDiamondsFreq*6.2831853);
           float diamonds = mix(1.0, bands, clamp(uDiamondsStrength,0.0,2.0));
           diamonds = mix(diamonds, 1.0, smoothstep(0.70, 1.0, y_norm));
 
-          // base color ramps
           vec3 col = mix(uWhite*uWhiteMul, uCyan*uCyanMul,  smoothstep(0.0, 0.25, y_norm));
-          // shift the orange blend upward/downward by uOrangeShift
           float o0 = 0.30 + uOrangeShift;
           float o1 = 0.85 + uOrangeShift;
           col = mix(col, uOrange*uOrangeMul, smoothstep(o0, o1, y_norm));
