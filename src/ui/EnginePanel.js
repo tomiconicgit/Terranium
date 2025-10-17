@@ -1,5 +1,6 @@
 // src/ui/EnginePanel.js
-// Adds: Place Flame, Adjust/Move, Copy Fixed, + Export Flames JSON & Record Animation (WebM)
+// Place Flame, Adjust/Move, Copy Fixed, Export Flames JSON, Export Animated GLB.
+// Pauses camera while open.
 
 export class EnginePanelUI {
   constructor(api, dbg) {
@@ -29,6 +30,7 @@ export class EnginePanelUI {
       return;
     }
 
+    // Toggle button
     const openBtn = document.createElement('button');
     openBtn.id = 'engine-panel-btn';
     openBtn.textContent = 'Engines';
@@ -43,6 +45,7 @@ export class EnginePanelUI {
     container.appendChild(openBtn);
     this.openBtn = openBtn;
 
+    // Panel
     const panel = document.createElement('div');
     panel.id = 'engine-panel';
     panel.classList.add('no-look');
@@ -52,6 +55,7 @@ export class EnginePanelUI {
       width:360px; max-height:76vh; overflow:auto; padding:16px; display:none;
       box-shadow:0 5px 15px rgba(0,0,0,0.35); backdrop-filter:blur(8px);
       -webkit-overflow-scrolling: touch; touch-action: pan-y;`;
+
     const header = document.createElement('h4');
     header.textContent = 'Engine Controls';
     header.style.cssText = 'margin:0 0 12px;border-bottom:1px solid #444;padding-bottom:8px;';
@@ -61,27 +65,44 @@ export class EnginePanelUI {
     const btnRow = document.createElement('div');
     btnRow.style.cssText = 'display:flex; gap:10px; margin-bottom:14px;';
     const igniteBtn = document.createElement('button');
-    igniteBtn.id = 'ignite-btn'; igniteBtn.style.flex = '1'; igniteBtn.textContent = 'Ignite';
+    igniteBtn.id = 'ignite-btn';
+    igniteBtn.style.flex = '1';
+    igniteBtn.textContent = 'Ignite';
     igniteBtn.onclick = () => { this.api.setIgnition?.(true); this._refreshButtons(); };
     const cutoffBtn = document.createElement('button');
-    cutoffBtn.id = 'cutoff-btn'; cutoffBtn.style.flex = '1'; cutoffBtn.textContent = 'Cutoff';
+    cutoffBtn.id = 'cutoff-btn';
+    cutoffBtn.style.flex = '1';
+    cutoffBtn.textContent = 'Cutoff';
     cutoffBtn.onclick = () => { this.api.setIgnition?.(false); this._refreshButtons(); };
-    btnRow.appendChild(igniteBtn); btnRow.appendChild(cutoffBtn); panel.appendChild(btnRow);
-    this.igniteBtn = igniteBtn; this.cutoffBtn = cutoffBtn;
+    btnRow.appendChild(igniteBtn);
+    btnRow.appendChild(cutoffBtn);
+    panel.appendChild(btnRow);
+    this.igniteBtn = igniteBtn;
+    this.cutoffBtn = cutoffBtn;
 
-    // Placement / Adjust / Copy row
+    // Placement / Adjust
     const opsRow = document.createElement('div');
     opsRow.style.cssText = 'display:flex; gap:10px; margin-bottom:12px;';
     const placeBtn = document.createElement('button');
-    placeBtn.textContent = 'Place Flame'; placeBtn.style.flex = '1';
+    placeBtn.textContent = 'Place Flame';
+    placeBtn.style.flex = '1';
     placeBtn.onclick = () => {
-      try { const idx = this.api.placeFlame?.(); if (idx >= 0) this._refreshFixedList(idx); }
-      catch (e) { this.debugger?.handleError(e, 'PlaceFlame'); }
+      try {
+        const idx = this.api.placeFlame?.();
+        if (idx >= 0) this._refreshFixedList(idx);
+      } catch (e) { this.debugger?.handleError(e, 'PlaceFlame'); }
     };
     const moveBtn = document.createElement('button');
-    moveBtn.textContent = 'Adjust/Move'; moveBtn.style.flex = '1';
-    moveBtn.onclick = () => { const on = !(this.moveToggle?.classList.contains('on')); this.api.setMoveMode?.(on); this._setMoveToggle(on); };
-    opsRow.appendChild(placeBtn); opsRow.appendChild(moveBtn); panel.appendChild(opsRow);
+    moveBtn.textContent = 'Adjust/Move';
+    moveBtn.style.flex = '1';
+    moveBtn.onclick = () => {
+      const on = !(this.moveToggle?.classList.contains('on'));
+      this.api.setMoveMode?.(on);
+      this._setMoveToggle(on);
+    };
+    opsRow.appendChild(placeBtn);
+    opsRow.appendChild(moveBtn);
+    panel.appendChild(opsRow);
     this.moveToggle = moveBtn;
 
     // Fixed flames selector + Copy
@@ -89,46 +110,51 @@ export class EnginePanelUI {
     fixedRow.style.cssText = 'display:flex; gap:10px; align-items:center; margin-bottom:12px;';
     const select = document.createElement('select');
     select.style.cssText = 'flex:1; background:#1f1f28; color:#fff; border:1px solid #444; padding:6px; border-radius:4px;';
-    select.onchange = () => { const idx = parseInt(select.value, 10); this.api.selectFixed?.(idx); };
+    select.onchange = () => {
+      const idx = parseInt(select.value, 10);
+      this.api.selectFixed?.(idx);
+    };
     const copyBtn = document.createElement('button');
     copyBtn.textContent = 'Copy Fixed Positions';
     copyBtn.onclick = async () => {
-      try { const json = this.api.copyFixedJSON?.() ?? '[]'; await navigator.clipboard.writeText(json);
-        copyBtn.textContent = 'Copied!'; setTimeout(()=> copyBtn.textContent = 'Copy Fixed Positions', 1200);
+      try {
+        const json = this.api.copyFixedJSON?.() ?? '[]';
+        await navigator.clipboard.writeText(json);
+        copyBtn.textContent = 'Copied!';
+        setTimeout(()=> copyBtn.textContent = 'Copy Fixed Positions', 1200);
       } catch (e) { this.debugger?.handleError(e, 'CopyFixed'); }
     };
-    fixedRow.appendChild(select); fixedRow.appendChild(copyBtn); panel.appendChild(fixedRow);
+    fixedRow.appendChild(select);
+    fixedRow.appendChild(copyBtn);
+    panel.appendChild(fixedRow);
     this.fixedSelect = select;
 
-    // ====== Export row (NEW) ======
+    // Export row
     const exportRow = document.createElement('div');
     exportRow.style.cssText = 'display:flex; gap:10px; margin: 6px 0 12px;';
     const exportJsonBtn = document.createElement('button');
-    exportJsonBtn.style.flex = '1';
-    exportJsonBtn.textContent = 'Export Flames JSON';
-    exportJsonBtn.title = 'All flames (editable + placed + baked) as JSON';
+    exportJsonBtn.style.flex = '1'; exportJsonBtn.textContent = 'Export Flames JSON';
     exportJsonBtn.onclick = async () => {
       try {
         const jsonStr = this.api.exportAllFlamesJSON?.() ?? '[]';
         const blob = new Blob([jsonStr], { type: 'application/json' });
         const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url; a.download = 'flames.json'; a.click();
+        const a = document.createElement('a'); a.href = url; a.download = 'flames.json'; a.click();
         setTimeout(()=>URL.revokeObjectURL(url), 250);
       } catch (e) { this.debugger?.handleError(e, 'ExportJSON'); }
     };
-    const recordBtn = document.createElement('button');
-    recordBtn.style.flex = '1';
-    recordBtn.textContent = 'Record Animation (WebM)';
-    recordBtn.title = 'Capture the canvas as a WebM clip';
-    recordBtn.onclick = async () => {
-      try { await this.api.recordAnimation?.(); } catch (e) { this.debugger?.handleError(e, 'RecordAnimation'); }
+    const exportGLBBtn = document.createElement('button');
+    exportGLBBtn.style.flex = '1'; exportGLBBtn.textContent = 'Export Animated GLB';
+    exportGLBBtn.title = 'Bake geometry cache (morph target) animation into one .glb';
+    exportGLBBtn.onclick = async () => {
+      try { await this.api.exportAnimatedGLB?.({ durationSec: 2.0, fps: 24, include: 'all' }); }
+      catch (e) { this.debugger?.handleError(e, 'ExportGLB'); }
     };
     exportRow.appendChild(exportJsonBtn);
-    exportRow.appendChild(recordBtn);
+    exportRow.appendChild(exportGLBBtn);
     panel.appendChild(exportRow);
 
-    // ====== Sliders ======
+    // helper to add slider+box rows
     const addRow = (id, label, min, max, key, stepBox = 0.1, stepSlider = 1) => {
       const wrap = document.createElement('div');
       wrap.className = 'slider-group';
@@ -199,19 +225,19 @@ export class EnginePanelUI {
     make('gz','FX Offset Z (m)',                -800.0,  800.0, 'groupOffsetZ', 0.1, 0.1);
 
     this._hr(panel);
-    // Tail (top) fade
+    // TOP FADE (tail)
     make('tfs','Tail Fade Start (0–1)',            0.00,   1.00, 'tailFadeStart', 0.01, 0.01);
     make('tff','Tail Feather (softness)',          0.10,   6.00, 'tailFeather',   0.01, 0.01);
     make('tfn','Tail Noise',                       0.00,   0.40, 'tailNoise',     0.01, 0.01);
 
-    // Nozzle (bottom) fade
+    // BOTTOM FADE (nozzle)
     this._hr(panel);
     make('bfd','Nozzle Fade Depth (0–1)',          0.00,   1.00, 'bottomFadeDepth',   0.01, 0.01);
     make('bff','Nozzle Fade Softness',             0.10,   6.00, 'bottomFadeFeather', 0.01, 0.01);
 
     const hint = document.createElement('p');
     hint.style.cssText = 'margin:6px 0 0; color:#9aa; font-size:.85em;';
-    hint.textContent = 'Open panel pauses camera. Tap “Adjust/Move”, then drag to move a single (editable or placed) flame in X/Z.';
+    hint.textContent = 'Open panel pauses camera. “Export Animated GLB” bakes a short loop (morph cache).';
     panel.appendChild(hint);
 
     document.body.appendChild(panel);
@@ -226,11 +252,18 @@ export class EnginePanelUI {
     hr.style.cssText = 'height:1px;background:#444;margin:12px 0;';
     panel.appendChild(hr);
   }
+
   _setMoveToggle(on) {
     if (!this.moveToggle) return;
-    if (on) { this.moveToggle.classList.add('on'); this.moveToggle.style.backgroundColor = 'rgba(79,143,247,0.9)'; }
-    else { this.moveToggle.classList.remove('on'); this.moveToggle.style.backgroundColor = 'rgba(30, 30, 36, 0.8)'; }
+    if (on) {
+      this.moveToggle.classList.add('on');
+      this.moveToggle.style.backgroundColor = 'rgba(79,143,247,0.9)';
+    } else {
+      this.moveToggle.classList.remove('on');
+      this.moveToggle.style.backgroundColor = 'rgba(30, 30, 36, 0.8)';
+    }
   }
+
   _refreshFixedList(selectIndex = null) {
     if (!this.fixedSelect) return;
     const list = this.api.getFixedList?.() ?? [];
@@ -247,6 +280,7 @@ export class EnginePanelUI {
       this.api.selectFixed?.(idx);
     }
   }
+
   _collectPatchFromInputs() {
     const patch = {};
     for (const [id, def] of Object.entries(this.inputs)) {
@@ -256,18 +290,31 @@ export class EnginePanelUI {
     }
     return patch;
   }
-  _applyFromSliders() { if (!this.isReady) return; try { this.api.set?.(this._collectPatchFromInputs()); } catch (e) { this.debugger?.handleError(e, 'EnginePanel.Apply'); } }
-  _applyFromBoxes() {  if (!this.isReady) return; try { this.api.set?.(this._collectPatchFromInputs()); } catch (e) { this.debugger?.handleError(e, 'EnginePanel.Apply'); } }
+
+  _applyFromSliders() {
+    if (!this.isReady) return;
+    try { this.api.set?.(this._collectPatchFromInputs()); }
+    catch (e) { this.debugger?.handleError(e, 'EnginePanel.Apply'); }
+  }
+  _applyFromBoxes() {
+    if (!this.isReady) return;
+    try { this.api.set?.(this._collectPatchFromInputs()); }
+    catch (e) { this.debugger?.handleError(e, 'EnginePanel.Apply'); }
+  }
+
   _syncValuesFromAPI() {
     const c = this.api.get?.() ?? {};
     for (const [id, def] of Object.entries(this.inputs)) {
-      const key = def.key; if (!key) continue;
-      let v = c[key]; if (!Number.isFinite(v)) continue;
+      const key = def.key;
+      if (!key) continue;
+      let v = c[key];
+      if (!Number.isFinite(v)) continue;
       v = clampFloat(v, def.min, def.max);
       if (def.slider) def.slider.value = String(v);
       if (def.box)    def.box.value = (def.slider?.step && def.slider.step.indexOf('.')>=0) ? v.toFixed(2) : v.toFixed(1);
     }
   }
+
   _refreshButtons() {
     const on = !!this.api.getIgnition?.();
     if (this.igniteBtn) this.igniteBtn.disabled = !this.isReady || on;
