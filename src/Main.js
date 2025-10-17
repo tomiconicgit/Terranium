@@ -109,13 +109,14 @@ export class Main {
     }, this.debugger);
   }
 
-  // <-- NEW DEFAULTS (your JSON) -->
+  // <-- UPDATED DEFAULTS (from your screenshots) -->
   defaultFXParams() {
     return {
-      enginesOn: true,
+      enginesOn: true,                 // UI shows "Cutoff" after Ignite; we start hidden until user ignites.
       flameWidthFactor: 0.7,
       flameHeightFactor: 0.8,
       flameYOffset: 7.6,
+
       intensity: 1.5,
       taper: 0.0,
       bulge: 1.0,
@@ -124,22 +125,25 @@ export class Main {
       noiseSpeed: 2.2,
       diamondsStrength: 0.9,
       diamondsFreq: 2.8,
+
       rimStrength: 0.0,
       rimSpeed: 4.1,
-      colorCyan: 0.2,
+
+      colorCyan: 0.5,
       colorOrange: 3.0,
       colorWhite: 0.9,
+
       groupOffsetX: 3.1,
       groupOffsetY: -3.0,
       groupOffsetZ: 1.2,
+
       tailFadeStart: 0.3,
       tailFeather: 4.0,
       tailNoise: 0.2,
 
-      // NEW (orange band shift + light)
-      orangeShift: 0.0,
-      lightIntensity: 12.0,
-      lightDistance: 120.0,
+      orangeShift: -0.2,
+      lightIntensity: 50.0,
+      lightDistance: 800.0,
       lightColor: '#ffb869'
     };
   }
