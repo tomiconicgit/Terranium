@@ -1,6 +1,6 @@
 // src/effects/EngineFX.js
-// Ignition has a 2800 ms pre-roll before the flame becomes visible.
-// Includes orange-band shift, nozzle light, and bottom-up tail erase.
+// 2800 ms ignition pre-roll. Orange-band shift, nozzle light.
+// Fades: TOP (tail) + NEW BOTTOM (nozzle) with independent sliders.
 
 import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.163.0/build/three.module.js';
 
@@ -54,9 +54,14 @@ export class EngineFX {
       groupOffsetY: -3.0,
       groupOffsetZ: 1.2,
 
-      tailFadeStart: 0.3,
-      tailFeather: 4.0,   // now acts as bottom-up erase strength
+      // TOP fade (tail) controls
+      tailFadeStart: 0.3, // 0..1 along plume where top fade begins
+      tailFeather: 4.0,   // exponent shaping of top fade (higher = sharper)
       tailNoise: 0.2,
+
+      // NEW BOTTOM fade (nozzle) controls
+      bottomFadeDepth: 0.12,     // 0..1 fraction from nozzle to fade through
+      bottomFadeFeather: 2.0,    // exponent shaping for bottom fade
 
       orangeShift: -0.2,
       lightIntensity: 50.0,
@@ -202,11 +207,17 @@ export class EngineFX {
     u.uOrangeMul.value        = this.params.colorOrange;
     u.uWhiteMul.value         = this.params.colorWhite;
 
+    // top/tail fade
     u.uTailStart.value   = this.params.tailFadeStart;
     u.uTailFeather.value = this.params.tailFeather;
     u.uTailNoise.value   = this.params.tailNoise;
 
-    u.uOrangeShift.value = this.params.orangeShift;   // band shift
+    // bottom/nozzle fade
+    u.uBottomDepth.value   = this.params.bottomFadeDepth;
+    u.uBottomFeather.value = this.params.bottomFadeFeather;
+
+    // band shift
+    u.uOrangeShift.value = this.params.orangeShift;
   }
 
   _applyLight(){
@@ -292,9 +303,14 @@ export class EngineFX {
         uWhite:  { value: new THREE.Color(0xffffff) },
         uOrange: { value: new THREE.Color(0xffac57) },
 
+        // Top/tail fade
         uTailStart:   { value: this.params.tailFadeStart },
-        uTailFeather: { value: this.params.tailFeather }, // bottom-up erase strength
+        uTailFeather: { value: this.params.tailFeather },
         uTailNoise:   { value: this.params.tailNoise },
+
+        // NEW bottom/nozzle fade
+        uBottomDepth:   { value: this.params.bottomFadeDepth },
+        uBottomFeather: { value: this.params.bottomFadeFeather },
 
         uOrangeShift: { value: this.params.orangeShift }
       },
@@ -318,8 +334,11 @@ export class EngineFX {
         uniform vec3  uCyan, uWhite, uOrange;
 
         uniform float uTailStart;
-        uniform float uTailFeather; // acts as bottom-up erase amount
+        uniform float uTailFeather;
         uniform float uTailNoise;
+
+        uniform float uBottomDepth;
+        uniform float uBottomFeather;
 
         uniform float uOrangeShift;
 
@@ -343,29 +362,21 @@ export class EngineFX {
           col = mix(col, uOrange*uOrangeMul, smoothstep(o0, o1, y_norm));
           col *= diamonds;
 
-          // Nozzle fade-in (keeps tiny core tight)
-          float alphaStart = smoothstep(0.00, 0.06, y_norm);
-
-          // Tail fade from top (overall taper)
-          float baseTail   = 1.0 - smoothstep(uTailStart, 1.0, y_norm);
+          // --- TOP (tail) fade/taper with noise
+          float tail = 1.0 - smoothstep(uTailStart, 1.0, y_norm);
+          tail = pow(max(tail, 0.0), max(uTailFeather, 0.0001));
           float tailJitter = (fbm(vec2(y_norm*18.0, uTime*1.3)) - 0.5) * uTailNoise;
-          float alphaTail  = clamp(baseTail + tailJitter, 0.0, 1.0);
+          float alphaTail  = clamp(tail + tailJitter, 0.0, 1.0);
 
-          // --- Bottom-up erase driven by uTailFeather ---
-          // Map your slider range (0.10–6.00) roughly to 0..1
-          float feather01  = clamp((uTailFeather - 0.10) / (6.00 - 0.10), 0.0, 1.0);
-          // Max fraction of plume height to erase from bottom
-          float eraseDepth = 0.60 * feather01;
-          // 0 near nozzle (erased), 1 above eraseDepth (fully visible)
-          float bottomErase = smoothstep(0.0, eraseDepth + 1e-5, y_norm);
+          // --- NEW BOTTOM (nozzle) fade
+          // Depth = how far up from nozzle fades; Feather = curve sharpness
+          float bottom = smoothstep(0.0, max(uBottomDepth, 1e-5), y_norm);
+          bottom = pow(bottom, max(uBottomFeather, 0.0001));
 
           // Rim shimmer
           float rim = fbm(vec2(y_norm * 10.0, uTime*uRimSpeed)) * uRimStrength;
 
-          float alpha = (alphaStart * alphaTail + rim) * uIntensity;
-
-          // Apply bottom-up erase last
-          alpha *= bottomErase;
+          float alpha = (alphaTail * bottom + rim) * uIntensity;
 
           if (alpha < 0.01) discard;
           gl_FragColor = vec4(col * alpha, alpha);
