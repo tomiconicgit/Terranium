@@ -1,13 +1,12 @@
 // src/ui/EnginePanel.js
-// Sliders: step = 1 (int) | Number boxes: step = 0.10 (precise)
-// Now includes tail fade controls: tailFadeStart, tailFeather, tailNoise
+// Sliders + number boxes. Now includes orange band shift and light controls.
 
 export class EnginePanelUI {
   constructor(api, dbg) {
     this.api = api;
     this.debugger = dbg;
     this.isReady = false;
-    this.inputs = {};   // map: {id: {slider, box, min, max}}
+    this.inputs = {};   // {id: {slider, box, min, max}}
     this._build();
   }
 
@@ -55,7 +54,7 @@ export class EnginePanelUI {
       <button id="cutoff-btn" style="flex:1;">Cutoff</button>`;
     panel.appendChild(btnRow);
 
-    // helper to add a slider+box row
+    // helper to add slider+box rows
     const addRow = (id, label, min, max, value, stepBox = 0.1) => {
       const wrap = document.createElement('div');
       wrap.className = 'slider-group';
@@ -75,20 +74,17 @@ export class EnginePanelUI {
       const box    = wrap.querySelector(`#${id}-box`);
       this.inputs[id] = { slider, box, min, max };
 
-      // slider -> integer steps
       slider.oninput = () => {
         const iv = clampInt(parseFloat(slider.value), min, max);
         slider.value = String(iv);
         if (Math.abs(parseFloat(box.value) - iv) > 0.49) box.value = iv.toFixed(1);
         this._applyFromSliders();
       };
-
-      // box -> 0.1 precision
       box.onchange = () => {
         let v = parseFloat(box.value);
         if (isNaN(v)) v = parseFloat(slider.value);
         v = clampFloat(v, min, max);
-        v = round1(v); // 0.1 precision
+        v = round1(v);
         box.value = v.toFixed(1);
         const iv = clampInt(Math.round(v), min, max);
         slider.value = String(iv);
@@ -96,7 +92,6 @@ export class EnginePanelUI {
       };
     };
 
-    // seed values
     const c = this.api.get?.() ?? {};
     const make = (id, label, min, max, key, stepBox = 0.1) =>
       addRow(id, label, min, max, (c[key] ?? 0), stepBox);
@@ -117,6 +112,9 @@ export class EnginePanelUI {
     make('ds','Mach Diamonds Strength',    0.0,     2.0, 'diamondsStrength');
     make('df','Mach Diamonds Freq.',       0.0,    40.0, 'diamondsFreq');
 
+    // NEW: Orange band shift
+    make('os','Orange Band Shift',        -0.50,    0.50, 'orangeShift', 0.01);
+
     this._hr(panel);
 
     make('rs','Rim Strength (halo)',       0.0,     1.0, 'rimStrength');
@@ -136,165 +134,20 @@ export class EnginePanelUI {
 
     this._hr(panel);
 
-    // ========= NEW: Tail fade controls =========
-    // y_norm runs 0 (nozzle) -> 1 (tail). Start the fade somewhere near the bottom.
-    make('tfs','Tail Fade Start (0–1)',   0.00,     1.00, 'tailFadeStart');   // step box 0.1 by default
-    make('tff','Tail Feather (softness)', 0.10,     4.00, 'tailFeather');     // power curve
+    // Tail fade controls
+    make('tfs','Tail Fade Start (0–1)',   0.00,     1.00, 'tailFadeStart');
+    make('tff','Tail Feather (softness)', 0.10,     6.00, 'tailFeather');
     make('tfn','Tail Noise',              0.00,     0.40, 'tailNoise');
 
     const hint = document.createElement('p');
     hint.style.cssText = 'margin:6px 0 0; color:#9aa; font-size:.85em;';
-    hint.textContent = 'Tip: lower Tail Fade Start (e.g. 0.70–0.85) to see the flame fade earlier.';
+    hint.textContent = 'Tip: Use Orange Band Shift to push orange higher into the blue area.';
     panel.appendChild(hint);
-    // ==========================================
 
-    const copyBtn = document.createElement('button');
-    copyBtn.id = 'copy-engine-config';
-    copyBtn.textContent = 'Copy Current Config';
-    copyBtn.style.cssText = 'margin-top:8px;width:100%;';
-    copyBtn.onclick = () => {
-      navigator.clipboard.writeText(JSON.stringify(this.api.get(), null, 2))
-        .then(() => this.debugger?.log('Engine config copied.'))
-        .catch(err => this.debugger?.handleError(err, 'Clipboard'));
-    };
-    panel.appendChild(copyBtn);
+    this._hr(panel);
 
-    document.body.appendChild(panel);
-    this.panel = panel;
-
-    panel.querySelector('#ignite-btn').onclick = () => { this.api.setIgnition(true);  this._refreshButtons(); };
-    panel.querySelector('#cutoff-btn').onclick = () => { this.api.setIgnition(false); this._refreshButtons(); };
-
-    // seed from API defaults and set button states
-    this._syncValuesFromAPI();
-    this._refreshButtons();
-  }
-
-  _hr(panel){
-    const hr = document.createElement('hr');
-    hr.style.cssText = 'border-color:#444;margin:10px 0;';
-    panel.appendChild(hr);
-  }
-
-  // apply values using sliders (integers)
-  _applyFromSliders() {
-    if (!this.isReady) return;
-    const vI = (id) => clampFloat(parseFloat(this.inputs[id].slider.value), this.inputs[id].min, this.inputs[id].max);
-    this.api.set({
-      flameWidthFactor:  vI('fw'),
-      flameHeightFactor: vI('fh'),
-      flameYOffset:      vI('fy'),
-      intensity:         vI('in'),
-      taper:             vI('tp'),
-      bulge:             vI('bg'),
-      tear:              vI('td'),
-      turbulence:        vI('tb'),
-      noiseSpeed:        vI('ns'),
-      diamondsStrength:  vI('ds'),
-      diamondsFreq:      vI('df'),
-      rimStrength:       vI('rs'),
-      rimSpeed:          vI('rp'),
-      colorCyan:         vI('cb'),
-      colorOrange:       vI('co'),
-      colorWhite:        vI('cw'),
-      groupOffsetX:      vI('gx'),
-      groupOffsetY:      vI('gy'),
-      groupOffsetZ:      vI('gz'),
-
-      // NEW
-      tailFadeStart:     vI('tfs'),
-      tailFeather:       vI('tff'),
-      tailNoise:         vI('tfn'),
-    });
-  }
-
-  // apply values using boxes (0.1 precision)
-  _applyFromBoxes() {
-    if (!this.isReady) return;
-    const vF = (id) => {
-      const { box, min, max } = this.inputs[id];
-      let v = parseFloat(box.value);
-      if (isNaN(v)) v = parseFloat(this.inputs[id].slider.value);
-      return clampFloat(round1(v), min, max);
-    };
-    this.api.set({
-      flameWidthFactor:  vF('fw'),
-      flameHeightFactor: vF('fh'),
-      flameYOffset:      vF('fy'),
-      intensity:         vF('in'),
-      taper:             vF('tp'),
-      bulge:             vF('bg'),
-      tear:              vF('td'),
-      turbulence:        vF('tb'),
-      noiseSpeed:        vF('ns'),
-      diamondsStrength:  vF('ds'),
-      diamondsFreq:      vF('df'),
-      rimStrength:       vF('rs'),
-      rimSpeed:          vF('rp'),
-      colorCyan:         vF('cb'),
-      colorOrange:       vF('co'),
-      colorWhite:        vF('cw'),
-      groupOffsetX:      vF('gx'),
-      groupOffsetY:      vF('gy'),
-      groupOffsetZ:      vF('gz'),
-
-      // NEW
-      tailFadeStart:     vF('tfs'),
-      tailFeather:       vF('tff'),
-      tailNoise:         vF('tfn'),
-    });
-  }
-
-  _refreshButtons() {
-    const on = this.api.getIgnition();
-    this.panel.querySelector('#ignite-btn').disabled = !this.isReady || on;
-    this.panel.querySelector('#cutoff-btn').disabled = !this.isReady || !on;
-  }
-
-  _syncValuesFromAPI() {
-    const c = this.api.get?.() ?? {};
-    const set = (id, val) => {
-      if (!this.inputs[id]) return;
-      const { slider, box, min, max } = this.inputs[id];
-      let v = parseFloat(val);
-      if (isNaN(v)) return;
-      v = clampFloat(v, min, max);
-      box.value = round1(v).toFixed(1);                          // precise in box
-      slider.value = String(clampInt(Math.round(v), min, max));   // nearest int on slider
-    };
-
-    set('fw', c.flameWidthFactor);
-    set('fh', c.flameHeightFactor);
-    set('fy', c.flameYOffset);
-
-    set('in', c.intensity);
-    set('tp', c.taper);
-    set('bg', c.bulge);
-    set('td', c.tear);
-    set('tb', c.turbulence);
-    set('ns', c.noiseSpeed);
-    set('ds', c.diamondsStrength);
-    set('df', c.diamondsFreq);
-
-    set('rs', c.rimStrength);
-    set('rp', c.rimSpeed);
-
-    set('cb', c.colorCyan);
-    set('co', c.colorOrange);
-    set('cw', c.colorWhite);
-
-    set('gx', c.groupOffsetX);
-    set('gy', c.groupOffsetY);
-    set('gz', c.groupOffsetZ);
-
-    // NEW
-    set('tfs', c.tailFadeStart);
-    set('tff', c.tailFeather);
-    set('tfn', c.tailNoise);
-  }
-}
-
-/* ---------- helpers ---------- */
-function clampFloat(v, min, max){ return Math.max(min, Math.min(max, v)); }
-function clampInt(v, min, max){ return Math.max(Math.ceil(min), Math.min(Math.floor(max), Math.round(v))); }
-function round1(v){ return Math.round(v * 10) / 10; }
+    // ---------- NEW: Light controls ----------
+    const lightWrap = document.createElement('div');
+    lightWrap.style.cssText = 'margin:8px 0 12px;';
+    lightWrap.innerHTML = `
+      <h
