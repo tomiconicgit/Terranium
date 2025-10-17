@@ -1,4 +1,4 @@
-import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.163.0/build/three.module.js';
+import * as THREE from 'three';
 
 export class TouchPad {
   constructor() {
@@ -11,13 +11,12 @@ export class TouchPad {
     this.activeLookId = null;
     this.lookStart = new THREE.Vector2();
 
-    // NEW: pause flag so UI can disable look/joystick
     this.paused = false;
 
     this.addEventListeners();
   }
 
-  /** Pause/resume all control capture (used when Engine Panel is open). */
+  /** Pause/resume all control capture (used when UI Panel is open). */
   setPaused(p) {
     this.paused = !!p;
     if (this.paused) {
@@ -65,7 +64,7 @@ export class TouchPad {
     window.addEventListener('touchcancel',(e) => this.onLookEnd(e),   { passive: true  });
   }
 
-  // ── Joystick ────────────────────────────────────────────────────────────────
+  // ---- Joystick ----
   onJoystickMove(event) {
     if (this.paused) return; // disable while UI is open
     event.preventDefault();
@@ -91,7 +90,7 @@ export class TouchPad {
     this.moveVector.set(0, 0);
   }
 
-  // ── Camera look ────────────────────────────────────────────────────────────
+  // ---- Camera look ----
   onLookStart(event) {
     if (this.paused) return; // panel open → ignore look startup
     for (const touch of event.changedTouches) {
