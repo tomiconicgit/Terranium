@@ -79,7 +79,12 @@ export class EngineFX {
       groupOffsetX: 3.1, groupOffsetY: -3.0, groupOffsetZ: 1.2,
       tailFadeStart: 0.3, tailFeather: 4.0, tailNoise: 0.2,
       bottomFadeDepth: 0.12, bottomFadeFeather: 0.80,
-      orangeShift: -0.2, lightIntensity: 50.0, lightDistance: 800.0, lightColor: '#ffb869'
+      orangeShift: -0.2, lightIntensity: 50.0, lightDistance: 800.0, lightColor: '#ffb869',
+
+      // NEW: editable base colors
+      colorWhiteHex:  '#ffffff',
+      colorCyanHex:   '#80fbfd',
+      colorOrangeHex: '#ffac57'
     };
 
     // Per-flame uniform snapshot (no material clone!)
@@ -97,7 +102,12 @@ export class EngineFX {
       uTailNoise:        this.params.tailNoise,
       uBottomDepth:      this.params.bottomFadeDepth,
       uBottomFeather:    this.params.bottomFeather,
-      uOrangeShift:      this.params.orangeShift
+      uOrangeShift:      this.params.orangeShift,
+
+      // NEW: color hex (as numeric hex)
+      uWhiteHex:  new THREE.Color(this.params.colorWhiteHex).getHex(),
+      uCyanHex:   new THREE.Color(this.params.colorCyanHex).getHex(),
+      uOrangeHex: new THREE.Color(this.params.colorOrangeHex).getHex()
     };
 
     // audio
@@ -146,6 +156,11 @@ export class EngineFX {
       u.uBottomDepth.value      = this._u.uBottomDepth;
       u.uBottomFeather.value    = this._u.uBottomFeather;
       u.uOrangeShift.value      = this._u.uOrangeShift;
+
+      // NEW: per-flame base colors
+      u.uWhite.value.setHex(this._u.uWhiteHex);
+      u.uCyan.value.setHex(this._u.uCyanHex);
+      u.uOrange.value.setHex(this._u.uOrangeHex);
     };
   }
 
@@ -172,13 +187,31 @@ export class EngineFX {
   getIgnition(){ return this.params.enginesOn; }
 
   setParams(patch){
+    if (!patch) return;
+
+    // Convert light color if provided
     if (patch.lightColor && typeof patch.lightColor==='string') {
       const c = new THREE.Color(patch.lightColor);
       patch.lightColor = c.getHex();
     }
+
+    // NEW: normalize hex strings to numbers and keep in snapshot
+    const hexKeys = ['colorWhiteHex','colorCyanHex','colorOrangeHex'];
+    hexKeys.forEach(k=>{
+      if (typeof patch[k] === 'string') {
+        try {
+          const num = new THREE.Color(patch[k]).getHex();
+          if (k==='colorWhiteHex')  this._u.uWhiteHex  = num;
+          if (k==='colorCyanHex')   this._u.uCyanHex   = num;
+          if (k==='colorOrangeHex') this._u.uOrangeHex = num;
+        } catch {}
+      }
+    });
+
     Object.assign(this.params, patch);
     this._applyTransforms();
     this._applyLight();
+
     // Update our per-flame uniform snapshot
     this._u.uIntensity        = this.params.intensity;
     this._u.uDiamondsStrength = this.params.diamondsStrength;
@@ -268,6 +301,7 @@ export class EngineFX {
 
     const radiusProfile=(y_norm)=>{
       let r=mix(0.50,0.28,clamp(this.params.taper,0.0,1.0));
+      // bulge can now exceed 1.0 (panel allows up to 3.0)
       r+=this.params.bulge*smoothstep(0.0,0.35,0.35-Math.abs(y_norm-0.175))*0.35;
       r=mix(r,0.10,smoothstep(0.60,0.90,y_norm));
       const pinch=Math.pow(smoothstep(0.75,1.0,y_norm),mix(4.0,15.0,clamp(this.params.tear,0.0,1.0)));
