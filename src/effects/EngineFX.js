@@ -25,7 +25,7 @@ export class EngineFX {
     this.segments = 32;
 
     // ignition flow
-    this.ignitionDelayMs = 3000;   // 4 seconds pre-roll
+    this.ignitionDelayMs = 2700;   // 4 seconds pre-roll
     this.ignitionTimer   = null;
     this.ignitionPending = false;
 
