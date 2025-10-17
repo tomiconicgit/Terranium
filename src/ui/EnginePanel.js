@@ -1,6 +1,6 @@
 // src/ui/EnginePanel.js
-// Adds: Place Flame, Adjust/Move toggle (drag X/Z), Copy Fixed Positions.
-// Also pauses camera while panel is open via api.onPanelOpen/Close.
+// Place Flame, Adjust/Move (drag X/Z), Copy Fixed Positions.
+// Adds NEW: Nozzle fade controls (Depth & Softness). Pauses camera while open.
 
 export class EnginePanelUI {
   constructor(api, dbg) {
@@ -82,7 +82,7 @@ export class EnginePanelUI {
     this.igniteBtn = igniteBtn;
     this.cutoffBtn = cutoffBtn;
 
-    // NEW: Placement / Adjust / Copy row
+    // Placement / Adjust / Copy row
     const opsRow = document.createElement('div');
     opsRow.style.cssText = 'display:flex; gap:10px; margin-bottom:12px;';
     const placeBtn = document.createElement('button');
@@ -109,7 +109,7 @@ export class EnginePanelUI {
     panel.appendChild(opsRow);
     this.moveToggle = moveBtn;
 
-    // NEW: Fixed flames selector + Copy
+    // Fixed flames selector + Copy
     const fixedRow = document.createElement('div');
     fixedRow.style.cssText = 'display:flex; gap:10px; align-items:center; margin-bottom:12px;';
     const select = document.createElement('select');
@@ -154,19 +154,17 @@ export class EnginePanelUI {
       this.inputs[id] = { slider, box, min, max, key };
 
       slider.oninput = () => {
-        const iv = clampInt(parseFloat(slider.value), min, max);
+        const iv = clampFloat(parseFloat(slider.value), min, max);
         slider.value = String(iv);
-        if (Math.abs(parseFloat(box.value) - iv) > 0.49) box.value = iv.toFixed(1);
+        if (Math.abs(parseFloat(box.value) - iv) > 0.001) box.value = iv.toFixed(stepBox < 1 ? 2 : 1);
         this._applyFromSliders();
       };
       box.onchange = () => {
         let v = parseFloat(box.value);
         if (isNaN(v)) v = parseFloat(slider.value);
         v = clampFloat(v, min, max);
-        v = round1(v);
-        box.value = v.toFixed(1);
-        const iv = clampInt(Math.round(v), min, max);
-        slider.value = String(iv);
+        box.value = v.toFixed(stepBox < 1 ? 2 : 1);
+        slider.value = String(v);
         this._applyFromBoxes();
       };
     };
@@ -208,9 +206,15 @@ export class EnginePanelUI {
     make('gz','FX Offset Z (m)',                -800.0,  800.0, 'groupOffsetZ', 0.1, 0.1);
 
     this._hr(panel);
+    // TOP FADE (tail)
     make('tfs','Tail Fade Start (0–1)',            0.00,   1.00, 'tailFadeStart', 0.01, 0.01);
-    make('tff','Tail Feather (softness)',          0.10,   6.00, 'tailFeather', 0.01, 0.01);
-    make('tfn','Tail Noise',                       0.00,   0.40, 'tailNoise', 0.01, 0.01);
+    make('tff','Tail Feather (softness)',          0.10,   6.00, 'tailFeather',   0.01, 0.01);
+    make('tfn','Tail Noise',                       0.00,   0.40, 'tailNoise',     0.01, 0.01);
+
+    // NEW BOTTOM FADE (nozzle)
+    this._hr(panel);
+    make('bfd','Nozzle Fade Depth (0–1)',          0.00,   1.00, 'bottomFadeDepth',   0.01, 0.01);
+    make('bff','Nozzle Fade Softness',             0.10,   6.00, 'bottomFadeFeather', 0.01, 0.01);
 
     const hint = document.createElement('p');
     hint.style.cssText = 'margin:6px 0 0; color:#9aa; font-size:.85em;';
@@ -304,6 +308,4 @@ export class EnginePanelUI {
 }
 
 /* -------- helpers -------- */
-function clampInt(v, min, max){ return Math.max(min, Math.min(max, Math.round(v))); }
 function clampFloat(v, min, max){ return Math.max(min, Math.min(max, v)); }
-function round1(v){ return Math.round(v * 10) / 10; }
