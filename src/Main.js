@@ -12,9 +12,10 @@ import { HighlighterUI }  from './ui/Highlighter.js';
 import { worldObjects }   from './world/Mapping.js';
 import { loadModel }      from './ModelLoading.js';
 import { EngineFX }       from './effects/EngineFX.js';
-// ⬇️ Instanced system left in the project, but not imported/used while you collect positions
-// import { InstancedFlames } from './effects/InstancedFlames.js';
-// import { bakedFlameOffsets } from './world/BakedFlames.js';
+
+// ✅ Re-enable instanced flames
+import { InstancedFlames }      from './effects/InstancedFlames.js';
+import { bakedFlameOffsets }    from './world/BakedFlames.js';
 
 export class Main {
   constructor(debuggerInstance) {
@@ -40,10 +41,7 @@ export class Main {
 
     this.effects = [];
     this.fx = null;
-
-    // Instanced system kept “off” while you gather exact positions:
     this.instanced = null;
-
     this.fixedFX = []; this.activeFixedIndex = -1;
 
     this.flameMoveMode = false;
@@ -65,7 +63,6 @@ export class Main {
   }
 
   initModelSystems() {
-    // Note: The order here is important as they attach to the same UI container
     this.importModelUI = new ImportModelUI(this.scene,(m)=>{ this.modelSliders.setActiveModel(m); },this.debugger);
     this.modelSliders = new ModelSlidersUI(this.debugger);
 
@@ -73,8 +70,7 @@ export class Main {
       get: () => (this.fx ? this.fx.getParams() : this.defaultFXParams()),
       set: (patch) => {
         if (this.fx) this.fx.setParams(patch);
-        // Instanced is disabled for now, but keep the sync guard for later
-        if (this.instanced) this.instanced.setParams(patch);
+        if (this.instanced) this.instanced.setParams(patch); // keep in sync
       },
       setIgnition: (on) => {
         if (this.fx) this.fx.setIgnition(on);
@@ -97,6 +93,8 @@ export class Main {
     intensity:1.5, taper:0.0, bulge:1.0, tear:1.0, turbulence:0.5, noiseSpeed:2.2,
     diamondsStrength:0.9, diamondsFreq:2.8, rimStrength:0.0, rimSpeed:4.1,
     colorCyan:0.5, colorOrange:3.0, colorWhite:0.9,
+    // base color hex (panel color pickers)
+    colorWhiteHex:'#ffffff', colorCyanHex:'#80fbfd', colorOrangeHex:'#ffac57',
     groupOffsetX:3.1, groupOffsetY:-3.0, groupOffsetZ:1.2,
     tailFadeStart:0.3, tailFeather:4.0, tailNoise:0.2,
     bottomFadeDepth:0.12, bottomFadeFeather:0.80,
@@ -162,20 +160,20 @@ export class Main {
         if (obj.name === 'SuperHeavy') {
           this.rocketModel = model;
           
-          // === Editable single flame ===
+          // Editable flame
           this.fx = new EngineFX(this.rocketModel, this.scene, this.camera);
           this.fx.setParams(this.defaultFXParams());
           this.fx.setIgnition(false);
           this.effects.push(this.fx);
 
-          // === Instanced flames DISABLED while you collect positions ===
-          // this.instanced = new InstancedFlames(
-          //   this.rocketModel,
-          //   bakedFlameOffsets, 
-          //   this.fx.getParams()
-          // );
-          // this.instanced.setIgnition(false);
-          // this.effects.push(this.instanced);
+          // Instanced flames (now using your 9 offsets + inverse-parent-scale compensation)
+          this.instanced = new InstancedFlames(
+            this.rocketModel,
+            bakedFlameOffsets,
+            this.fx.getParams() // seed to match editable flame settings & colors
+          );
+          this.instanced.setIgnition(false);
+          this.effects.push(this.instanced);
 
           this.enginePanel.setReady(true);
         }
