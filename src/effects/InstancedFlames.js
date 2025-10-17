@@ -27,10 +27,11 @@ export class InstancedFlames {
   constructor(rocketRoot, offsets = [], paramsBaseline = {}) {
     this.rocketRoot = rocketRoot;
 
+    // These defaults will be OVERWRITTEN by the paramsBaseline object.
     this.params = Object.assign({
       enginesOn: false,
-      flameWidthFactor: 1.0,  // MODIFIED: Changed from 0.7 to match editable flame size
-      flameHeightFactor: 1.0, // MODIFIED: Changed from 0.8 to match editable flame size
+      flameWidthFactor: 0.7,
+      flameHeightFactor: 0.8,
       flameYOffset: 7.6,
       intensity: 1.5,
       taper: 0.0,
@@ -126,7 +127,7 @@ export class InstancedFlames {
       }
     }
   }
-  
+
   _updateFlameGeometry(t) {
       const g = this.geometry;
       const pos = g.attributes.position;
@@ -206,7 +207,7 @@ export class InstancedFlames {
     u.uTailFeather.value = this.params.tailFeather;
     u.uTailNoise.value = this.params.tailNoise;
     u.uBottomDepth.value = this.params.bottomFadeDepth;
-    u.uBottomFeather.value = this.params.bottomFadeFeather;
+    u.uBottomFeather.value = this.params.bottomFeather;
     u.uOrangeShift.value = this.params.orangeShift;
   }
 
@@ -232,7 +233,7 @@ export class InstancedFlames {
         uTailFeather: { value: this.params.tailFeather },
         uTailNoise: { value: this.params.tailNoise },
         uBottomDepth: { value: this.params.bottomFadeDepth },
-        uBottomFeather: { value: this.params.bottomFadeFeather },
+        uBottomFeather: { value: this.params.bottomFeather },
         uOrangeShift: { value: this.params.orangeShift },
       },
       vertexShader: `
