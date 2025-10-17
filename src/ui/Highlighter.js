@@ -4,9 +4,6 @@
 import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.163.0/build/three.module.js';
 
 export class HighlighterUI {
-  /**
-   * @param {{scene:THREE.Scene, camera:THREE.Camera, terrainGroup:THREE.Group, debugger:any}} deps
-   */
   constructor({ scene, camera, terrainGroup, debugger: dbg }) {
     this.scene = scene;
     this.camera = camera;
@@ -14,26 +11,24 @@ export class HighlighterUI {
     this.debugger = dbg;
 
     this.active = false;
-    this.tileSize = 1.0;  // meters per tile
+    this.tileSize = 1.0;
     this.hoverMesh = null;
-    this.selection = [];          // [{key,i,j,y}]
-    this.selectionMeshes = [];    // Meshes corresponding to selection entries (same order)
+    this.selection = [];
+    this.selectionMeshes = [];
     this.raycaster = new THREE.Raycaster();
-    this.downcaster = new THREE.Raycaster(); // for vertical sampling
+    this.downcaster = new THREE.Raycaster();
 
     this.terrainTargets = this._collectTerrainMeshes();
 
-    // Line selection
-    this.lineStart = null; // {i,j}
+    this.lineStart = null;
 
     this._buildUI();
   }
 
   _collectTerrainMeshes() {
-    // Same rule used in Main.js
-    return this.terrainGroup.children.filter(
-      c => c.name === "sand_terrain" || c.geometry?.type === "PlaneGeometry"
-    );
+    const arr = [];
+    this.terrainGroup.traverse(obj => { if (obj.isMesh) arr.push(obj); });
+    return arr;
   }
 
   _buildUI() {
@@ -43,7 +38,6 @@ export class HighlighterUI {
       return;
     }
 
-    // Toggle button next to "Engines"
     const btn = document.createElement('button');
     btn.id = 'highlighter-btn';
     btn.textContent = 'Highlight';
@@ -52,7 +46,6 @@ export class HighlighterUI {
     container.appendChild(btn);
     this.button = btn;
 
-    // Panel (appears when active) — moved further right so it doesn’t cover center view
     const panel = document.createElement('div');
     panel.id = 'highlighter-panel';
     panel.classList.add('no-look');
@@ -107,6 +100,8 @@ export class HighlighterUI {
 
     if (this.active) {
       if (!this.hoverMesh) this._createHoverMesh();
+      // in case terrain changed:
+      this.terrainTargets = this._collectTerrainMeshes();
     } else {
       if (this.hoverMesh) { this.scene.remove(this.hoverMesh); this.hoverMesh = null; }
       this.lineStart = null;
@@ -137,7 +132,6 @@ export class HighlighterUI {
   }
 
   _intersectGroundForward() {
-    // Ray from camera forward (where player is looking)
     const dir = new THREE.Vector3();
     this.camera.getWorldDirection(dir);
     this.raycaster.set(this.camera.position, dir);
@@ -146,7 +140,6 @@ export class HighlighterUI {
   }
 
   _intersectGroundDown(x, z, maxHeight = 200) {
-    // Vertical raycast down at (x, z) to sample exact ground Y
     const origin = new THREE.Vector3(x, maxHeight, z);
     const down = new THREE.Vector3(0, -1, 0);
     this.downcaster.set(origin, down);
@@ -197,21 +190,16 @@ export class HighlighterUI {
   }
 
   finishLine() {
-    if (!this.lineStart) {
-      this._setStatus('Set a Start Line first.');
-      return;
-    }
+    if (!this.lineStart) { this._setStatus('Set a Start Line first.'); return; }
     const t2 = this._currentTileFromView();
     if (!t2) return;
 
     const { i: i0, j: j0 } = this.lineStart;
     const { i: i1, j: j1 } = t2;
 
-    // Bresenham’s integer line fill
     const tiles = this._bresenham(i0, j0, i1, j1);
     let added = 0;
     for (const { i, j } of tiles) {
-      // sample proper ground y at tile center
       const cx = (i + 0.5) * this.tileSize;
       const cz = (j + 0.5) * this.tileSize;
       const hit = this._intersectGroundDown(cx, cz);
@@ -220,11 +208,10 @@ export class HighlighterUI {
     }
 
     this._setStatus(`Line added ${added} tiles from (${i0},${j0}) to (${i1},${j1}).`);
-    this.lineStart = null; // reset after completing line
+    this.lineStart = null;
   }
 
   _bresenham(x0, y0, x1, y1) {
-    // Returns array of {i,j} for all grid cells on a line
     const pts = [];
     let dx = Math.abs(x1 - x0);
     let dy = Math.abs(y1 - y0);
@@ -246,7 +233,7 @@ export class HighlighterUI {
   // ---------- Selection management ----------
   _lockTile(i, j, y) {
     const key = `${i},${j}`;
-    if (this.selection.find(t => t.key === key)) return false; // already present
+    if (this.selection.find(t => t.key === key)) return false;
     const mesh = this._makeLockedMesh(i, j, y);
     this.selection.push({ key, i, j, y: Number(y.toFixed(3)) });
     this.selectionMeshes.push(mesh);
