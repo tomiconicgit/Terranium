@@ -1,176 +1,185 @@
-// src/scene/Terrain.js
-// 1×1 sand tile grid + hole digger with procedural metal walls & floor.
+// Simple excavation pass that works with a “mesh-per-tile” setup.
+// If your terrain uses an InstancedMesh, see the notes at the bottom.
 
-import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.163.0/build/three.module.js';
+import * as THREE from 'three';
 
-export function createTerrain() {
-  const terrainGroup = new THREE.Group();
+export function applySimpleExcavation({
+  scene,                 // THREE.Scene (optional, only needed if you want separate wall meshes added to scene)
+  terrainRoot,           // THREE.Group that contains your tile meshes (children named like "tile_i_j" or has userData.i/j)
+  selection,             // { tileSize: number, tiles: [{i, j}] }
+  depth = -15,           // how deep to dig
+  ring = 1               // how many tiles around the pit to flatten to 0 with concrete
+}) {
+  const tileSize = selection.tileSize ?? 1;
 
-  // ===== 1) Central Concrete Platform (unchanged) =====
-  const platformSize = 100;
-  const platformGeo = new THREE.PlaneGeometry(platformSize, platformSize);
-  const platformMat = new THREE.MeshStandardMaterial({ color: 0x808080, roughness: 0.7, metalness: 0.0 });
-  const platformMesh = new THREE.Mesh(platformGeo, platformMat);
-  platformMesh.rotation.x = -Math.PI / 2;
-  platformMesh.receiveShadow = true;
-  platformMesh.name = 'concrete_platform';
-  terrainGroup.add(platformMesh);
-
-  // ===== 2) Sand tile grid (1×1 meter tiles) =====
-  const tileSize = 1.0;
-
-  // Coverage chosen to fully include your coordinates (safe margins)
-  const GRID_I_MIN = -5,  GRID_I_MAX = 40;  // inclusive i in [-5..40]
-  const GRID_J_MIN = -20, GRID_J_MAX = 20;  // inclusive j in [-20..20]
-
-  const sandTileGeo = new THREE.PlaneGeometry(tileSize, tileSize);
-  const sandTileMat = new THREE.MeshStandardMaterial({ color: 0xc2b280, roughness: 0.85, metalness: 0.0 });
-  const sandTiles = new Map(); // key "i,j" -> mesh (so we can hide/remove when digging)
-
-  for (let j = GRID_J_MIN; j <= GRID_J_MAX; j++) {
-    for (let i = GRID_I_MIN; i <= GRID_I_MAX; i++) {
-      const m = new THREE.Mesh(sandTileGeo, sandTileMat.clone());
-      m.rotation.x = -Math.PI / 2;
-      m.position.set((i + 0.5) * tileSize, 0.0, (j + 0.5) * tileSize);
-      m.receiveShadow = true;
-      m.name = 'sand_tile'; // your raycast filter matches PlaneGeometry anyway
-      terrainGroup.add(m);
-      sandTiles.set(`${i},${j}`, m);
-    }
-  }
-
-  // ===== 3) Procedural metal ShaderMaterial (walls + floor) =====
-  // Simple brushed/striped pattern via trig—no textures needed.
-  const metalShader = new THREE.ShaderMaterial({
-    transparent: false,
-    depthWrite: true,
-    uniforms: {
-      uColor:     { value: new THREE.Color(0x9aa1a7) },
-      uMetalness: { value: 1.0 },
-      uRoughness: { value: 0.35 },
-      uRepeat:    { value: new THREE.Vector2(3.0, 3.0) }, // tiling
-    },
-    vertexShader: `
-      varying vec2 vUv;
-      void main(){
-        vUv = uv;
-        gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0);
-      }
-    `,
-    fragmentShader: `
-      precision mediump float;
-      varying vec2 vUv;
-      uniform vec3  uColor;
-      uniform vec2  uRepeat;
-      // Faux "brushed metal" with repeating bands + small noise.
-      float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1,311.7))) * 43758.5453); }
-      void main(){
-        vec2 uv = vUv * uRepeat;
-        // stripes in U with slight jitter in V for a brushed look
-        float band = 0.5 + 0.5 * sin(uv.x * 6.283 * 6.0 + (hash(floor(uv)) * 0.7));
-        float shade = mix(0.75, 1.05, band);
-        vec3 col = uColor * shade;
-        // slight darkening at edges
-        float vign = smoothstep(0.0, 0.08, vUv.x) * smoothstep(1.0, 0.92, vUv.x)
-                   * smoothstep(0.0, 0.08, vUv.y) * smoothstep(1.0, 0.92, vUv.y);
-        col *= mix(1.0, 0.85, vign);
-        gl_FragColor = vec4(col, 1.0);
-      }
-    `
+  // Materials (tweak to your liking)
+  const metalMat = new THREE.MeshStandardMaterial({
+    color: 0x7f8a94,
+    metalness: 0.95,
+    roughness: 0.25
+  });
+  const concreteMat = new THREE.MeshStandardMaterial({
+    color: 0x9b9b9b,
+    metalness: 0.0,
+    roughness: 0.9
   });
 
-  // Helper to make a metal clone (so we can tweak repeats per part if needed)
-  const makeMetalMat = (repU = 3.0, repV = 3.0) => {
-    const m = metalShader.clone();
-    m.uniforms = THREE.UniformsUtils.clone(metalShader.uniforms);
-    m.uniforms.uRepeat.value = new THREE.Vector2(repU, repV);
-    return m;
-  };
+  // --- Build fast lookup sets
+  const key = (i, j) => `${i}:${j}`;
+  const pick = new Set(selection.tiles.map(t => key(t.i, t.j)));
 
-  // ===== 4) Hole builder =====
-  const holeGroup = new THREE.Group();
-  holeGroup.name = 'terrain_holes';
-  terrainGroup.add(holeGroup);
-
-  function buildShaftAt(i, j, depthTiles) {
-    const depth = depthTiles * tileSize;      // meters
-    const cx = (i + 0.5) * tileSize;
-    const cz = (j + 0.5) * tileSize;
-    const topY = 0.0;
-    const botY = topY - depth;
-
-    // Hide sand tile (if present)
-    const key = `${i},${j}`;
-    const t = sandTiles.get(key);
-    if (t) t.visible = false;
-
-    // Bottom (metal)
-    const floorGeo = new THREE.PlaneGeometry(tileSize, tileSize);
-    const floorMat = makeMetalMat(3.0, 3.0);
-    const floor = new THREE.Mesh(floorGeo, floorMat);
-    floor.rotation.x = -Math.PI / 2;
-    floor.position.set(cx, botY, cz);
-    floor.receiveShadow = true;
-    floor.castShadow = false;
-    floor.name = `hole_floor_${i}_${j}`;
-    holeGroup.add(floor);
-
-    // Walls (4 sides) — each is a vertical plane of size (tileSize × depth)
-    const wallGeo = new THREE.PlaneGeometry(tileSize, depth);
-    const wallMatU = makeMetalMat(3.0, 6.0); // more repeats vertically
-    const wallMatV = makeMetalMat(3.0, 6.0);
-
-    // +Z (north) wall
-    const wN = new THREE.Mesh(wallGeo, wallMatU);
-    wN.position.set(cx, botY + depth * 0.5, cz + tileSize * 0.5);
-    wN.rotation.y = Math.PI; // face inward
-    wN.castShadow = true; wN.receiveShadow = true;
-    holeGroup.add(wN);
-
-    // -Z (south) wall
-    const wS = new THREE.Mesh(wallGeo, wallMatU.clone());
-    wS.position.set(cx, botY + depth * 0.5, cz - tileSize * 0.5);
-    // facing inward already
-    wS.castShadow = true; wS.receiveShadow = true;
-    holeGroup.add(wS);
-
-    // +X (east) wall (rotate plane to be vertical along X)
-    const wallGeoX = new THREE.PlaneGeometry(tileSize, depth);
-    const wE = new THREE.Mesh(wallGeoX, wallMatV);
-    wE.position.set(cx + tileSize * 0.5, botY + depth * 0.5, cz);
-    wE.rotation.y = -Math.PI / 2;
-    wE.castShadow = true; wE.receiveShadow = true;
-    holeGroup.add(wE);
-
-    // -X (west) wall
-    const wW = new THREE.Mesh(wallGeoX, wallMatV.clone());
-    wW.position.set(cx - tileSize * 0.5, botY + depth * 0.5, cz);
-    wW.rotation.y = Math.PI / 2;
-    wW.castShadow = true; wW.receiveShadow = true;
-    holeGroup.add(wW);
+  // Collect all neighbors (ring area)
+  const ringKeys = new Set();
+  for (const t of selection.tiles) {
+    const nbs = [
+      [t.i + 1, t.j],
+      [t.i - 1, t.j],
+      [t.i, t.j + 1],
+      [t.i, t.j - 1]
+    ];
+    for (const [ni, nj] of nbs) {
+      if (!pick.has(key(ni, nj))) ringKeys.add(key(ni, nj));
+    }
+  }
+  if (ring > 1) {
+    // expand ring if requested
+    for (let r = 2; r <= ring; r++) {
+      const next = new Set(ringKeys);
+      for (const k of next) {
+        const [i, j] = k.split(':').map(Number);
+        const nbs = [
+          [i + 1, j],
+          [i - 1, j],
+          [i, j + 1],
+          [i, j - 1]
+        ];
+        for (const [ni, nj] of nbs) {
+          const nk = key(ni, nj);
+          if (!pick.has(nk)) ringKeys.add(nk);
+        }
+      }
+    }
   }
 
-  /**
-   * Public API: call with your tiles array and depth in tiles.
-   * Example: terrain.applyHolesFromTiles(tiles, 15)
-   */
-  terrainGroup.applyHolesFromTiles = (tiles, depthTiles = 15) => {
-    if (!Array.isArray(tiles)) return;
-    const seen = new Set();
-    let count = 0;
-    for (const t of tiles) {
-      const i = (t?.i)|0, j = (t?.j)|0;
-      const key = `${i},${j}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      // Only process tiles inside the built grid
-      if (i < GRID_I_MIN || i > GRID_I_MAX || j < GRID_J_MIN || j > GRID_J_MAX) continue;
-      buildShaftAt(i, j, depthTiles);
-      count++;
+  // --- Helper: find a tile mesh by i/j
+  const findTile = (i, j) => {
+    // 1) By name convention
+    let child = terrainRoot.getObjectByName(`tile_${i}_${j}`);
+    if (child) return child;
+
+    // 2) By userData
+    for (const c of terrainRoot.children) {
+      if (c.userData && c.userData.i === i && c.userData.j === j) return c;
     }
-    // optional: console feedback
-    console.log(`[Terrain] Dug ${count} tiles to depth ${depthTiles}.`);
+    return null;
   };
 
-  return terrainGroup;
+  // --- Move selected tiles down and set metal
+  for (const t of selection.tiles) {
+    const m = findTile(t.i, t.j);
+    if (!m) continue;
+    // Put the top surface at y = depth. If your tiles are centered, adjust by half thickness.
+    m.position.y = depth;
+    setMaterialRecursive(m, metalMat);
+  }
+
+  // --- Flatten ring tiles at y=0 and make concrete
+  for (const k of ringKeys) {
+    const [i, j] = k.split(':').map(Number);
+    const m = findTile(i, j);
+    if (!m) continue;
+    m.position.y = 0;
+    setMaterialRecursive(m, concreteMat);
+  }
+
+  // --- Build perimeter walls (thin boxes on edges where neighbor isn’t selected)
+  // We create one wall segment per boundary edge. Simple & robust.
+  const wallGroup = new THREE.Group();
+  wallGroup.name = 'excavation_walls';
+  const wallHeight = 0 - depth;           // from depth up to 0
+  const wallThick = Math.min(0.12, tileSize * 0.12);
+  const half = tileSize / 2;
+
+  const wallGeomX = new THREE.BoxGeometry(tileSize, wallHeight, wallThick); // x-aligned edges
+  const wallGeomZ = new THREE.BoxGeometry(wallThick, wallHeight, tileSize); // z-aligned edges
+
+  for (const t of selection.tiles) {
+    const i = t.i, j = t.j;
+
+    // For each of the 4 sides, if neighbor isn't in selection, spawn a wall segment.
+    // WORLD SPACE placement assumes tiles are positioned at (i * tileSize, y, j * tileSize)
+    const cx = i * tileSize;
+    const cz = j * tileSize;
+
+    const sideDefs = [
+      { // +X edge (east)
+        hasNeighbor: pick.has(key(i + 1, j)),
+        geom: wallGeomZ,
+        pos: new THREE.Vector3(cx + half, depth + wallHeight / 2, cz),
+        rotY: 0
+      },
+      { // -X edge (west)
+        hasNeighbor: pick.has(key(i - 1, j)),
+        geom: wallGeomZ,
+        pos: new THREE.Vector3(cx - half, depth + wallHeight / 2, cz),
+        rotY: 0
+      },
+      { // +Z edge (north)
+        hasNeighbor: pick.has(key(i, j + 1)),
+        geom: wallGeomX,
+        pos: new THREE.Vector3(cx, depth + wallHeight / 2, cz + half),
+        rotY: 0
+      },
+      { // -Z edge (south)
+        hasNeighbor: pick.has(key(i, j - 1)),
+        geom: wallGeomX,
+        pos: new THREE.Vector3(cx, depth + wallHeight / 2, cz - half),
+        rotY: 0
+      }
+    ];
+
+    for (const s of sideDefs) {
+      if (s.hasNeighbor) continue;
+      const wall = new THREE.Mesh(s.geom, metalMat);
+      wall.position.copy(s.pos);
+      if (s.rotY) wall.rotation.y = s.rotY;
+      wall.castShadow = true;
+      wall.receiveShadow = true;
+      wallGroup.add(wall);
+    }
+  }
+
+  // --- Build a metal floor at the bottom (one plane per tile for simplicity)
+  const floorGroup = new THREE.Group();
+  floorGroup.name = 'excavation_floor';
+  const floorGeo = new THREE.PlaneGeometry(tileSize, tileSize);
+  floorGeo.rotateX(-Math.PI / 2);
+
+  for (const t of selection.tiles) {
+    const floor = new THREE.Mesh(floorGeo, metalMat);
+    floor.position.set(t.i * tileSize, depth, t.j * tileSize);
+    floor.receiveShadow = true;
+    floorGroup.add(floor);
+  }
+
+  if (scene) {
+    // Add walls/floor as standalone meshes (keeps your terrain meshes untouched).
+    scene.add(wallGroup);
+    scene.add(floorGroup);
+  } else {
+    // Or parent them to the terrain
+    terrainRoot.add(wallGroup);
+    terrainRoot.add(floorGroup);
+  }
+}
+
+// Recursively swap materials (covers groups)
+function setMaterialRecursive(obj, mat) {
+  obj.traverse(o => {
+    if (o.isMesh) {
+      o.material = mat;
+      o.castShadow = true;
+      o.receiveShadow = true;
+    }
+  });
 }
