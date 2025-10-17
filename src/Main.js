@@ -1,179 +1,246 @@
 // src/Main.js
-// App bootstrap. No terrain generation lives here — handled entirely by src/scene/Terrain.js.
+// Boots the app. Terrain generation lives ONLY in src/scene/Terrain.js.
 
-import * as THREE from 'three';
-import { createTerrain } from './scene/Terrain.js';
+import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.163.0/build/three.module.js';
 
-// Optional UI helper (if you have it). It should accept an options object.
-import { HighlighterUI } from './ui/HighlighterUI.js'; // safe to remove if not used
+// Scene bits (all terrain is created in Terrain.js)
+import { createTerrain }  from './scene/Terrain.js';
+import { createSkyDome }  from './scene/SkyDome.js';
+import { createLighting } from './scene/Lighting.js';
+import { createCamera }   from './scene/Camera.js';
 
-class MainApp {
-  constructor() {
-    // --- renderer ---
-    this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+// Controls + UI
+import { TouchPad }       from './controls/TouchPad.js';
+import { ImportModelUI }  from './ui/ImportModel.js';
+import { ModelSlidersUI } from './ui/ModelSliders.js';
+import { EnginePanelUI }  from './ui/EnginePanel.js';
+import { HighlighterUI }  from './ui/Highlighter.js'; // ✅ correct path/name
+
+// Assets + FX
+import { worldObjects }   from './world/Mapping.js';
+import { loadModel }      from './ModelLoading.js';
+import { EngineFX }       from './effects/EngineFX.js';
+
+export class Main {
+  constructor(debuggerInstance) {
+    this.debugger = debuggerInstance;
+
+    // --- renderer / canvas ---
+    this.canvas   = document.getElementById('game-canvas');
+    this.renderer = new THREE.WebGLRenderer({ canvas: this.canvas, antialias: true });
     this.renderer.setSize(window.innerWidth, window.innerHeight);
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-    document.body.appendChild(this.renderer.domElement);
 
-    // --- scene ---
-    this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color(0x1a1d21);
+    // --- core three.js ---
+    this.scene  = new THREE.Scene();
+    this.camera = createCamera();
+    this.camera.rotation.order = 'YXZ';
+    this.scene.add(this.camera);
 
-    // --- camera ---
-    this.camera = new THREE.PerspectiveCamera(
-      60,
-      window.innerWidth / window.innerHeight,
-      0.1,
-      1000
-    );
-    this.camera.position.set(20, 28, 26);
-    this.camera.lookAt(0, 0, 0);
+    // --- lighting ---
+    const { ambientLight, sunLight } = createLighting();
+    this.scene.add(ambientLight, sunLight, sunLight.target);
 
-    // --- lights ---
-    const hemi = new THREE.HemisphereLight(0xffffff, 0x3a3a3a, 0.7);
-    this.scene.add(hemi);
-
-    const dir = new THREE.DirectionalLight(0xffffff, 0.8);
-    dir.position.set(30, 50, 10);
-    dir.castShadow = true;
-    dir.shadow.mapSize.set(2048, 2048);
-    const d = 120;
-    dir.shadow.camera.left = -d;
-    dir.shadow.camera.right = d;
-    dir.shadow.camera.top = d;
-    dir.shadow.camera.bottom = -d;
-    dir.shadow.camera.far = 200;
-    this.scene.add(dir);
-
-    // --- terrain (delegated to Terrain.js) ---
-    this.terrain = createTerrain(); // uses window.EXCAVATION_SELECTION if present
+    // --- terrain & sky (all terrain building lives in Terrain.js) ---
+    this.terrain = createTerrain({
+      // optional: if you want to pass the selection directly instead of using a global
+      selection: window.EXCAVATION_SELECTION || null
+    });
     this.scene.add(this.terrain);
+    this.scene.add(createSkyDome());
 
-    // --- simple sky dome (visual only, not terrain logic) ---
-    this.scene.add(this.createSkyDome());
+    // --- controls ---
+    this.controls       = new TouchPad();
+    this.playerVelocity = new THREE.Vector3();
+    this.lookSpeed      = 0.004;
+    this.playerHeight   = 2.0;
 
-    // --- controls (very lightweight manual orbit) ---
-    this._orbit = {
-      target: new THREE.Vector3(0, 0, 0),
-      phi: 0.9, // vertical angle
-      theta: 0.7, // horizontal angle
-      radius: 60
-    };
-    this.attachMouseControls();
+    // --- ground-follow raycast ---
+    this.raycaster = new THREE.Raycaster();
+    this.rayDown   = new THREE.Vector3(0, -1, 0);
 
-    // --- optional: tile highlighter UI ---
+    // --- FX ---
+    this.effects = [];
+    this.fx      = null;
+
+    // --- clock / perf ---
+    this.clock = new THREE.Clock();
+    this.frameCount = 0;
+
+    // --- UI systems ---
+    this.initModelSystems();
+    this.loadStaticModels();
+
+    // --- Highlighter tool (tile picking)
     try {
-      if (HighlighterUI) {
-        this.highlighter = new HighlighterUI({
-          scene: this.scene,
-          camera: this.camera,
-          terrainGroup: this.terrain,
-          renderer: this.renderer
-        });
-      }
+      this.highlighter = new HighlighterUI({
+        scene: this.scene,
+        camera: this.camera,
+        terrainGroup: this.terrain,
+        debugger: this.debugger
+      });
     } catch (e) {
-      // no-op if you don't have the UI module
-      console.warn('HighlighterUI not initialized:', e);
+      this.debugger?.handleError(e, 'HighlighterInit');
     }
 
-    // --- resize ---
-    window.addEventListener('resize', () => this.onResize());
+    // --- events ---
+    window.addEventListener('resize', () => this.onWindowResize(), false);
+    this.initPerformanceMonitor();
 
     // --- go! ---
-    this.clock = new THREE.Clock();
-    this.animate();
+    this.start();
   }
 
-  createSkyDome() {
-    // very cheap gradient dome to keep focus on the terrain
-    const geo = new THREE.SphereGeometry(500, 24, 16);
-    geo.scale(1, 1, -1); // invert normals
+  static getManifest() {
+    return [
+      { name: 'Core Engine (Three.js)',   path: 'three.module.js' },
+      { name: 'World Terrain',            path: './scene/Terrain.js' },
+      { name: 'Atmosphere & Sky',         path: './scene/SkyDome.js' },
+      { name: 'Lighting Engine',          path: './scene/Lighting.js' },
+      { name: 'Player Camera',            path: './scene/Camera.js' },
+      { name: 'Control Systems',          path: './controls/TouchPad.js' },
+      { name: 'Highlighter Tool',         path: './ui/Highlighter.js' },
+      { name: 'Engine Panel',             path: './ui/EnginePanel.js' },
+      { name: 'Engine FX (Jet)',          path: './effects/EngineFX.js' },
+      { name: 'Finalizing...',            path: '...' },
+    ];
+  }
 
-    const top = new THREE.Color(0x6688cc);
-    const bottom = new THREE.Color(0x0d0f12);
+  // ---------- UI systems ----------
+  initModelSystems() {
+    this.importModelUI = new ImportModelUI(
+      this.scene,
+      (model) => { this.modelSliders.setActiveModel(model); },
+      this.debugger
+    );
 
-    const count = geo.attributes.position.count;
-    const colors = new Float32Array(count * 3);
-    for (let i = 0; i < count; i++) {
-      const y = geo.attributes.position.getY(i);
-      const t = THREE.MathUtils.clamp((y + 500) / 1000, 0, 1);
-      const c = bottom.clone().lerp(top, t);
-      colors[i * 3 + 0] = c.r;
-      colors[i * 3 + 1] = c.g;
-      colors[i * 3 + 2] = c.b;
+    this.modelSliders = new ModelSlidersUI(this.debugger);
+
+    this.enginePanel = new EnginePanelUI({
+      get: () => (this.fx ? this.fx.getParams() : this.defaultFXParams()),
+      set: (patch) => { if (this.fx) this.fx.setParams(patch); },
+      setIgnition: (on) => { if (this.fx) this.fx.setIgnition(on); },
+      getIgnition: () => (this.fx ? this.fx.getIgnition() : false)
+    }, this.debugger);
+  }
+
+  defaultFXParams() {
+    return {
+      enginesOn: false,
+      flameWidthFactor: 0.7,
+      flameHeightFactor: 0.8,
+      flameYOffset: 7.6,
+      intensity: 1.0,
+      taper: 0.2,
+      bulge: 1.0,
+      tear: 1.0,
+      turbulence: 0.5,
+      noiseSpeed: 2.2,
+      diamondsStrength: 0.9,
+      diamondsFreq: 2.8,
+      rimStrength: 0.0,
+      rimSpeed: 4.1,
+      colorCyan: 0.4,
+      colorOrange: 3.0,
+      colorWhite: 1.0,
+      groupOffsetX: 3.1,
+      groupOffsetY: -3.0,
+      groupOffsetZ: 1.2
+    };
+  }
+
+  loadStaticModels() {
+    this.debugger?.log(`Loading ${worldObjects.length} static models from Mapping.js...`);
+    worldObjects.forEach(obj => {
+      loadModel(
+        obj.path,
+        (model) => {
+          model.position.set(obj.position.x, obj.position.y, obj.position.z);
+          model.scale.set(obj.scale.x, obj.scale.y, obj.scale.z);
+          model.rotation.set(obj.rotation.x, obj.rotation.y, obj.rotation.z);
+          this.scene.add(model);
+          this.debugger?.log(`Loaded static model: ${obj.name}`);
+
+          if (obj.name === 'SuperHeavy') {
+            this.fx = new EngineFX(model, this.scene, this.camera);
+            this.fx.setParams(this.defaultFXParams());
+            this.fx.setIgnition(false);
+            this.effects.push(this.fx);
+            this.enginePanel.setReady(true);
+          }
+        },
+        (error) => {
+          this.debugger?.handleError(error, `StaticModel: ${obj.name}`);
+        }
+      );
+    });
+  }
+
+  // ---------- Game loop ----------
+  start() { this.animate(); }
+
+  animate() {
+    requestAnimationFrame(() => this.animate());
+    const dt = this.clock.getDelta();
+    const t  = this.clock.elapsedTime;
+
+    if (dt > 0) this.updatePlayer(dt);
+
+    for (const fx of this.effects) fx.update(dt, t);
+
+    // optional helper UI tick
+    if (this.highlighter?.update) this.highlighter.update(dt);
+
+    this.renderer.render(this.scene, this.camera);
+    this.frameCount++;
+  }
+
+  // ---------- Movement & ground follow ----------
+  updatePlayer(deltaTime) {
+    const moveSpeed   = 5.0 * deltaTime;
+    const moveVector  = this.controls.moveVector;
+    const lookVector  = this.controls.lookVector;
+
+    if (lookVector.length() > 0) {
+      this.camera.rotation.y -= lookVector.x * this.lookSpeed;
+      this.camera.rotation.x -= lookVector.y * this.lookSpeed;
+      this.camera.rotation.x  = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, this.camera.rotation.x));
+      this.controls.lookVector.set(0, 0);
     }
-    geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
 
-    const mat = new THREE.MeshBasicMaterial({ vertexColors: true, depthWrite: false });
-    const dome = new THREE.Mesh(geo, mat);
-    dome.name = 'sky_dome';
-    return dome;
+    this.playerVelocity.z = moveVector.y * moveSpeed;
+    this.playerVelocity.x = moveVector.x * moveSpeed;
+
+    this.camera.translateX(this.playerVelocity.x);
+    this.camera.translateZ(this.playerVelocity.z);
+
+    // ground-follow vs terrain meshes
+    const rayOrigin = new THREE.Vector3(this.camera.position.x, 80, this.camera.position.z);
+    this.raycaster.set(rayOrigin, this.rayDown);
+
+    const terrainMeshes = this.terrain.children.filter(
+      c => c.name === 'sand_terrain' || c.geometry?.type === 'PlaneGeometry'
+    );
+    const hits = this.raycaster.intersectObjects(terrainMeshes);
+    if (hits.length > 0) {
+      this.camera.position.y = hits[0].point.y + this.playerHeight;
+    }
   }
 
-  attachMouseControls() {
-    const dom = this.renderer.domElement;
-    let dragging = false;
-    let lastX = 0;
-    let lastY = 0;
-
-    dom.addEventListener('mousedown', (e) => {
-      dragging = true;
-      lastX = e.clientX;
-      lastY = e.clientY;
-    });
-    window.addEventListener('mouseup', () => (dragging = false));
-    window.addEventListener('mousemove', (e) => {
-      if (!dragging) return;
-      const dx = e.clientX - lastX;
-      const dy = e.clientY - lastY;
-      lastX = e.clientX;
-      lastY = e.clientY;
-
-      this._orbit.theta -= dx * 0.005;
-      this._orbit.phi = THREE.MathUtils.clamp(this._orbit.phi - dy * 0.005, 0.1, Math.PI / 2.1);
-    });
-
-    dom.addEventListener('wheel', (e) => {
-      e.preventDefault();
-      const s = Math.exp(-e.deltaY * 0.0015);
-      this._orbit.radius = THREE.MathUtils.clamp(this._orbit.radius * s, 10, 200);
-    }, { passive: false });
-  }
-
-  updateCameraOrbit() {
-    const { target, phi, theta, radius } = this._orbit;
-    const x = target.x + radius * Math.sin(phi) * Math.cos(theta);
-    const y = target.y + radius * Math.cos(phi);
-    const z = target.z + radius * Math.sin(phi) * Math.sin(theta);
-    this.camera.position.set(x, y, z);
-    this.camera.lookAt(target);
-  }
-
-  onResize() {
+  // ---------- Perf / window ----------
+  onWindowResize() {
     this.camera.aspect = window.innerWidth / window.innerHeight;
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(window.innerWidth, window.innerHeight);
   }
 
-  animate() {
-    requestAnimationFrame(() => this.animate());
-    const dt = this.clock.getDelta();
-
-    // per-frame updates
-    this.updateCameraOrbit();
-
-    // optional helper UI update
-    if (this.highlighter?.update) this.highlighter.update(dt);
-
-    this.renderer.render(this.scene, this.camera);
+  initPerformanceMonitor() {
+    setInterval(() => {
+      if (this.frameCount > 0 && this.frameCount < 30) {
+        this.debugger?.warn(`Low framerate detected: ${this.frameCount} FPS`, 'Performance');
+      }
+      this.frameCount = 0;
+    }, 1000);
   }
 }
-
-// Bootstrap
-window.addEventListener('DOMContentLoaded', () => {
-  // You can expose a selection before boot to override the default in Terrain.js:
-  // window.EXCAVATION_SELECTION = { tileSize: 1, tiles: [ {i:0,j:0,y:0}, ... ] };
-  new MainApp();
-});
