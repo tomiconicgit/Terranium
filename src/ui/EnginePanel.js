@@ -1,12 +1,15 @@
-// src/ui/EnginePanel.js
-// Sliders + number boxes. Now includes orange band shift and light controls.
-
+// File: src/ui/EnginePanel.js
+// Sliders + number boxes, incl. orange band shift and light controls.
 export class EnginePanelUI {
   constructor(api, dbg) {
     this.api = api;
     this.debugger = dbg;
     this.isReady = false;
-    this.inputs = {};   // {id: {slider, box, min, max}}
+    this.inputs = {}; // {id: {slider, box, min, max, key}}
+    this.panel = null;
+    this.openBtn = null;
+    this.igniteBtn = null;
+    this.cutoffBtn = null;
     this._build();
   }
 
@@ -16,6 +19,7 @@ export class EnginePanelUI {
     this._syncValuesFromAPI();
   }
 
+  /* ---------------- UI build ---------------- */
   _build() {
     const container = document.getElementById('ui-container');
     if (!container) {
@@ -23,15 +27,19 @@ export class EnginePanelUI {
       return;
     }
 
+    // Toggle button
     const openBtn = document.createElement('button');
     openBtn.id = 'engine-panel-btn';
     openBtn.textContent = 'Engines';
     openBtn.title = 'Open engine controls';
     openBtn.onclick = () => {
+      if (!this.panel) return;
       this.panel.style.display = (this.panel.style.display === 'block') ? 'none' : 'block';
     };
     container.appendChild(openBtn);
+    this.openBtn = openBtn;
 
+    // Panel
     const panel = document.createElement('div');
     panel.id = 'engine-panel';
     panel.classList.add('no-look');
@@ -47,32 +55,45 @@ export class EnginePanelUI {
     header.style.cssText = 'margin:0 0 12px;border-bottom:1px solid #444;padding-bottom:8px;';
     panel.appendChild(header);
 
+    // Ignite/Cutoff
     const btnRow = document.createElement('div');
     btnRow.style.cssText = 'display:flex; gap:10px; margin-bottom:14px;';
-    btnRow.innerHTML = `
-      <button id="ignite-btn" style="flex:1;">Ignite</button>
-      <button id="cutoff-btn" style="flex:1;">Cutoff</button>`;
-    panel.appendChild(btnRow);
+    const igniteBtn = document.createElement('button');
+    igniteBtn.id = 'ignite-btn';
+    igniteBtn.style.flex = '1';
+    igniteBtn.textContent = 'Ignite';
+    igniteBtn.onclick = () => { this.api.setIgnition?.(true); this._refreshButtons(); };
+    const cutoffBtn = document.createElement('button');
+    cutoffBtn.id = 'cutoff-btn';
+    cutoffBtn.style.flex = '1';
+    cutoffBtn.textContent = 'Cutoff';
+    cutoffBtn.onclick = () => { this.api.setIgnition?.(false); this._refreshButtons(); };
 
-    // helper to add slider+box rows
-    const addRow = (id, label, min, max, value, stepBox = 0.1) => {
+    btnRow.appendChild(igniteBtn);
+    btnRow.appendChild(cutoffBtn);
+    panel.appendChild(btnRow);
+    this.igniteBtn = igniteBtn;
+    this.cutoffBtn = cutoffBtn;
+
+    // Helper to create rows
+    const addRow = (id, label, min, max, key, stepBox = 0.1, stepSlider = 1) => {
       const wrap = document.createElement('div');
       wrap.className = 'slider-group';
       wrap.style.marginBottom = '12px';
       wrap.innerHTML = `
         <label style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;gap:8px;">
           <span>${label}</span>
-          <input type="number" id="${id}-box" step="${stepBox}" min="${min}" max="${max}" value="${value}"
+          <input type="number" id="${id}-box" step="${stepBox}" min="${min}" max="${max}"
                  style="width:110px;padding:4px 6px;background:#1f1f28;border:1px solid #444;color:#fff;border-radius:4px;">
         </label>
-        <input type="range" id="${id}" min="${min}" max="${max}" step="1" value="${Math.round(value)}"
+        <input type="range" id="${id}" min="${min}" max="${max}" step="${stepSlider}"
                style="width:100%;accent-color:#4f8ff7;">
       `;
       panel.appendChild(wrap);
 
       const slider = wrap.querySelector(`#${id}`);
       const box    = wrap.querySelector(`#${id}-box`);
-      this.inputs[id] = { slider, box, min, max };
+      this.inputs[id] = { slider, box, min, max, key };
 
       slider.oninput = () => {
         const iv = clampInt(parseFloat(slider.value), min, max);
@@ -92,52 +113,55 @@ export class EnginePanelUI {
       };
     };
 
+    // Read current values (or defaults)
     const c = this.api.get?.() ?? {};
-    const make = (id, label, min, max, key, stepBox = 0.1) =>
-      addRow(id, label, min, max, (c[key] ?? 0), stepBox);
 
-    // layout
-    make('fw','Flame Width ×',            0.01,   80.0,  'flameWidthFactor');
-    make('fh','Flame Height ×',           0.01,  120.0,  'flameHeightFactor');
-    make('fy','Flame Y Offset (m)',    -1200.0, 2400.0,  'flameYOffset');
+    // Core size/offset
+    addRow('fw',  'Flame Width ×',                  0.01,  80.0, 'flameWidthFactor');
+    addRow('fh',  'Flame Height ×',                 0.01, 120.0, 'flameHeightFactor');
+    addRow('fy',  'Flame Y Offset (m)',          -1200.0, 2400.0, 'flameYOffset', 0.1, 0.1);
 
     this._hr(panel);
 
-    make('in','Intensity ×',               0.0,     5.0, 'intensity');
-    make('tp','Taper (0=wide,1=thin)',     0.0,     1.0, 'taper');
-    make('bg','Bulge (mid-body)',          0.0,     1.0, 'bulge');
-    make('td','TearDrop (pinch)',          0.0,     1.0, 'tear');
-    make('tb','Turbulence',                0.0,     1.0, 'turbulence');
-    make('ns','Noise Speed',               0.0,     5.0, 'noiseSpeed');
-    make('ds','Mach Diamonds Strength',    0.0,     2.0, 'diamondsStrength');
-    make('df','Mach Diamonds Freq.',       0.0,    40.0, 'diamondsFreq');
+    // Shape & dynamics
+    addRow('in',  'Intensity ×',                     0.0,    5.0, 'intensity', 0.1, 0.1);
+    addRow('tp',  'Taper (0=wide,1=thin)',           0.0,    1.0, 'taper', 0.01, 0.01);
+    addRow('bg',  'Bulge (mid-body)',                0.0,    1.0, 'bulge', 0.01, 0.01);
+    addRow('td',  'TearDrop (pinch)',                0.0,    1.0, 'tear', 0.01, 0.01);
+    addRow('tb',  'Turbulence',                      0.0,    1.0, 'turbulence', 0.01, 0.01);
+    addRow('ns',  'Noise Speed',                     0.0,    5.0, 'noiseSpeed', 0.01, 0.01);
+    addRow('ds',  'Mach Diamonds Strength',          0.0,    2.0, 'diamondsStrength', 0.01, 0.01);
+    addRow('df',  'Mach Diamonds Freq.',             0.0,   40.0, 'diamondsFreq', 0.1, 0.1);
 
-    // NEW: Orange band shift
-    make('os','Orange Band Shift',        -0.50,    0.50, 'orangeShift', 0.01);
-
-    this._hr(panel);
-
-    make('rs','Rim Strength (halo)',       0.0,     1.0, 'rimStrength');
-    make('rp','Rim Speed',                 0.0,     6.0, 'rimSpeed');
+    // Orange band shift
+    addRow('os',  'Orange Band Shift',              -0.50,   0.50, 'orangeShift', 0.01, 0.01);
 
     this._hr(panel);
 
-    make('cb','Color: Cyan',               0.0,     3.0, 'colorCyan');
-    make('co','Color: Orange',             0.0,     3.0, 'colorOrange');
-    make('cw','Color: White Core',         0.0,     3.0, 'colorWhite');
+    // Rim / halo
+    addRow('rs',  'Rim Strength (halo)',             0.0,    1.0, 'rimStrength', 0.01, 0.01);
+    addRow('rp',  'Rim Speed',                        0.0,    6.0, 'rimSpeed', 0.01, 0.01);
 
     this._hr(panel);
 
-    make('gx','FX Offset X (m)',         -800.0,   800.0, 'groupOffsetX');
-    make('gy','FX Offset Y (m)',        -2400.0,  2400.0, 'groupOffsetY');
-    make('gz','FX Offset Z (m)',         -800.0,   800.0, 'groupOffsetZ');
+    // Colors (multipliers)
+    addRow('cb',  'Color: Cyan',                      0.0,    3.0, 'colorCyan', 0.01, 0.01);
+    addRow('co',  'Color: Orange',                    0.0,    3.0, 'colorOrange', 0.01, 0.01);
+    addRow('cw',  'Color: White Core',                0.0,    3.0, 'colorWhite', 0.01, 0.01);
+
+    this._hr(panel);
+
+    // FX group offsets
+    addRow('gx',  'FX Offset X (m)',               -800.0,  800.0, 'groupOffsetX', 0.1, 0.1);
+    addRow('gy',  'FX Offset Y (m)',              -2400.0, 2400.0, 'groupOffsetY', 0.1, 0.1);
+    addRow('gz',  'FX Offset Z (m)',               -800.0,  800.0, 'groupOffsetZ', 0.1, 0.1);
 
     this._hr(panel);
 
     // Tail fade controls
-    make('tfs','Tail Fade Start (0–1)',   0.00,     1.00, 'tailFadeStart');
-    make('tff','Tail Feather (softness)', 0.10,     6.00, 'tailFeather');
-    make('tfn','Tail Noise',              0.00,     0.40, 'tailNoise');
+    addRow('tfs', 'Tail Fade Start (0–1)',            0.00,   1.00, 'tailFadeStart', 0.01, 0.01);
+    addRow('tff', 'Tail Feather (softness)',          0.10,   6.00, 'tailFeather', 0.01, 0.01);
+    addRow('tfn', 'Tail Noise',                       0.00,   0.40, 'tailNoise', 0.01, 0.01);
 
     const hint = document.createElement('p');
     hint.style.cssText = 'margin:6px 0 0; color:#9aa; font-size:.85em;';
@@ -146,8 +170,151 @@ export class EnginePanelUI {
 
     this._hr(panel);
 
-    // ---------- NEW: Light controls ----------
+    // -------- Light controls --------
     const lightWrap = document.createElement('div');
     lightWrap.style.cssText = 'margin:8px 0 12px;';
-    lightWrap.innerHTML = `
-      <h
+    lightWrap.innerHTML = `<h5 style="margin:0 0 8px;">Nozzle Light</h5>`;
+    panel.appendChild(lightWrap);
+
+    // intensity & distance sliders
+    const addLightRow = (id, label, min, max, key, step = 0.1) => {
+      const wrap = document.createElement('div');
+      wrap.className = 'slider-group';
+      wrap.style.marginBottom = '10px';
+      wrap.innerHTML = `
+        <label style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;gap:8px;">
+          <span>${label}</span>
+          <input type="number" id="${id}-box" step="${step}" min="${min}" max="${max}"
+                 style="width:110px;padding:4px 6px;background:#1f1f28;border:1px solid #444;color:#fff;border-radius:4px;">
+        </label>
+        <input type="range" id="${id}" min="${min}" max="${max}" step="${step}"
+               style="width:100%;accent-color:#4f8ff7;">
+      `;
+      lightWrap.appendChild(wrap);
+
+      const slider = wrap.querySelector(`#${id}`);
+      const box    = wrap.querySelector(`#${id}-box`);
+      this.inputs[id] = { slider, box, min, max, key };
+
+      slider.oninput = () => {
+        let v = clampFloat(parseFloat(slider.value), min, max);
+        box.value = v.toFixed(2);
+        this._applyFromSliders();
+      };
+      box.onchange = () => {
+        let v = parseFloat(box.value);
+        if (isNaN(v)) v = parseFloat(slider.value);
+        v = clampFloat(v, min, max);
+        v = round1(v);
+        box.value = v.toFixed(2);
+        slider.value = String(v);
+        this._applyFromBoxes();
+      };
+    };
+
+    addLightRow('li', 'Light Intensity', 0.0, 50.0, 'lightIntensity', 0.1);
+    addLightRow('ld', 'Light Distance',  0.0, 800.0, 'lightDistance',  1.0);
+
+    // color input
+    const colorRow = document.createElement('div');
+    colorRow.style.cssText = 'display:flex;align-items:center;gap:12px;margin:6px 0 4px;';
+    colorRow.innerHTML = `
+      <label style="flex:1;">Light Color</label>
+      <input type="color" id="lc" value="#ffb869"
+             style="width:44px;height:28px;border:1px solid #444;background:#1f1f28;border-radius:4px;padding:0;">
+      <input type="text" id="lc-box" value="#ffb869"
+             style="flex:1;min-width:110px;padding:4px 6px;background:#1f1f28;border:1px solid #444;color:#fff;border-radius:4px;">
+    `;
+    lightWrap.appendChild(colorRow);
+
+    const lc = colorRow.querySelector('#lc');
+    const lcBox = colorRow.querySelector('#lc-box');
+    this.inputs['lc'] = { slider: lc, box: lcBox, min: 0, max: 0, key: 'lightColor' };
+    lc.oninput = () => { lcBox.value = lc.value; this._applyLightColor(); };
+    lcBox.onchange = () => {
+      const val = lcBox.value.trim();
+      if (/^#([0-9a-fA-F]{6})$/.test(val)) { lc.value = val; this._applyLightColor(); }
+      else { lcBox.value = lc.value; }
+    };
+
+    // Finish
+    document.body.appendChild(panel);
+    this.panel = panel;
+
+    // Seed values from API
+    this._syncValuesFromAPI();
+    this._refreshButtons();
+  }
+
+  _hr(panel) {
+    const hr = document.createElement('div');
+    hr.style.cssText = 'height:1px;background:#444;margin:12px 0;';
+    panel.appendChild(hr);
+  }
+
+  /* ---------------- read/apply ---------------- */
+
+  _collectPatchFromInputs() {
+    const patch = {};
+    for (const [id, def] of Object.entries(this.inputs)) {
+      if (def.key === 'lightColor') continue; // handled separately
+      const v = parseFloat(def.box?.value ?? def.slider?.value);
+      if (!Number.isFinite(v)) continue;
+      patch[def.key] = v;
+    }
+    // color
+    const color = this.inputs['lc'];
+    if (color) patch.lightColor = color.box.value.trim();
+    return patch;
+  }
+
+  _applyFromSliders() {
+    if (!this.isReady) return;
+    try { this.api.set?.(this._collectPatchFromInputs()); }
+    catch (e) { this.debugger?.handleError(e, 'EnginePanel.Apply'); }
+  }
+  _applyFromBoxes() {
+    if (!this.isReady) return;
+    try { this.api.set?.(this._collectPatchFromInputs()); }
+    catch (e) { this.debugger?.handleError(e, 'EnginePanel.Apply'); }
+  }
+  _applyLightColor() {
+    if (!this.isReady) return;
+    try {
+      const color = this.inputs['lc']?.box?.value?.trim();
+      if (color) this.api.set?.({ lightColor: color });
+    } catch (e) { this.debugger?.handleError(e, 'EnginePanel.Light'); }
+  }
+
+  _syncValuesFromAPI() {
+    const c = this.api.get?.() ?? {};
+    // set each pair
+    for (const [id, def] of Object.entries(this.inputs)) {
+      const key = def.key;
+      if (!key) continue;
+      let v = c[key];
+      if (key === 'lightColor') {
+        const hex = typeof v === 'string' ? v : (typeof v === 'number' ? '#' + v.toString(16).padStart(6, '0') : '#ffb869');
+        if (def.slider) def.slider.value = hex;
+        if (def.box)    def.box.value = hex;
+        continue;
+      }
+      if (!Number.isFinite(v)) continue;
+      v = clampFloat(v, def.min, def.max);
+      if (def.slider) def.slider.value = String(v);
+      if (def.box)    def.box.value = v.toFixed( (def.slider?.step && def.slider.step.indexOf('.')>=0) ? 2 : 1 );
+    }
+  }
+
+  _refreshButtons() {
+    const on = !!this.api.getIgnition?.();
+    if (this.igniteBtn) this.igniteBtn.disabled = !this.isReady || on;
+    if (this.cutoffBtn) this.cutoffBtn.disabled = !this.isReady || !on;
+    if (this.openBtn)   this.openBtn.disabled   = !this.isReady;
+  }
+}
+
+/* -------- helpers -------- */
+function clampInt(v, min, max){ return Math.max(min, Math.min(max, Math.round(v))); }
+function clampFloat(v, min, max){ return Math.max(min, Math.min(max, v)); }
+function round1(v){ return Math.round(v * 10) / 10; }
