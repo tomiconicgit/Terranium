@@ -1,244 +1,182 @@
 // src/scene/Terrain.js
-// Creates a 100x100 tile terrain (tileSize=1). Digs the provided selection
-// to y = -15 with metal floor + metal perimeter walls, rest is concrete.
-//
-// Uses two InstancedMeshes for tiles (concrete vs metal) and two InstancedMeshes
-// for walls (X-edge and Z-edge). Materials use small procedural CanvasTexture.
+import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.163.0/build/three.module.js';
 
-import * as THREE from 'three';
+export function createTerrain(opts = {}) {
+  // Allow passing selection, else read from global, else empty
+  const selection = opts.selection || (typeof window !== 'undefined' ? window.EXCAVATION_SELECTION : null) || {};
+  const tileSize  = typeof selection.tileSize === 'number' ? selection.tileSize : 1;
+  const tiles     = Array.isArray(selection.tiles) ? selection.tiles : [];
 
-/* ======= selection (defaults to your JSON; can be overridden by window.EXCAVATION_SELECTION) ======= */
-const DEFAULT_SELECTION = {
-  tileSize: 1,
-  tiles: [
-    // --- paste kept intentionally brief here  ---
-    // Use the exact JSON you gave me:
-    /* BEGIN PASTE */
-    {"i":0,"j":-2,"y":0},{"i":1,"j":-2,"y":0},{"i":2,"j":-2,"y":0},{"i":3,"j":-2,"y":0},{"i":4,"j":-2,"y":0},{"i":5,"j":-2,"y":0},{"i":6,"j":-2,"y":0},{"i":7,"j":-2,"y":0},{"i":8,"j":-1,"y":0},{"i":9,"j":-1,"y":0},{"i":10,"j":-1,"y":0},{"i":11,"j":-1,"y":0},{"i":12,"j":-1,"y":0},{"i":13,"j":-1,"y":0},{"i":14,"j":-1,"y":0},{"i":15,"j":-1,"y":0},{"i":16,"j":-1,"y":0},{"i":17,"j":-1,"y":0},{"i":18,"j":-1,"y":0},{"i":19,"j":-1,"y":0},{"i":20,"j":-1,"y":0},{"i":21,"j":-1,"y":0},{"i":22,"j":0,"y":0},{"i":23,"j":0,"y":0},{"i":24,"j":0,"y":0},{"i":25,"j":0,"y":0},{"i":26,"j":0,"y":0},{"i":27,"j":0,"y":0},{"i":28,"j":0,"y":0},{"i":0,"j":-1,"y":0},{"i":1,"j":-1,"y":0},{"i":2,"j":-1,"y":0},{"i":3,"j":-1,"y":0},{"i":4,"j":-1,"y":0},{"i":5,"j":-1,"y":0},{"i":6,"j":-1,"y":0},{"i":7,"j":-1,"y":0},{"i":8,"j":0,"y":0},{"i":9,"j":0,"y":0},{"i":10,"j":0,"y":0},{"i":11,"j":0,"y":0},{"i":12,"j":0,"y":0},{"i":13,"j":0,"y":0},{"i":14,"j":0,"y":0},{"i":15,"j":0,"y":0},{"i":16,"j":0,"y":0},{"i":17,"j":0,"y":0},{"i":18,"j":0,"y":0},{"i":19,"j":0,"y":0},{"i":20,"j":0,"y":0},{"i":21,"j":0,"y":0},{"i":22,"j":1,"y":0},{"i":23,"j":1,"y":0},{"i":24,"j":1,"y":0},{"i":25,"j":1,"y":0},{"i":26,"j":1,"y":0},{"i":27,"j":1,"y":0},{"i":28,"j":1,"y":0},{"i":21,"j":1,"y":0},{"i":20,"j":1,"y":0},{"i":19,"j":1,"y":0},{"i":18,"j":1,"y":0},{"i":17,"j":1,"y":0},{"i":16,"j":1,"y":0},{"i":15,"j":1,"y":0},{"i":14,"j":1,"y":0},{"i":13,"j":1,"y":0},{"i":12,"j":1,"y":0},{"i":11,"j":1,"y":0},{"i":10,"j":1,"y":0},{"i":9,"j":1,"y":0},{"i":8,"j":1,"y":0},{"i":7,"j":1,"y":0},{"i":6,"j":1,"y":0},{"i":5,"j":1,"y":0},{"i":4,"j":1,"y":0},{"i":3,"j":1,"y":0},{"i":2,"j":1,"y":0},{"i":1,"j":1,"y":0},{"i":0,"j":1,"y":0},{"i":0,"j":0,"y":0},{"i":1,"j":0,"y":0},{"i":2,"j":0,"y":0},{"i":3,"j":0,"y":0},{"i":4,"j":0,"y":0},{"i":5,"j":0,"y":0},{"i":6,"j":0,"y":0},{"i":7,"j":0,"y":0},{"i":0,"j":-3,"y":0},{"i":1,"j":-3,"y":0},{"i":2,"j":-3,"y":0},{"i":3,"j":-3,"y":0},{"i":4,"j":-3,"y":0},{"i":5,"j":-3,"y":0},{"i":6,"j":-3,"y":0},{"i":7,"j":-3,"y":0},{"i":8,"j":-3,"y":0},{"i":9,"j":-3,"y":0},{"i":10,"j":-3,"y":0},{"i":11,"j":-3,"y":0},{"i":12,"j":-3,"y":0},{"i":13,"j":-3,"y":0},{"i":14,"j":-3,"y":0},{"i":15,"j":-3,"y":0},{"i":16,"j":-3,"y":0},{"i":17,"j":-3,"y":0},{"i":18,"j":-3,"y":0},{"i":19,"j":-3,"y":0},{"i":20,"j":-3,"y":0},{"i":21,"j":-3,"y":0},{"i":22,"j":-3,"y":0},{"i":23,"j":-3,"y":0},{"i":24,"j":-3,"y":0},{"i":25,"j":-3,"y":0},{"i":26,"j":-3,"y":0},{"i":27,"j":-3,"y":0},{"i":28,"j":-3,"y":0},{"i":28,"j":-1,"y":0},{"i":28,"j":-2,"y":0},{"i":8,"j":-2,"y":0},{"i":9,"j":-2,"y":0},{"i":10,"j":-2,"y":0},{"i":11,"j":-2,"y":0},{"i":12,"j":-2,"y":0},{"i":13,"j":-2,"y":0},{"i":14,"j":-2,"y":0},{"i":15,"j":-2,"y":0},{"i":16,"j":-2,"y":0},{"i":17,"j":-2,"y":0},{"i":18,"j":-2,"y":0},{"i":19,"j":-2,"y":0},{"i":20,"j":-2,"y":0},{"i":21,"j":-2,"y":0},{"i":22,"j":-2,"y":0},{"i":23,"j":-2,"y":0},{"i":24,"j":-2,"y":0},{"i":25,"j":-2,"y":0},{"i":26,"j":-2,"y":0},{"i":27,"j":-2,"y":0},{"i":27,"j":-1,"y":0},{"i":26,"j":-1,"y":0},{"i":25,"j":-1,"y":0},{"i":24,"j":-1,"y":0},{"i":23,"j":-1,"y":0},{"i":22,"j":-1,"y":0},{"i":28,"j":2,"y":0},{"i":27,"j":2,"y":0},{"i":26,"j":2,"y":0},{"i":25,"j":2,"y":0},{"i":24,"j":2,"y":0},{"i":23,"j":2,"y":0},{"i":22,"j":2,"y":0},{"i":21,"j":2,"y":0},{"i":20,"j":2,"y":0},{"i":19,"j":2,"y":0},{"i":18,"j":2,"y":0},{"i":17,"j":2,"y":0},{"i":16,"j":2,"y":0},{"i":15,"j":2,"y":0},{"i":14,"j":2,"y":0},{"i":13,"j":2,"y":0},{"i":12,"j":2,"y":0},{"i":11,"j":2,"y":0},{"i":10,"j":2,"y":0},{"i":9,"j":2,"y":0},{"i":8,"j":2,"y":0},{"i":7,"j":2,"y":0},{"i":6,"j":2,"y":0},{"i":5,"j":2,"y":0},{"i":4,"j":2,"y":0},{"i":3,"j":2,"y":0},{"i":2,"j":2,"y":0},{"i":1,"j":2,"y":0},{"i":0,"j":2,"y":0},{"i":0,"j":3,"y":0},{"i":1,"j":3,"y":0},{"i":2,"j":3,"y":0},{"i":3,"j":3,"y":0},{"i":4,"j":3,"y":0},{"i":5,"j":3,"y":0},{"i":6,"j":3,"y":0},{"i":7,"j":3,"y":0},{"i":8,"j":3,"y":0},{"i":9,"j":3,"y":0},{"i":10,"j":3,"y":0},{"i":11,"j":3,"y":0},{"i":12,"j":3,"y":0},{"i":13,"j":3,"y":0},{"i":14,"j":3,"y":0},{"i":15,"j":3,"y":0},{"i":16,"j":3,"y":0},{"i":17,"j":3,"y":0},{"i":18,"j":3,"y":0},{"i":19,"j":3,"y":0},{"i":20,"j":3,"y":0},{"i":21,"j":3,"y":0},{"i":22,"j":3,"y":0},{"i":23,"j":3,"y":0},{"i":24,"j":3,"y":0},{"i":25,"j":3,"y":0},{"i":26,"j":3,"y":0},{"i":27,"j":3,"y":0},{"i":28,"j":3,"y":0},{"i":28,"j":4,"y":0},{"i":27,"j":4,"y":0},{"i":26,"j":4,"y":0},{"i":25,"j":4,"y":0},{"i":24,"j":4,"y":0},{"i":23,"j":4,"y":0},{"i":22,"j":4,"y":0},{"i":21,"j":4,"y":0},{"i":20,"j":4,"y":0},{"i":19,"j":4,"y":0},{"i":18,"j":4,"y":0},{"i":17,"j":4,"y":0},{"i":16,"j":4,"y":0},{"i":15,"j":4,"y":0},{"i":14,"j":4,"y":0},{"i":13,"j":4,"y":0},{"i":12,"j":4,"y":0},{"i":11,"j":4,"y":0},{"i":10,"j":4,"y":0},{"i":9,"j":4,"y":0},{"i":8,"j":4,"y":0},{"i":7,"j":4,"y":0},{"i":6,"j":4,"y":0},{"i":5,"j":4,"y":0},{"i":4,"j":4,"y":0},{"i":3,"j":4,"y":0},{"i":2,"j":4,"y":0},{"i":1,"j":4,"y":0},{"i":0,"j":4,"y":0},{"i":0,"j":5,"y":0},{"i":1,"j":5,"y":0},{"i":2,"j":5,"y":0},{"i":3,"j":5,"y":0},{"i":4,"j":5,"y":0},{"i":5,"j":5,"y":0},{"i":6,"j":5,"y":0},{"i":7,"j":5,"y":0},{"i":8,"j":5,"y":0},{"i":9,"j":5,"y":0},{"i":10,"j":5,"y":0},{"i":11,"j":5,"y":0},{"i":12,"j":5,"y":0},{"i":13,"j":5,"y":0},{"i":14,"j":5,"y":0},{"i":15,"j":5,"y":0},{"i":16,"j":5,"y":0},{"i":17,"j":5,"y":0},{"i":18,"j":5,"y":0},{"i":19,"j":5,"y":0},{"i":20,"j":5,"y":0},{"i":21,"j":5,"y":0},{"i":22,"j":5,"y":0},{"i":23,"j":5,"y":0},{"i":24,"j":5,"y":0},{"i":25,"j":5,"y":0},{"i":26,"j":5,"y":0},{"i":27,"j":5,"y":0},{"i":28,"j":5,"y":0},{"i":28,"j":6,"y":0},{"i":27,"j":6,"y":0},{"i":26,"j":6,"y":0},{"i":25,"j":6,"y":0},{"i":24,"j":6,"y":0},{"i":23,"j":6,"y":0},{"i":22,"j":6,"y":0},{"i":21,"j":6,"y":0},{"i":20,"j":6,"y":0},{"i":19,"j":6,"y":0},{"i":18,"j":6,"y":0},{"i":17,"j":6,"y":0},{"i":16,"j":6,"y":0},{"i":15,"j":6,"y":0},{"i":14,"j":6,"y":0},{"i":13,"j":6,"y":0},{"i":12,"j":6,"y":0},{"i":11,"j":6,"y":0},{"i":10,"j":6,"y":0},{"i":9,"j":6,"y":0},{"i":8,"j":6,"y":0},{"i":7,"j":6,"y":0},{"i":6,"j":6,"y":0},{"i":5,"j":6,"y":0},{"i":4,"j":6,"y":0},{"i":3,"j":6,"y":0},{"i":2,"j":6,"y":0},{"i":1,"j":6,"y":0},{"i":0,"j":6,"y":0},{"i":0,"j":7,"y":0},{"i":1,"j":7,"y":0},{"i":2,"j":7,"y":0},{"i":3,"j":7,"y":0},{"i":4,"j":7,"y":0},{"i":5,"j":7,"y":0},{"i":6,"j":7,"y":0},{"i":7,"j":7,"y":0},{"i":8,"j":7,"y":0},{"i":9,"j":7,"y":0},{"i":10,"j":7,"y":0},{"i":11,"j":7,"y":0},{"i":12,"j":7,"y":0},{"i":13,"j":7,"y":0},{"i":14,"j":7,"y":0},{"i":15,"j":7,"y":0},{"i":16,"j":7,"y":0},{"i":17,"j":7,"y":0},{"i":18,"j":7,"y":0},{"i":19,"j":7,"y":0},{"i":20,"j":7,"y":0},{"i":21,"j":7,"y":0},{"i":22,"j":7,"y":0},{"i":23,"j":7,"y":0},{"i":24,"j":7,"y":0},{"i":25,"j":7,"y":0},{"i":26,"j":7,"y":0},{"i":27,"j":7,"y":0},{"i":28,"j":7,"y":0},{"i":28,"j":8,"y":0},{"i":27,"j":8,"y":0},{"i":26,"j":8,"y":0},{"i":25,"j":8,"y":0},{"i":24,"j":8,"y":0},{"i":23,"j":8,"y":0},{"i":22,"j":8,"y":0},{"i":21,"j":8,"y":0},{"i":20,"j":8,"y":0},{"i":19,"j":8,"y":0},{"i":18,"j":8,"y":0},{"i":17,"j":8,"y":0},{"i":16,"j":8,"y":0},{"i":15,"j":8,"y":0},{"i":14,"j":8,"y":0},{"i":13,"j":8,"y":0},{"i":12,"j":8,"y":0},{"i":11,"j":8,"y":0},{"i":10,"j":8,"y":0},{"i":9,"j":8,"y":0},{"i":8,"j":8,"y":0},{"i":7,"j":8,"y":0},{"i":6,"j":8,"y":0},{"i":5,"j":8,"y":0},{"i":4,"j":8,"y":0},{"i":3,"j":8,"y":0},{"i":2,"j":8,"y":0},{"i":1,"j":8,"y":0},{"i":0,"j":8,"y":0},{"i":0,"j":9,"y":0},{"i":1,"j":9,"y":0},{"i":2,"j":9,"y":0},{"i":3,"j":9,"y":0},{"i":4,"j":9,"y":0},{"i":5,"j":9,"y":0},{"i":6,"j":9,"y":0},{"i":7,"j":9,"y":0},{"i":8,"j":9,"y":0},{"i":9,"j":9,"y":0},{"i":10,"j":9,"y":0},{"i":11,"j":9,"y":0},{"i":12,"j":9,"y":0},{"i":13,"j":9,"y":0},{"i":14,"j":9,"y":0},{"i":15,"j":9,"y":0},{"i":16,"j":9,"y":0},{"i":17,"j":9,"y":0},{"i":18,"j":9,"y":0},{"i":19,"j":9,"y":0},{"i":20,"j":9,"y":0},{"i":21,"j":9,"y":0},{"i":22,"j":9,"y":0},{"i":23,"j":9,"y":0},{"i":24,"j":9,"y":0},{"i":25,"j":9,"y":0},{"i":26,"j":9,"y":0},{"i":27,"j":9,"y":0},{"i":28,"j":9,"y":0},{"i":28,"j":10,"y":0},{"i":27,"j":10,"y":0},{"i":26,"j":10,"y":0},{"i":25,"j":10,"y":0},{"i":24,"j":10,"y":0},{"i":23,"j":10,"y":0},{"i":22,"j":10,"y":0},{"i":21,"j":10,"y":0},{"i":20,"j":10,"y":0},{"i":19,"j":10,"y":0},{"i":18,"j":10,"y":0},{"i":17,"j":10,"y":0},{"i":16,"j":10,"y":0},{"i":15,"j":10,"y":0},{"i":14,"j":10,"y":0},{"i":13,"j":10,"y":0},{"i":12,"j":10,"y":0},{"i":11,"j":10,"y":0},{"i":10,"j":10,"y":0},{"i":9,"j":10,"y":0},{"i":8,"j":10,"y":0},{"i":7,"j":10,"y":0},{"i":6,"j":10,"y":0},{"i":5,"j":10,"y":0},{"i":4,"j":10,"y":0},{"i":3,"j":10,"y":0},{"i":2,"j":10,"y":0},{"i":1,"j":10,"y":0},{"i":0,"j":10,"y":0},{"i":0,"j":11,"y":0},{"i":1,"j":11,"y":0},{"i":2,"j":11,"y":0},{"i":3,"j":11,"y":0},{"i":4,"j":11,"y":0},{"i":5,"j":11,"y":0},{"i":6,"j":11,"y":0},{"i":7,"j":11,"y":0},{"i":8,"j":11,"y":0},{"i":9,"j":11,"y":0},{"i":10,"j":11,"y":0},{"i":11,"j":11,"y":0},{"i":12,"j":11,"y":0},{"i":13,"j":11,"y":0},{"i":14,"j":11,"y":0},{"i":15,"j":11,"y":0},{"i":16,"j":11,"y":0},{"i":17,"j":11,"y":0},{"i":18,"j":11,"y":0},{"i":19,"j":11,"y":0},{"i":20,"j":11,"y":0},{"i":21,"j":11,"y":0},{"i":22,"j":11,"y":0},{"i":23,"j":11,"y":0},{"i":24,"j":11,"y":0},{"i":25,"j":11,"y":0},{"i":26,"j":11,"y":0},{"i":27,"j":11,"y":0},{"i":28,"j":11,"y":0},{"i":28,"j":12,"y":0},{"i":27,"j":12,"y":0},{"i":26,"j":12,"y":0},{"i":25,"j":12,"y":0},{"i":24,"j":12,"y":0},{"i":23,"j":12,"y":0},{"i":22,"j":12,"y":0},{"i":21,"j":12,"y":0},{"i":20,"j":12,"y":0},{"i":19,"j":12,"y":0},{"i":18,"j":12,"y":0},{"i":17,"j":12,"y":0},{"i":16,"j":12,"y":0},{"i":15,"j":12,"y":0},{"i":14,"j":12,"y":0},{"i":13,"j":12,"y":0},{"i":12,"j":12,"y":0},{"i":11,"j":12,"y":0},{"i":10,"j":12,"y":0},{"i":9,"j":12,"y":0},{"i":8,"j":12,"y":0},{"i":7,"j":12,"y":0},{"i":6,"j":12,"y":0},{"i":5,"j":12,"y":0},{"i":4,"j":12,"y":0},{"i":3,"j":12,"y":0},{"i":2,"j":12,"y":0},{"i":1,"j":12,"y":0},{"i":0,"j":12,"y":0},{"i":0,"j":13,"y":0},{"i":1,"j":13,"y":0},{"i":2,"j":13,"y":0},{"i":3,"j":13,"y":0},{"i":4,"j":13,"y":0},{"i":5,"j":13,"y":0},{"i":6,"j":13,"y":0},{"i":7,"j":13,"y":0},{"i":8,"j":13,"y":0},{"i":9,"j":13,"y":0},{"i":10,"j":13,"y":0},{"i":11,"j":13,"y":0},{"i":12,"j":13,"y":0},{"i":13,"j":13,"y":0},{"i":14,"j":13,"y":0},{"i":15,"j":13,"y":0},{"i":16,"j":13,"y":0},{"i":17,"j":13,"y":0},{"i":18,"j":13,"y":0},{"i":19,"j":13,"y":0},{"i":20,"j":13,"y":0},{"i":21,"j":13,"y":0},{"i":22,"j":13,"y":0},{"i":23,"j":13,"y":0},{"i":24,"j":13,"y":0},{"i":25,"j":13,"y":0},{"i":26,"j":13,"y":0},{"i":27,"j":13,"y":0},{"i":28,"j":13,"y":0},{"i":28,"j":14,"y":0},{"i":27,"j":14,"y":0},{"i":26,"j":14,"y":0},{"i":25,"j":14,"y":0},{"i":24,"j":14,"y":0},{"i":23,"j":14,"y":0},{"i":22,"j":14,"y":0},{"i":21,"j":14,"y":0},{"i":20,"j":14,"y":0},{"i":19,"j":14,"y":0},{"i":18,"j":14,"y":0},{"i":17,"j":14,"y":0},{"i":16,"j":14,"y":0},{"i":15,"j":14,"y":0},{"i":14,"j":14,"y":0},{"i":13,"j":14,"y":0},{"i":12,"j":14,"y":0},{"i":11,"j":14,"y":0},{"i":10,"j":14,"y":0},{"i":9,"j":14,"y":0},{"i":8,"j":14,"y":0},{"i":7,"j":14,"y":0},{"i":6,"j":14,"y":0},{"i":5,"j":14,"y":0},{"i":4,"j":14,"y":0},{"i":3,"j":14,"y":0},{"i":2,"j":14,"y":0},{"i":1,"j":14,"y":0},{"i":0,"j":14,"y":0},{"i":0,"j":15,"y":0},{"i":1,"j":15,"y":0},{"i":2,"j":15,"y":0},{"i":3,"j":15,"y":0},{"i":4,"j":15,"y":0},{"i":5,"j":15,"y":0},{"i":6,"j":15,"y":0},{"i":7,"j":15,"y":0},{"i":8,"j":15,"y":0},{"i":9,"j":15,"y":0},{"i":10,"j":15,"y":0},{"i":11,"j":15,"y":0},{"i":12,"j":15,"y":0},{"i":13,"j":15,"y":0},{"i":14,"j":15,"y":0},{"i":15,"j":15,"y":0},{"i":16,"j":15,"y":0},{"i":17,"j":15,"y":0},{"i":18,"j":15,"y":0},{"i":19,"j":15,"y":0},{"i":20,"j":15,"y":0},{"i":21,"j":15,"y":0},{"i":22,"j":15,"y":0},{"i":23,"j":15,"y":0},{"i":24,"j":15,"y":0},{"i":25,"j":15,"y":0},{"i":26,"j":15,"y":0},{"i":27,"j":15,"y":0},{"i":28,"j":15,"y":0},{"i":0,"j":16,"y":0},{"i":1,"j":16,"y":0},{"i":2,"j":16,"y":0},{"i":3,"j":16,"y":0},{"i":4,"j":16,"y":0},{"i":5,"j":16,"y":0},{"i":6,"j":16,"y":0},{"i":7,"j":16,"y":0},{"i":8,"j":16,"y":0},{"i":9,"j":16,"y":0},{"i":10,"j":16,"y":0},{"i":11,"j":16,"y":0},{"i":12,"j":16,"y":0},{"i":13,"j":16,"y":0},{"i":14,"j":16,"y":0},{"i":15,"j":16,"y":0},{"i":16,"j":16,"y":0},{"i":17,"j":16,"y":0},{"i":18,"j":16,"y":0},{"i":19,"j":16,"y":0},{"i":20,"j":16,"y":0},{"i":21,"j":16,"y":0},{"i":22,"j":16,"y":0},{"i":23,"j":16,"y":0},{"i":24,"j":16,"y":0},{"i":25,"j":16,"y":0},{"i":26,"j":16,"y":0},{"i":27,"j":16,"y":0},{"i":28,"j":16,"y":0},{"i":29,"j":16,"y":0},{"i":29,"j":15,"y":0},{"i":29,"j":14,"y":0},{"i":29,"j":13,"y":0},{"i":29,"j":12,"y":0},{"i":29,"j":11,"y":0},{"i":29,"j":10,"y":0},{"i":29,"j":9,"y":0},{"i":29,"j":8,"y":0},{"i":29,"j":7,"y":0},{"i":29,"j":6,"y":0},{"i":29,"j":5,"y":0},{"i":29,"j":4,"y":0},{"i":29,"j":3,"y":0},{"i":29,"j":2,"y":0},{"i":29,"j":1,"y":0},{"i":29,"j":0,"y":0},{"i":29,"j":-1,"y":0},{"i":29,"j":-2,"y":0},{"i":29,"j":-3,"y":0},{"i":30,"j":-3,"y":0},{"i":30,"j":-2,"y":0},{"i":30,"j":-1,"y":0},{"i":30,"j":0,"y":0},{"i":30,"j":1,"y":0},{"i":30,"j":2,"y":0},{"i":30,"j":3,"y":0},{"i":30,"j":4,"y":0},{"i":30,"j":5,"y":0},{"i":30,"j":6,"y":0},{"i":30,"j":7,"y":0},{"i":30,"j":8,"y":0},{"i":30,"j":9,"y":0},{"i":30,"j":10,"y":0},{"i":30,"j":11,"y":0},{"i":30,"j":12,"y":0},{"i":30,"j":13,"y":0},{"i":30,"j":14,"y":0},{"i":30,"j":15,"y":0},{"i":30,"j":16,"y":0},{"i":31,"j":16,"y":0},{"i":31,"j":15,"y":0},{"i":31,"j":14,"y":0},{"i":31,"j":13,"y":0},{"i":31,"j":12,"y":0},{"i":31,"j":11,"y":0},{"i":31,"j":10,"y":0},{"i":31,"j":9,"y":0},{"i":31,"j":8,"y":0},{"i":31,"j":7,"y":0},{"i":31,"j":6,"y":0},{"i":31,"j":5,"y":0},{"i":31,"j":4,"y":0},{"i":31,"j":3,"y":0},{"i":31,"j":2,"y":0},{"i":31,"j":1,"y":0},{"i":31,"j":0,"y":0},{"i":31,"j":-1,"y":0},{"i":31,"j":-2,"y":0},{"i":31,"j":-3,"y":0},{"i":32,"j":-3,"y":0},{"i":32,"j":-2,"y":0},{"i":32,"j":-1,"y":0},{"i":32,"j":0,"y":0},{"i":32,"j":1,"y":0},{"i":32,"j":2,"y":0},{"i":32,"j":3,"y":0},{"i":32,"j":4,"y":0},{"i":32,"j":5,"y":0},{"i":32,"j":6,"y":0},{"i":32,"j":7,"y":0},{"i":32,"j":8,"y":0},{"i":32,"j":9,"y":0},{"i":32,"j":10,"y":0},{"i":32,"j":11,"y":0},{"i":32,"j":12,"y":0},{"i":32,"j":13,"y":0},{"i":32,"j":14,"y":0},{"i":32,"j":15,"y":0},{"i":32,"j":16,"y":0},{"i":32,"j":-4,"y":0},{"i":31,"j":-4,"y":0},{"i":30,"j":-4,"y":0},{"i":29,"j":-4,"y":0},{"i":28,"j":-4,"y":0},{"i":27,"j":-4,"y":0},{"i":26,"j":-4,"y":0},{"i":25,"j":-4,"y":0},{"i":24,"j":-4,"y":0},{"i":23,"j":-4,"y":0},{"i":22,"j":-4,"y":0},{"i":21,"j":-4,"y":0},{"i":20,"j":-4,"y":0},{"i":19,"j":-4,"y":0},{"i":18,"j":-4,"y":0},{"i":17,"j":-4,"y":0},{"i":16,"j":-4,"y":0},{"i":15,"j":-4,"y":0},{"i":14,"j":-4,"y":0},{"i":13,"j":-4,"y":0},{"i":12,"j":-4,"y":0},{"i":11,"j":-4,"y":0},{"i":10,"j":-4,"y":0},{"i":9,"j":-4,"y":0},{"i":8,"j":-4,"y":0},{"i":7,"j":-4,"y":0},{"i":6,"j":-4,"y":0},{"i":5,"j":-4,"y":0},{"i":4,"j":-4,"y":0},{"i":3,"j":-4,"y":0},{"i":2,"j":-4,"y":0},{"i":1,"j":-4,"y":0},{"i":0,"j":-4,"y":0},{"i":0,"j":-5,"y":0},{"i":1,"j":-5,"y":0},{"i":2,"j":-5,"y":0},{"i":3,"j":-5,"y":0},{"i":4,"j":-5,"y":0},{"i":5,"j":-5,"y":0},{"i":6,"j":-5,"y":0},{"i":7,"j":-5,"y":0},{"i":8,"j":-5,"y":0},{"i":9,"j":-5,"y":0},{"i":10,"j":-5,"y":0},{"i":11,"j":-5,"y":0},{"i":12,"j":-5,"y":0},{"i":13,"j":-5,"y":0},{"i":14,"j":-5,"y":0},{"i":15,"j":-5,"y":0},{"i":16,"j":-5,"y":0},{"i":17,"j":-5,"y":0},{"i":18,"j":-5,"y":0},{"i":19,"j":-5,"y":0},{"i":20,"j":-5,"y":0},{"i":21,"j":-5,"y":0},{"i":22,"j":-5,"y":0},{"i":23,"j":-5,"y":0},{"i":24,"j":-5,"y":0},{"i":25,"j":-5,"y":0},{"i":26,"j":-5,"y":0},{"i":27,"j":-5,"y":0},{"i":28,"j":-5,"y":0},{"i":29,"j":-5,"y":0},{"i":30,"j":-5,"y":0},{"i":31,"j":-5,"y":0},{"i":32,"j":-5,"y":0},{"i":32,"j":-6,"y":0},{"i":31,"j":-6,"y":0},{"i":30,"j":-6,"y":0},{"i":29,"j":-6,"y":0},{"i":28,"j":-6,"y":0},{"i":27,"j":-6,"y":0},{"i":26,"j":-6,"y":0},{"i":25,"j":-6,"y":0},{"i":24,"j":-6,"y":0},{"i":23,"j":-6,"y":0},{"i":22,"j":-6,"y":0},{"i":21,"j":-6,"y":0},{"i":20,"j":-6,"y":0},{"i":19,"j":-6,"y":0},{"i":18,"j":-6,"y":0},{"i":17,"j":-6,"y":0},{"i":16,"j":-6,"y":0},{"i":15,"j":-6,"y":0},{"i":14,"j":-6,"y":0},{"i":13,"j":-6,"y":0},{"i":12,"j":-6,"y":0},{"i":11,"j":-6,"y":0},{"i":10,"j":-6,"y":0},{"i":9,"j":-6,"y":0},{"i":8,"j":-6,"y":0},{"i":7,"j":-6,"y":0},{"i":6,"j":-6,"y":0},{"i":5,"j":-6,"y":0},{"i":4,"j":-6,"y":0},{"i":3,"j":-6,"y":0},{"i":2,"j":-6,"y":0},{"i":1,"j":-6,"y":0},{"i":0,"j":-6,"y":0},{"i":0,"j":-7,"y":0},{"i":1,"j":-7,"y":0},{"i":2,"j":-7,"y":0},{"i":3,"j":-7,"y":0},{"i":4,"j":-7,"y":0},{"i":5,"j":-7,"y":0},{"i":6,"j":-7,"y":0},{"i":7,"j":-7,"y":0},{"i":8,"j":-7,"y":0},{"i":9,"j":-7,"y":0},{"i":10,"j":-7,"y":0},{"i":11,"j":-7,"y":0},{"i":12,"j":-7,"y":0},{"i":13,"j":-7,"y":0},{"i":14,"j":-7,"y":0},{"i":15,"j":-7,"y":0},{"i":16,"j":-7,"y":0},{"i":17,"j":-7,"y":0},{"i":18,"j":-7,"y":0},{"i":19,"j":-7,"y":0},{"i":20,"j":-7,"y":0},{"i":21,"j":-7,"y":0},{"i":22,"j":-7,"y":0},{"i":23,"j":-7,"y":0},{"i":24,"j":-7,"y":0},{"i":25,"j":-7,"y":0},{"i":26,"j":-7,"y":0},{"i":27,"j":-7,"y":0},{"i":28,"j":-7,"y":0},{"i":29,"j":-7,"y":0},{"i":30,"j":-7,"y":0},{"i":31,"j":-7,"y":0},{"i":32,"j":-7,"y":0},{"i":32,"j":-8,"y":0},{"i":31,"j":-8,"y":0},{"i":30,"j":-8,"y":0},{"i":29,"j":-8,"y":0},{"i":28,"j":-8,"y":0},{"i":27,"j":-8,"y":0},{"i":26,"j":-8,"y":0},{"i":25,"j":-8,"y":0},{"i":24,"j":-8,"y":0},{"i":23,"j":-8,"y":0},{"i":22,"j":-8,"y":0},{"i":21,"j":-8,"y":0},{"i":20,"j":-8,"y":0},{"i":19,"j":-8,"y":0},{"i":18,"j":-8,"y":0},{"i":17,"j":-8,"y":0},{"i":16,"j":-8,"y":0},{"i":15,"j":-8,"y":0},{"i":14,"j":-8,"y":0},{"i":13,"j":-8,"y":0},{"i":12,"j":-8,"y":0},{"i":11,"j":-8,"y":0},{"i":10,"j":-8,"y":0},{"i":9,"j":-8,"y":0},{"i":8,"j":-8,"y":0},{"i":7,"j":-8,"y":0},{"i":6,"j":-8,"y":0},{"i":5,"j":-8,"y":0},{"i":4,"j":-8,"y":0},{"i":3,"j":-8,"y":0},{"i":2,"j":-8,"y":0},{"i":1,"j":-8,"y":0},{"i":0,"j":-8,"y":0},{"i":0,"j":-9,"y":0},{"i":1,"j":-9,"y":0},{"i":2,"j":-9,"y":0},{"i":3,"j":-9,"y":0},{"i":4,"j":-9,"y":0},{"i":5,"j":-9,"y":0},{"i":6,"j":-9,"y":0},{"i":7,"j":-9,"y":0},{"i":8,"j":-9,"y":0},{"i":9,"j":-9,"y":0},{"i":10,"j":-9,"y":0},{"i":11,"j":-9,"y":0},{"i":12,"j":-9,"y":0},{"i":13,"j":-9,"y":0},{"i":14,"j":-9,"y":0},{"i":15,"j":-9,"y":0},{"i":16,"j":-9,"y":0},{"i":17,"j":-9,"y":0},{"i":18,"j":-9,"y":0},{"i":19,"j":-9,"y":0},{"i":20,"j":-9,"y":0},{"i":21,"j":-9,"y":0},{"i":22,"j":-9,"y":0},{"i":23,"j":-9,"y":0},{"i":24,"j":-9,"y":0},{"i":25,"j":-9,"y":0},{"i":26,"j":-9,"y":0},{"i":27,"j":-9,"y":0},{"i":28,"j":-9,"y":0},{"i":29,"j":-9,"y":0},{"i":30,"j":-9,"y":0},{"i":31,"j":-9,"y":0},{"i":32,"j":-9,"y":0},{"i":32,"j":-10,"y":0},{"i":31,"j":-10,"y":0},{"i":30,"j":-10,"y":0},{"i":29,"j":-10,"y":0},{"i":28,"j":-10,"y":0},{"i":27,"j":-10,"y":0},{"i":26,"j":-10,"y":0},{"i":25,"j":-10,"y":0},{"i":24,"j":-10,"y":0},{"i":23,"j":-10,"y":0},{"i":22,"j":-10,"y":0},{"i":21,"j":-10,"y":0},{"i":20,"j":-10,"y":0},{"i":19,"j":-10,"y":0},{"i":18,"j":-10,"y":0},{"i":17,"j":-10,"y":0},{"i":16,"j":-10,"y":0},{"i":15,"j":-10,"y":0},{"i":14,"j":-10,"y":0},{"i":13,"j":-10,"y":0},{"i":12,"j":-10,"y":0},{"i":11,"j":-10,"y":0},{"i":10,"j":-10,"y":0},{"i":9,"j":-10,"y":0},{"i":8,"j":-10,"y":0},{"i":7,"j":-10,"y":0},{"i":6,"j":-10,"y":0},{"i":5,"j":-10,"y":0},{"i":4,"j":-10,"y":0},{"i":3,"j":-10,"y":0},{"i":2,"j":-10,"y":0},{"i":1,"j":-10,"y":0},{"i":0,"j":-10,"y":0},{"i":0,"j":-11,"y":0},{"i":1,"j":-11,"y":0},{"i":2,"j":-11,"y":0},{"i":3,"j":-11,"y":0},{"i":4,"j":-11,"y":0},{"i":5,"j":-11,"y":0},{"i":6,"j":-11,"y":0},{"i":7,"j":-11,"y":0},{"i":8,"j":-11,"y":0},{"i":9,"j":-11,"y":0},{"i":10,"j":-11,"y":0},{"i":11,"j":-11,"y":0},{"i":12,"j":-11,"y":0},{"i":13,"j":-11,"y":0},{"i":14,"j":-11,"y":0},{"i":15,"j":-11,"y":0},{"i":16,"j":-11,"y":0},{"i":17,"j":-11,"y":0},{"i":18,"j":-11,"y":0},{"i":19,"j":-11,"y":0},{"i":20,"j":-11,"y":0},{"i":21,"j":-11,"y":0},{"i":22,"j":-11,"y":0},{"i":23,"j":-11,"y":0},{"i":24,"j":-11,"y":0},{"i":25,"j":-11,"y":0},{"i":26,"j":-11,"y":0},{"i":27,"j":-11,"y":0},{"i":28,"j":-11,"y":0},{"i":29,"j":-11,"y":0},{"i":30,"j":-11,"y":0},{"i":31,"j":-11,"y":0},{"i":32,"j":-11,"y":0},{"i":32,"j":-12,"y":0},{"i":31,"j":-12,"y":0},{"i":30,"j":-12,"y":0},{"i":29,"j":-12,"y":0},{"i":28,"j":-12,"y":0},{"i":27,"j":-12,"y":0},{"i":26,"j":-12,"y":0},{"i":25,"j":-12,"y":0},{"i":24,"j":-12,"y":0},{"i":23,"j":-12,"y":0},{"i":22,"j":-12,"y":0},{"i":21,"j":-12,"y":0},{"i":20,"j":-12,"y":0},{"i":19,"j":-12,"y":0},{"i":18,"j":-12,"y":0},{"i":17,"j":-12,"y":0},{"i":16,"j":-12,"y":0},{"i":15,"j":-12,"y":0},{"i":14,"j":-12,"y":0},{"i":13,"j":-12,"y":0},{"i":12,"j":-12,"y":0},{"i":11,"j":-12,"y":0},{"i":10,"j":-12,"y":0},{"i":9,"j":-12,"y":0},{"i":8,"j":-12,"y":0},{"i":7,"j":-12,"y":0},{"i":6,"j":-12,"y":0},{"i":5,"j":-12,"y":0},{"i":4,"j":-12,"y":0},{"i":3,"j":-12,"y":0},{"i":2,"j":-12,"y":0},{"i":1,"j":-12,"y":0},{"i":0,"j":-12,"y":0},{"i":0,"j":-13,"y":0},{"i":1,"j":-13,"y":0},{"i":2,"j":-13,"y":0},{"i":3,"j":-13,"y":0},{"i":4,"j":-13,"y":0},{"i":5,"j":-13,"y":0},{"i":6,"j":-13,"y":0},{"i":7,"j":-13,"y":0},{"i":8,"j":-13,"y":0},{"i":9,"j":-13,"y":0},{"i":10,"j":-13,"y":0},{"i":11,"j":-13,"y":0},{"i":12,"j":-13,"y":0},{"i":13,"j":-13,"y":0},{"i":14,"j":-13,"y":0},{"i":15,"j":-13,"y":0},{"i":16,"j":-13,"y":0},{"i":17,"j":-13,"y":0},{"i":18,"j":-13,"y":0},{"i":19,"j":-13,"y":0},{"i":20,"j":-13,"y":0},{"i":21,"j":-13,"y":0},{"i":22,"j":-13,"y":0},{"i":23,"j":-13,"y":0},{"i":24,"j":-13,"y":0},{"i":25,"j":-13,"y":0},{"i":26,"j":-13,"y":0},{"i":27,"j":-13,"y":0},{"i":28,"j":-13,"y":0},{"i":29,"j":-13,"y":0},{"i":30,"j":-13,"y":0},{"i":31,"j":-13,"y":0},{"i":32,"j":-13,"y":0},{"i":32,"j":-14,"y":0},{"i":31,"j":-14,"y":0},{"i":30,"j":-14,"y":0},{"i":29,"j":-14,"y":0},{"i":28,"j":-14,"y":0},{"i":27,"j":-14,"y":0},{"i":26,"j":-14,"y":0},{"i":25,"j":-14,"y":0},{"i":24,"j":-14,"y":0},{"i":23,"j":-14,"y":0},{"i":22,"j":-14,"y":0},{"i":21,"j":-14,"y":0},{"i":20,"j":-14,"y":0},{"i":19,"j":-14,"y":0},{"i":18,"j":-14,"y":0},{"i":17,"j":-14,"y":0},{"i":16,"j":-14,"y":0},{"i":15,"j":-14,"y":0},{"i":14,"j":-14,"y":0},{"i":13,"j":-14,"y":0},{"i":12,"j":-14,"y":0},{"i":11,"j":-14,"y":0},{"i":10,"j":-14,"y":0},{"i":9,"j":-14,"y":0},{"i":8,"j":-14,"y":0},{"i":7,"j":-14,"y":0},{"i":6,"j":-14,"y":0},{"i":5,"j":-14,"y":0},{"i":4,"j":-14,"y":0},{"i":3,"j":-14,"y":0},{"i":2,"j":-14,"y":0},{"i":1,"j":-14,"y":0},{"i":0,"j":-14,"y":0},{"i":0,"j":-15,"y":0},{"i":1,"j":-15,"y":0},{"i":2,"j":-15,"y":0},{"i":3,"j":-15,"y":0},{"i":4,"j":-15,"y":0},{"i":5,"j":-15,"y":0},{"i":6,"j":-15,"y":0},{"i":7,"j":-15,"y":0},{"i":8,"j":-15,"y":0},{"i":9,"j":-15,"y":0},{"i":10,"j":-15,"y":0},{"i":11,"j":-15,"y":0},{"i":12,"j":-15,"y":0},{"i":13,"j":-15,"y":0},{"i":14,"j":-15,"y":0},{"i":15,"j":-15,"y":0},{"i":16,"j":-15,"y":0},{"i":17,"j":-15,"y":0},{"i":18,"j":-15,"y":0},{"i":19,"j":-15,"y":0},{"i":20,"j":-15,"y":0},{"i":21,"j":-15,"y":0},{"i":22,"j":-15,"y":0},{"i":23,"j":-15,"y":0},{"i":24,"j":-15,"y":0},{"i":25,"j":-15,"y":0},{"i":26,"j":-15,"y":0},{"i":27,"j":-15,"y":0},{"i":28,"j":-15,"y":0},{"i":29,"j":-15,"y":0},{"i":30,"j":-15,"y":0},{"i":31,"j":-15,"y":0},{"i":32,"j":-15,"y":0}
-    /* END PASTE */
-  ]
-};
-/* ================================================================================================ */
+  const group = new THREE.Group();
+  group.name = 'terrain_root';
 
-export function createTerrain(selectionOverride) {
-  const selection = selectionOverride || (window.EXCAVATION_SELECTION ?? DEFAULT_SELECTION);
-  const tileSize = selection.tileSize ?? 1;
-  const depth = -15;
-  const half = tileSize * 0.5;
-
-  // Field extents (100 x 100), centered around origin.
-  const HALF_COUNT = 50;        // tiles in + or - direction
-  const I_MIN = -HALF_COUNT;
-  const I_MAX =  HALF_COUNT - 1;
-  const J_MIN = -HALF_COUNT;
-  const J_MAX =  HALF_COUNT - 1;
-
-  const root = new THREE.Group();
-  root.name = 'terrain_root';
-
-  // ---------- materials (procedural canvas textures) ----------
-  const concreteMat = new THREE.MeshStandardMaterial({
-    map: makeConcreteTexture(256),
-    color: 0xffffff,
-    roughness: 0.95,
-    metalness: 0.0
-  });
-
+  // ----- Materials (procedural-ish) -----
   const metalMat = new THREE.MeshStandardMaterial({
-    map: makeBrushedMetalTexture(256),
-    color: 0xffffff,
-    roughness: 0.25,
-    metalness: 1.0
+    color: 0x7a7a7a, metalness: 1.0, roughness: 0.25
   });
 
-  // Repeat the small textures across each tile
-  concreteMat.map.wrapS = concreteMat.map.wrapT = THREE.RepeatWrapping;
-  metalMat.map.wrapS    = metalMat.map.wrapT    = THREE.RepeatWrapping;
-  concreteMat.map.repeat.set(2, 2);
-  metalMat.map.repeat.set(4, 4);
+  // Minimal “procedural concrete” via a tiny noise ShaderMaterial
+  const concreteMat = makeConcreteMaterial();
 
-  // ---------- selection set ----------
-  const key = (i, j) => `${i}:${j}`;
-  const pick = new Set(selection.tiles.map(t => key(t.i, t.j)));
+  // ----- Ground plane 100x100 at y=0 -----
+  // world extent: 100 x 100 meters centered at origin => from -50..+50 on X/Z
+  const groundSize = 100 * tileSize;
+  const groundGeo  = new THREE.PlaneGeometry(groundSize, groundSize, 100, 100);
+  const ground     = new THREE.Mesh(groundGeo, concreteMat);
+  ground.rotation.x = -Math.PI / 2;
+  ground.receiveShadow = true;
+  ground.name = 'ground_terrain';
+  group.add(ground);
 
-  // ---------- tiles: two InstancedMeshes ----------
+  if (tiles.length === 0) {
+    // Nothing else to build; return the base ground
+    return group;
+  }
+
+  // ----- Build the pit floor at y = -15 for each provided tile -----
+  const depth = 15; // from y=0 down to -15
   const tileGeo = new THREE.PlaneGeometry(tileSize, tileSize);
   tileGeo.rotateX(-Math.PI / 2);
 
-  const totalTiles = (I_MAX - I_MIN + 1) * (J_MAX - J_MIN + 1);
-  let pitCount = 0;
-  for (let i = I_MIN; i <= I_MAX; i++) {
-    for (let j = J_MIN; j <= J_MAX; j++) {
-      if (pick.has(key(i, j))) pitCount++;
-    }
-  }
-  const groundCount = totalTiles - pitCount;
+  // Use InstancedMesh for performance
+  const pitFloor = new THREE.InstancedMesh(tileGeo, metalMat, tiles.length);
+  pitFloor.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+  pitFloor.castShadow = false;
+  pitFloor.receiveShadow = true;
+  pitFloor.name = 'metal_floor';
 
-  const groundMesh = new THREE.InstancedMesh(tileGeo, concreteMat, groundCount);
-  const pitMesh    = new THREE.InstancedMesh(tileGeo, metalMat, pitCount);
-  groundMesh.name = 'terrain_concrete';
-  pitMesh.name    = 'terrain_pit_metal';
-
-  let gi = 0, pi = 0;
   const m = new THREE.Matrix4();
-  for (let i = I_MIN; i <= I_MAX; i++) {
-    for (let j = J_MIN; j <= J_MAX; j++) {
-      const x = (i + 0.5) * tileSize;
-      const z = (j + 0.5) * tileSize;
-      if (pick.has(key(i, j))) {
-        m.makeTranslation(x, depth, z);
-        pitMesh.setMatrixAt(pi++, m);
-      } else {
-        m.makeTranslation(x, 0, z);
-        groundMesh.setMatrixAt(gi++, m);
-      }
-    }
+  for (let idx = 0; idx < tiles.length; idx++) {
+    const t = tiles[idx];
+    const x = t.i * tileSize;
+    const z = t.j * tileSize;
+    m.makeTranslation(x, -depth, z);
+    pitFloor.setMatrixAt(idx, m);
   }
-  groundMesh.instanceMatrix.needsUpdate = true;
-  pitMesh.instanceMatrix.needsUpdate = true;
+  pitFloor.instanceMatrix.needsUpdate = true;
+  group.add(pitFloor);
 
-  root.add(groundMesh);
-  root.add(pitMesh);
+  // ----- Metal perimeter walls from -15 up to 0 around the selection -----
+  // We’ll build a simple rectangular perimeter using the bounds of the tiles.
+  const { minI, maxI, minJ, maxJ } = getBounds(tiles);
 
-  // ---------- perimeter walls around pit ----------
-  const wallHeight = -depth; // 15
-  const wallThick  = Math.min(0.12, tileSize * 0.12);
+  // Outer rectangle at ground level (y=0), walls drop to -depth
+  const wallHeight = depth;
+  const wallThickness = 0.2 * tileSize;
 
-  // Z-aligned (along Z, short thickness in X) for ±X edges
-  const wallGeomZ = new THREE.BoxGeometry(wallThick, wallHeight, tileSize);
-  // X-aligned (along X, short thickness in Z) for ±Z edges
-  const wallGeomX = new THREE.BoxGeometry(tileSize, wallHeight, wallThick);
+  // Lengths along each side (span the tile bounds in world units)
+  const spanX = (maxI - minI + 1) * tileSize;
+  const spanZ = (maxJ - minJ + 1) * tileSize;
 
-  // count wall segments first
-  let countX = 0, countZ = 0;
-  for (const t of selection.tiles) {
-    const i = t.i, j = t.j;
-    if (!pick.has(key(i + 1, j))) countZ++;
-    if (!pick.has(key(i - 1, j))) countZ++;
-    if (!pick.has(key(i, j + 1))) countX++;
-    if (!pick.has(key(i, j - 1))) countX++;
-  }
+  // Create 4 boxes: +X edge, -X edge, +Z edge, -Z edge
+  const wallYCenter = -depth / 2; // halfway between 0 and -depth
 
-  const wallsZ = new THREE.InstancedMesh(wallGeomZ, metalMat, countZ);
-  const wallsX = new THREE.InstancedMesh(wallGeomX, metalMat, countX);
-  wallsZ.name = 'terrain_walls_z';
-  wallsX.name = 'terrain_walls_x';
+  const walls = new THREE.Group();
+  walls.name = 'metal_walls';
 
-  let wz = 0, wx = 0;
-  const yMid = depth + wallHeight / 2; // center between -15 and 0
+  // Along X (front/back)
+  walls.add(makeWall(spanX, wallHeight, wallThickness,  (minI + maxI + 1) * 0.5 * tileSize, wallYCenter, (minJ - 0.5) * tileSize, metalMat)); // -Z side
+  walls.add(makeWall(spanX, wallHeight, wallThickness,  (minI + maxI + 1) * 0.5 * tileSize, wallYCenter, (maxJ + 0.5) * tileSize, metalMat)); // +Z side
 
-  for (const t of selection.tiles) {
-    const i = t.i, j = t.j;
-    const cx = i * tileSize;
-    const cz = j * tileSize;
+  // Along Z (left/right)
+  const wallZRot = Math.PI / 2;
+  walls.add(makeWall(spanZ, wallHeight, wallThickness,  (minI - 0.5) * tileSize, wallYCenter, (minJ + maxJ + 1) * 0.5 * tileSize, metalMat, wallZRot)); // -X side
+  walls.add(makeWall(spanZ, wallHeight, wallThickness,  (maxI + 0.5) * tileSize, wallYCenter, (minJ + maxJ + 1) * 0.5 * tileSize, metalMat, wallZRot)); // +X side
 
-    // +X edge
-    if (!pick.has(key(i + 1, j))) {
-      m.makeTranslation(cx + half, yMid, cz);
-      wallsZ.setMatrixAt(wz++, m);
-    }
-    // -X edge
-    if (!pick.has(key(i - 1, j))) {
-      m.makeTranslation(cx - half, yMid, cz);
-      wallsZ.setMatrixAt(wz++, m);
-    }
-    // +Z edge
-    if (!pick.has(key(i, j + 1))) {
-      m.makeTranslation(cx, yMid, cz + half);
-      wallsX.setMatrixAt(wx++, m);
-    }
-    // -Z edge
-    if (!pick.has(key(i, j - 1))) {
-      m.makeTranslation(cx, yMid, cz - half);
-      wallsX.setMatrixAt(wx++, m);
-    }
-  }
-  if (wz) wallsZ.instanceMatrix.needsUpdate = true;
-  if (wx) wallsX.instanceMatrix.needsUpdate = true;
+  group.add(walls);
 
-  root.add(wallsZ);
-  root.add(wallsX);
-
-  return root;
+  return group;
 }
 
-/* ===================== helpers: small procedural textures ===================== */
-function makeConcreteTexture(size = 256) {
-  const c = document.createElement('canvas');
-  c.width = c.height = size;
-  const ctx = c.getContext('2d');
+// Helpers
+function getBounds(tiles) {
+  let minI = Infinity, maxI = -Infinity, minJ = Infinity, maxJ = -Infinity;
+  for (const t of tiles) {
+    if (t.i < minI) minI = t.i;
+    if (t.i > maxI) maxI = t.i;
+    if (t.j < minJ) minJ = t.j;
+    if (t.j > maxJ) maxJ = t.j;
+  }
+  // if something went weird, avoid Infinities
+  if (!isFinite(minI)) { minI = 0; maxI = -1; }
+  if (!isFinite(minJ)) { minJ = 0; maxJ = -1; }
+  return { minI, maxI, minJ, maxJ };
+}
 
-  // base
-  ctx.fillStyle = '#a9abae';
-  ctx.fillRect(0, 0, size, size);
+function makeWall(length, height, thickness, x, y, z, material, rotY = 0) {
+  const geo = new THREE.BoxGeometry(length, height, thickness);
+  const mesh = new THREE.Mesh(geo, material);
+  mesh.position.set(x, y, z);
+  mesh.rotation.y = rotY;
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  return mesh;
+}
 
-  // noise speckle
-  const img = ctx.getImageData(0, 0, size, size);
-  const d = img.data;
-  for (let y = 0; y < size; y++) {
-    for (let x = 0; x < size; x++) {
-      const i = (y * size + x) * 4;
-      // value noise-ish
-      const v = hash2(x, y) * 40 - 20; // -20..20
-      d[i + 0] = clamp255(d[i + 0] + v);
-      d[i + 1] = clamp255(d[i + 1] + v);
-      d[i + 2] = clamp255(d[i + 2] + v);
-      d[i + 3] = 255;
+// Very small “procedural” concrete shader: per-fragment noise + speckle
+function makeConcreteMaterial() {
+  const uniforms = {
+    uTime: { value: 0 },
+    uColorA: { value: new THREE.Color(0xbdbdbd) }, // light gray
+    uColorB: { value: new THREE.Color(0x9e9e9e) }, // mid gray
+  };
+
+  const vertex = `
+    varying vec2 vUv;
+    void main() {
+      vUv = uv * 10.0; // scale for more detail
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
     }
-  }
-  ctx.putImageData(img, 0, 0);
+  `;
 
-  // faint grid hairlines (expansion joints)
-  ctx.strokeStyle = 'rgba(0,0,0,0.08)';
-  ctx.lineWidth = 1;
-  const step = size / 8;
-  for (let gx = 0; gx <= size; gx += step) {
-    ctx.beginPath(); ctx.moveTo(gx, 0); ctx.lineTo(gx, size); ctx.stroke();
-  }
-  for (let gy = 0; gy <= size; gy += step) {
-    ctx.beginPath(); ctx.moveTo(0, gy); ctx.lineTo(size, gy); ctx.stroke();
-  }
+  // Cheap hash/noise
+  const fragment = `
+    varying vec2 vUv;
+    uniform vec3 uColorA;
+    uniform vec3 uColorB;
 
-  const tex = new THREE.CanvasTexture(c);
-  tex.anisotropy = 4;
-  return tex;
-}
-
-function makeBrushedMetalTexture(size = 256) {
-  const c = document.createElement('canvas');
-  c.width = c.height = size;
-  const ctx = c.getContext('2d');
-
-  // base gradient
-  const g = ctx.createLinearGradient(0, 0, size, 0);
-  g.addColorStop(0, '#c9d2da');
-  g.addColorStop(1, '#9aa5af');
-  ctx.fillStyle = g;
-  ctx.fillRect(0, 0, size, size);
-
-  // horizontal brush streaks
-  const img = ctx.getImageData(0, 0, size, size);
-  const d = img.data;
-  for (let y = 0; y < size; y++) {
-    const stripe = (Math.sin(y * 0.35) * 0.5 + 0.5) * 18; // subtle
-    for (let x = 0; x < size; x++) {
-      const i = (y * size + x) * 4;
-      const n = (hash2(x, y * 7) - 0.5) * 14 + stripe;
-      d[i + 0] = clamp255(d[i + 0] + n);
-      d[i + 1] = clamp255(d[i + 1] + n);
-      d[i + 2] = clamp255(d[i + 2] + n);
+    float hash(vec2 p) {
+      p = fract(p * vec2(123.34, 345.45));
+      p += dot(p, p + 34.345);
+      return fract(p.x * p.y);
     }
-  }
-  ctx.putImageData(img, 0, 0);
+    float noise(vec2 p){
+      vec2 i = floor(p);
+      vec2 f = fract(p);
+      float a = hash(i);
+      float b = hash(i + vec2(1.0, 0.0));
+      float c = hash(i + vec2(0.0, 1.0));
+      float d = hash(i + vec2(1.0, 1.0));
+      vec2 u = f * f * (3.0 - 2.0 * f);
+      return mix(a, b, u.x) + (c - a) * u.y * (1.0 - u.x) + (d - b) * u.x * u.y;
+    }
 
-  const tex = new THREE.CanvasTexture(c);
-  tex.anisotropy = 4;
-  return tex;
-}
+    void main() {
+      float n  = noise(vUv * 2.5);
+      float n2 = noise(vUv * 8.0);
+      float speck = step(0.97, fract(n2 * 7.0 + n));
+      vec3 base = mix(uColorA, uColorB, n);
+      base *= (1.0 - 0.05 * speck); // tiny dark speckles
+      // very subtle AO-ish darkening
+      base *= 0.95 + 0.05 * noise(vUv * 0.5);
+      gl_FragColor = vec4(base, 1.0);
+    }
+  `;
 
-function hash2(x, y) {
-  // fast integer hash → 0..1
-  const s = Math.sin(x * 127.1 + y * 311.7) * 43758.5453;
-  return s - Math.floor(s);
+  const mat = new THREE.ShaderMaterial({
+    uniforms,
+    vertexShader: vertex,
+    fragmentShader: fragment,
+    lights: false
+  });
+
+  // Wrap with MeshStandardMaterial-like properties using onBeforeCompile if desired.
+  // Keep it simple: use ShaderMaterial for color, rely on scene lights for shading via base Lambertian look.
+  // To participate in lighting, we'd need a full PBR shader; this minimal version is for visuals only.
+  // If you want it lit, swap to MeshStandardMaterial with a canvas-generated texture.
+
+  // To still receive light/shadows in a basic way, we can convert it to a standard material with a procedurally
+  // generated canvas texture. Keeping ShaderMaterial for brevity/clarity here.
+
+  return mat;
 }
-function clamp255(v) { return Math.max(0, Math.min(255, v|0)); }
