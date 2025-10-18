@@ -20,20 +20,27 @@ export class RocketLightRig {
     this.group.name = 'RocketLightRig';
     (this.parent || this.rocketRoot).add(this.group);
 
-    // Defaults for runtime controls
+    // Defaults for runtime controls (stronger so it's clearly visible in Day)
     this.runtime = {
-      spotAngleDeg: 30,
-      spotPenumbra: 0.35,
-      spotDistance: 260,
-      spotIntensityScale: 1.0,
-      pointIntensityScale: 1.0,
+      spotAngleDeg: 35,
+      spotPenumbra: 0.40,
+      spotDistance: 380,
+      spotIntensityScale: 1.35,
+      pointIntensityScale: 1.40,
       cookieCore:   '#fff7e6',
       cookieOrange: '#ffba78',
       cookieCyan:   '#80fbfd',
     };
 
     // --- Lights ---
-    this.spot = new THREE.SpotLight(0xffffff, 0.0, this.runtime.spotDistance, THREE.MathUtils.degToRad(this.runtime.spotAngleDeg), this.runtime.spotPenumbra, 1.8);
+    this.spot = new THREE.SpotLight(
+      0xffffff,
+      0.0,
+      this.runtime.spotDistance,
+      THREE.MathUtils.degToRad(this.runtime.spotAngleDeg),
+      this.runtime.spotPenumbra,
+      1.8
+    );
     this.spot.name = 'PlumeSpot';
     this.spot.castShadow = true;
     this.spot.shadow.mapSize.set(2048, 2048);
@@ -58,8 +65,8 @@ export class RocketLightRig {
     this.group.add(this.point);
 
     // Internal dynamics
-    this.maxSpotIntensity = 22.0;  // overall cap; will be scaled by params * runtime scale
-    this.maxPointIntensity = 6.0;
+    this.maxSpotIntensity  = 32.0; // higher caps so it can punch through daylight
+    this.maxPointIntensity = 10.0;
     this.dir = new THREE.Vector3(0, -1, 0); // plume direction (down)
     this.anchor = new THREE.Vector3();
 
@@ -95,7 +102,7 @@ export class RocketLightRig {
   }
 
   getParamsFromFlames() {
-    // keep separated for clarity
+    // keep separated for clarity (this is the InstancedFlames params object)
     return this.getParams();
   }
 
@@ -109,8 +116,9 @@ export class RocketLightRig {
     // Sublinear growth with engine count to avoid blowout
     const engineBoost = Math.pow(N, 0.55);
 
-    const baseSpot  = on ? Math.min(this.maxSpotIntensity, 8.0 * I * engineBoost) : 0.0;
-    const basePoint = on ? Math.min(this.maxPointIntensity, 2.2 * I * Math.pow(N, 0.4)) : 0.0;
+    // Stronger baselines so illumination is obvious in bright daylight
+    const baseSpot  = on ? Math.min(this.maxSpotIntensity, 16.0 * I * engineBoost) : 0.0;
+    const basePoint = on ? Math.min(this.maxPointIntensity,  4.0 * I * Math.pow(N, 0.4)) : 0.0;
 
     return {
       spot:  baseSpot  * (this.runtime.spotIntensityScale  ?? 1.0),
@@ -132,16 +140,20 @@ export class RocketLightRig {
     // Point at the anchor
     this.point.position.copy(this.anchor);
 
-    // 2) Intensity ramping
+    // 2) Intensities (and visibility toggle)
     const { spot: targetSpot, point: targetPoint } = this._desiredIntensities();
+    const on = (targetSpot > 0.001 || targetPoint > 0.001);
+    this.spot.visible  = on;
+    this.point.visible = on;
 
-    const lerp = 1.0 - Math.exp(-dt * 10.0); // ~150–200ms to settle
+    // smooth ramp (critically damped-ish)
+    const lerp = 1.0 - Math.exp(-dt * 10.0); // ≈150–200 ms to settle
     this.spot.intensity  = THREE.MathUtils.lerp(this.spot.intensity,  targetSpot,  lerp);
     this.point.intensity = THREE.MathUtils.lerp(this.point.intensity, targetPoint, lerp);
 
     // 3) Range tweaks with intensity (keeps falloff believable)
-    this.spot.distance = this.runtime.spotDistance ?? (180 + this.spot.intensity * 4.0);
-    this.point.distance = 80 + this.point.intensity * 6.0;
+    this.spot.distance  = this.runtime.spotDistance ?? (220 + this.spot.intensity * 6.0);
+    this.point.distance = 100 + this.point.intensity * 6.0;
   }
 
   dispose() {
@@ -176,6 +188,7 @@ function makePlumeCookieTexture(size = 256, core = '#fff7e6', orange = '#ffba78'
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, size, size);
 
+  // light ring noise to break up uniformity
   ctx.globalAlpha = 0.08;
   for (let i=0;i<18;i++){
     const r = (size/2) * (0.2 + Math.random()*0.7);
@@ -185,6 +198,7 @@ function makePlumeCookieTexture(size = 256, core = '#fff7e6', orange = '#ffba78'
     ctx.lineWidth = 1;
     ctx.stroke();
   }
+  ctx.globalAlpha = 1.0;
 
   const tex = new THREE.CanvasTexture(canvas);
   tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
