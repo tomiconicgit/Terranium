@@ -2,24 +2,25 @@
 import * as THREE from 'three';
 
 export function createTerrain(opts = {}) {
-  // Selection passed from Highlighter (expects 4 corner tiles making a rectangle)
+  // Selection comes from the Highlighter: a perimeter (axis-aligned) loop of tiles.
   const selection = opts.selection || (typeof window !== 'undefined' ? window.EXCAVATION_SELECTION : null) || {};
   const tileSize  = typeof selection.tileSize === 'number' ? selection.tileSize : 1;
   const tiles     = Array.isArray(selection.tiles) ? selection.tiles : [];
 
-  // World grid 100×100 centered on origin  ⇒ i,j in [-50..49]
+  // World grid 100×100 centered on origin ⇒ i,j in [-50..49]
   const GRID = 100;
   const HALF = GRID / 2;
 
-  // --- Derive rectangle bounds from the provided tiles (corners) ---
-  // Fallback: if not provided, default to a safe 10×10 around (0,0)
+  // --- Derive rectangle bounds from the perimeter loop ---
+  // We only need the inclusive bounding box: [minI..maxI] × [minJ..maxJ].
   let minI, maxI, minJ, maxJ;
-  if (tiles.length >= 1) {
-    minI = Math.min(...tiles.map(t => +t.i));
-    maxI = Math.max(...tiles.map(t => +t.i));
-    minJ = Math.min(...tiles.map(t => +t.j));
-    maxJ = Math.max(...tiles.map(t => +t.j));
+  if (tiles.length) {
+    const is = tiles.map(t => +t.i);
+    const js = tiles.map(t => +t.j);
+    minI = Math.min(...is); maxI = Math.max(...is);
+    minJ = Math.min(...js); maxJ = Math.max(...js);
   } else {
+    // Fallback safety zone (10×10 around origin) if nothing is highlighted.
     minI = -5; maxI = 4;
     minJ = -5; maxJ = 4;
   }
@@ -30,7 +31,7 @@ export function createTerrain(opts = {}) {
   minJ = Math.max(minJ, -HALF);
   maxJ = Math.min(maxJ,  HALF - 1);
 
-  // Span in world units for the pit
+  // Inclusive tile counts and spans in world units
   const pitTilesX = (maxI - minI + 1);
   const pitTilesZ = (maxJ - minJ + 1);
   const pitSpanX  = pitTilesX * tileSize;
@@ -40,132 +41,131 @@ export function createTerrain(opts = {}) {
   const worldSpanX = GRID * tileSize;
   const worldSpanZ = GRID * tileSize;
 
-  // Convert i,j to world center positions (center of the rectangle)
+  // Rectangle center in world units (aligned to our i/j grid)
   const pitCenterX = (minI + maxI + 1) * 0.5 * tileSize;
   const pitCenterZ = (minJ + maxJ + 1) * 0.5 * tileSize;
 
-  // Group root
+  // Root node
   const group = new THREE.Group();
   group.name = 'terrain_root';
 
   // Materials
-  const concreteMat = makeConcreteMaterial();        // outside pit
+  const concreteMat = makeConcreteMaterial();        // outside the pit
   const metalMat    = makeProceduralMetalMaterial(); // pit floor + walls
 
-  // Common dims
-  const depth        = 15;      // pit depth (your requirement: -15m)
-  const epsilon      = 0.02;    // small overlaps to hide seams
-  const groundThick  = 0.05;    // thin slab to avoid z-fighting
+  // Geometry dims
+  const depth        = 15;    // pit depth target: -15m
+  const epsilon      = 0.02;  // small overlaps to hide seams
+  const groundThick  = 0.05;  // thin slab to avoid z-fighting
   const floorThick   = 0.08;
 
-  // ---------- Ground at level 0 (four frame slabs around the pit) ----------
-  // Left strip
+  // ---------- Ground (concrete) around the pit ----------
+  // Left slab (everything with i < minI)
   if (minI > -HALF) {
     const width = (minI - (-HALF)) * tileSize;
     const g = new THREE.BoxGeometry(width + epsilon, groundThick, worldSpanZ + epsilon);
     const m = new THREE.Mesh(g, concreteMat);
     m.name = 'ground_frame_left';
-    m.position.set(
-      ((-HALF) * tileSize) + (width * 0.5),
-      0 - groundThick * 0.5,
-      0
-    );
+    m.position.set(((-HALF) * tileSize) + (width * 0.5), 0 - groundThick * 0.5, 0);
     m.castShadow = false; m.receiveShadow = true;
     group.add(m);
   }
-  // Right strip
+  // Right slab (everything with i > maxI)
   if (maxI < HALF - 1) {
     const width = ((HALF - 1) - maxI) * tileSize;
     const g = new THREE.BoxGeometry(width + epsilon, groundThick, worldSpanZ + epsilon);
     const m = new THREE.Mesh(g, concreteMat);
     m.name = 'ground_frame_right';
-    m.position.set(
-      ((maxI + 1) * tileSize) + (width * 0.5),
-      0 - groundThick * 0.5,
-      0
-    );
+    m.position.set(((maxI + 1) * tileSize) + (width * 0.5), 0 - groundThick * 0.5, 0);
     m.castShadow = false; m.receiveShadow = true;
     group.add(m);
   }
-  // Front strip (-Z)
+  // Front slab (everything with j < minJ)
   if (minJ > -HALF) {
     const depthSpan = (minJ - (-HALF)) * tileSize;
     const g = new THREE.BoxGeometry(pitSpanX + epsilon, groundThick, depthSpan + epsilon);
     const m = new THREE.Mesh(g, concreteMat);
     m.name = 'ground_frame_front';
-    m.position.set(
-      pitCenterX,
-      0 - groundThick * 0.5,
-      ((-HALF) * tileSize) + (depthSpan * 0.5)
-    );
+    m.position.set(pitCenterX, 0 - groundThick * 0.5, ((-HALF) * tileSize) + (depthSpan * 0.5));
     m.castShadow = false; m.receiveShadow = true;
     group.add(m);
   }
-  // Back strip (+Z)
+  // Back slab (everything with j > maxJ)
   if (maxJ < HALF - 1) {
     const depthSpan = ((HALF - 1) - maxJ) * tileSize;
     const g = new THREE.BoxGeometry(pitSpanX + epsilon, groundThick, depthSpan + epsilon);
     const m = new THREE.Mesh(g, concreteMat);
     m.name = 'ground_frame_back';
-    m.position.set(
-      pitCenterX,
-      0 - groundThick * 0.5,
-      ((maxJ + 1) * tileSize) + (depthSpan * 0.5)
-    );
+    m.position.set(pitCenterX, 0 - groundThick * 0.5, ((maxJ + 1) * tileSize) + (depthSpan * 0.5));
     m.castShadow = false; m.receiveShadow = true;
     group.add(m);
   }
 
-  // ---------- Pit floor (single solid box, no seams) ----------
+  // ---------- Pit floor (metal) at -15m ----------
   {
     const g = new THREE.BoxGeometry(pitSpanX + epsilon, floorThick, pitSpanZ + epsilon);
     const m = new THREE.Mesh(g, metalMat);
     m.name = 'pit_floor';
+    // center the slab at Y ≈ -15; we place its top surface at exactly -15 (with tiny epsilon)
     m.position.set(pitCenterX, -depth - floorThick * 0.5 + epsilon * 0.5, pitCenterZ);
     m.castShadow = false; m.receiveShadow = true;
     group.add(m);
   }
 
-  // ---------- Perimeter walls (slight overlap into ground & floor) ----------
-  const wallHeight    = depth + groundThick + epsilon; // poke slightly into ground
+  // ---------- Pit perimeter walls (metal), aligned to the rectangle outline ----------
+  const wallHeight    = depth + groundThick + epsilon; // extends slightly into the ground slab
   const wallThickness = Math.max(0.2 * tileSize, 0.1);
-  const wallYCenter   = -depth * 0.5; // centered between 0 and -depth
+  const wallYCenter   = -depth * 0.5; // centered between 0 and -depth (top ≈ 0, bottom ≈ -15)
 
-  // -Z edge (front)
+  // -Z edge (front wall runs along j = minJ boundary)
   group.add(makeWall(
     pitSpanX + wallThickness, wallHeight, wallThickness,
-    pitCenterX, wallYCenter - (floorThick * 0.5), (minJ * tileSize) - (wallThickness * 0.5) + epsilon,
+    pitCenterX, wallYCenter - (floorThick * 0.5),
+    (minJ * tileSize) - (wallThickness * 0.5) + epsilon,
     metalMat, 0, 'pit_wall_front'
   ));
-  // +Z edge (back)
+
+  // +Z edge (back wall runs along j = maxJ boundary)
   group.add(makeWall(
     pitSpanX + wallThickness, wallHeight, wallThickness,
-    pitCenterX, wallYCenter - (floorThick * 0.5), ((maxJ + 1) * tileSize) + (wallThickness * 0.5) - epsilon,
+    pitCenterX, wallYCenter - (floorThick * 0.5),
+    ((maxJ + 1) * tileSize) + (wallThickness * 0.5) - epsilon,
     metalMat, 0, 'pit_wall_back'
   ));
-  // -X edge (left)
+
+  // -X edge (left wall runs along i = minI boundary)
   group.add(makeWall(
     pitSpanZ + wallThickness, wallHeight, wallThickness,
-    (minI * tileSize) - (wallThickness * 0.5) + epsilon, wallYCenter - (floorThick * 0.5), pitCenterZ,
+    (minI * tileSize) - (wallThickness * 0.5) + epsilon,
+    wallYCenter - (floorThick * 0.5),
+    pitCenterZ,
     metalMat, Math.PI / 2, 'pit_wall_left'
   ));
-  // +X edge (right)
+
+  // +X edge (right wall runs along i = maxI boundary)
   group.add(makeWall(
     pitSpanZ + wallThickness, wallHeight, wallThickness,
-    ((maxI + 1) * tileSize) + (wallThickness * 0.5) - epsilon, wallYCenter - (floorThick * 0.5), pitCenterZ,
+    ((maxI + 1) * tileSize) + (wallThickness * 0.5) - epsilon,
+    wallYCenter - (floorThick * 0.5),
+    pitCenterZ,
     metalMat, Math.PI / 2, 'pit_wall_right'
   ));
 
-  // ---------- Bookkeeping: list all tiles inside the pit (inclusive) ----------
-  // Helpful for debugging/exports; NOT used for rendering
-  const selectedTiles = [];
+  // ---------- Bookkeeping / export helpers ----------
+  // Enumerate every interior tile (inclusive bounds).
+  const interiorTiles = [];
   for (let i = minI; i <= maxI; i++) {
     for (let j = minJ; j <= maxJ; j++) {
-      selectedTiles.push({ i, j });
+      interiorTiles.push({ i, j, y: -depth });
     }
   }
-  group.userData.selectedTiles = selectedTiles;
-  group.userData.selectionBounds = { minI, maxI, minJ, maxJ, tileSize, depth };
+  group.userData.pit = {
+    tileSize,
+    depth,
+    bounds: { minI, maxI, minJ, maxJ },
+    interiorTiles,
+    perimeter: tiles   // original highlighted loop (as provided)
+  };
 
   return group;
 }
