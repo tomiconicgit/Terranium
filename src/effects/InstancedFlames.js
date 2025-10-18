@@ -1,88 +1,33 @@
 // src/effects/InstancedFlames.js
 import * as THREE from 'three';
 import { FlameFragmentShader } from './FlameShader.js';
+import { DEFAULT_FLAME_PARAMS, cloneDefaults, applyParamsToUniforms } from './FlameDefaults.js';
 
-// Tiny utils (match EngineFX.js)
 function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
 function mix(a, b, t) { return a * (1.0 - t) + b * t; }
 function smoothstep(e0, e1, x) { x = clamp((x - e0) / (e1 - e0), 0.0, 1.0); return x * x * (3.0 - 2.0 * x); }
-
-// Noise helpers (CPU side for vertex wobble)
 function fract(x) { return x - Math.floor(x); }
-function n2(v) {
-  return fract(Math.sin(v.dot(new THREE.Vector2(127.1, 311.7))) * 43758.5453);
-}
+function n2(v) { return fract(Math.sin(v.dot(new THREE.Vector2(127.1, 311.7))) * 43758.5453); }
 function fbm(v) {
   const p = v.clone();
   let a = 0.0, w = 0.5;
-  for (let i = 0; i < 4; i++) {
-    a += w * n2(p);
-    p.multiplyScalar(2.03).add(new THREE.Vector2(1.7, 1.7));
-    w *= 0.5;
-  }
+  for (let i = 0; i < 4; i++) { a += w * n2(p); p.multiplyScalar(2.03).add(new THREE.Vector2(1.7, 1.7)); w *= 0.5; }
   return a;
 }
 
 export class InstancedFlames {
-  /**
-   * @param {THREE.Object3D} rocketRoot - parent object (e.g., rocket model)
-   * @param {Array<Object>} offsets - list of {groupOffsetX, groupOffsetY, groupOffsetZ}
-   * @param {Object} paramsBaseline - initial params (same shape as EngineFX)
-   * @param {THREE.Camera} [camera] - optional camera to attach ignition audio listener
-   * @param {string} [ignitionSfxUrl] - optional url to ignition wav
-   */
-  constructor(rocketRoot, offsets = [], paramsBaseline = {}, camera = null, ignitionSfxUrl = null) {
+  constructor(rocketRoot, offsets = [], paramsBaseline = {}) {
     this.rocketRoot = rocketRoot;
+    this.params = Object.assign(cloneDefaults(), paramsBaseline || {});
+    this.flameWidthBase = 3.5; this.flameHeightBase = 40.0; this.segments = 32;
 
-    // These defaults will be OVERWRITTEN by the paramsBaseline object.
-    this.params = Object.assign({
-      enginesOn: false,
-      flameWidthFactor: 0.7,
-      flameHeightFactor: 0.8,
-      flameYOffset: 7.6,
-      intensity: 1.5,
-      taper: 0.0,
-      bulge: 1.0,
-      tear: 1.0,
-      turbulence: 0.5,
-      noiseSpeed: 2.2,
-      diamondsStrength: 0.9,
-      diamondsFreq: 2.8,
-      rimStrength: 0.0,
-      rimSpeed: 4.1,
-      colorCyan: 0.5,
-      colorOrange: 3.0,
-      colorWhite: 0.9,
-      tailFadeStart: 0.3,
-      tailFeather: 4.0,
-      tailNoise: 0.2,
-      bottomFadeDepth: 0.12,
-      bottomFadeFeather: 0.80,
-      orangeShift: -0.2,
-    }, paramsBaseline || {});
+    this.ignitionDelayMs = 2800; this.ignitionTimer = null; this.ignitionPending = false;
 
-    this.flameWidthBase = 3.5;
-    this.flameHeightBase = 40.0;
-    this.segments = 32;
-
-    // ignition timing + (new) audio
-    this.ignitionDelayMs = 2800;
-    this.ignitionTimer = null;
-    this.ignitionPending = false;
-
-    // --- AUDIO (optional, mirrors EngineFX) ---
-    this.listener = null;
-    this.audio = null;
-    this._audioLoaded = false;
-    if (camera && ignitionSfxUrl) {
-      this._setupAudio(camera, ignitionSfxUrl);
-    }
-
-    // geometry / instances
     this.geometry = new THREE.CylinderGeometry(0.001, 0.001, this.flameHeightBase, this.segments, 20, true);
     this.geometry.translate(0, -this.flameHeightBase / 2, 0);
 
     this.material = this._makeFlameMaterial();
+
     const count = Math.max(0, offsets.length | 0);
     this.mesh = new THREE.InstancedMesh(this.geometry, this.material, count);
     this.mesh.frustumCulled = false;
@@ -90,51 +35,15 @@ export class InstancedFlames {
 
     this.initialVertices = [];
     const pos = this.geometry.attributes.position;
-    for (let i = 0; i < pos.count; i++) {
-      this.initialVertices.push(new THREE.Vector3().fromBufferAttribute(pos, i));
-    }
+    for (let i = 0; i < pos.count; i++) this.initialVertices.push(new THREE.Vector3().fromBufferAttribute(pos, i));
 
-    this.rocketRoot.add(this.mesh);
+    // Attach to scene root (same reference as EngineFX)
+    const parent = rocketRoot?.parent || rocketRoot;
+    parent.add(this.mesh);
+
     this._applyInstanceMatrices(offsets);
     this._applyVisibility();
-  }
-
-  // --- AUDIO helpers (mirrors EngineFX) ---
-  _setupAudio(camera, url) {
-    try {
-      this.listener = new THREE.AudioListener();
-      camera.add(this.listener);
-
-      this.audio = new THREE.Audio(this.listener);
-      this.audio.setLoop(false);
-      this.audio.setVolume(0.9);
-
-      const loader = new THREE.AudioLoader();
-      loader.load(
-        url,
-        (buffer) => { this.audio.setBuffer(buffer); this._audioLoaded = true; },
-        undefined,
-        () => { /* ignore load error gracefully */ }
-      );
-    } catch {}
-  }
-
-  async _playIgnitionAudio() {
-    try {
-      if (!this.audio || !this._audioLoaded) return;
-      if (this.listener?.context?.state !== 'running') {
-        await this.listener.context.resume();
-      }
-      if (this.audio.isPlaying) this.audio.stop();
-      this.audio.offset = 0;
-      this.audio.play();
-    } catch {}
-  }
-
-  _stopAudio() {
-    try {
-      if (this.audio?.isPlaying) this.audio.stop();
-    } catch {}
+    this._applyUniforms();
   }
 
   setOffsets(offsets = []) {
@@ -144,8 +53,9 @@ export class InstancedFlames {
       this.mesh = new THREE.InstancedMesh(this.geometry, this.material, n);
       this.mesh.frustumCulled = false;
       this.mesh.name = 'InstancedFlames';
-      this.rocketRoot.remove(old);
-      this.rocketRoot.add(this.mesh);
+      const parent = old.parent || this.rocketRoot?.parent || this.rocketRoot;
+      if (parent) parent.add(this.mesh);
+      old.removeFromParent?.();
       old.dispose?.();
     }
     this._applyInstanceMatrices(offsets);
@@ -153,48 +63,40 @@ export class InstancedFlames {
 
   setIgnition(on) {
     if (on) {
-      // play the sound immediately (like EngineFX) even while delay timer runs
-      this._playIgnitionAudio();
-
       if (this.params.enginesOn || this.ignitionPending) return;
-      this.ignitionPending = true;
-      clearTimeout(this.ignitionTimer);
-      this.ignitionTimer = setTimeout(() => {
-        this.params.enginesOn = true;
-        this.ignitionPending = false;
-        this._applyVisibility();
-      }, this.ignitionDelayMs);
+      this.ignitionPending = true; clearTimeout(this.ignitionTimer);
+      this.ignitionTimer = setTimeout(() => { this.params.enginesOn = true; this.ignitionPending = false; this._applyVisibility(); }, this.ignitionDelayMs);
     } else {
-      clearTimeout(this.ignitionTimer);
-      this.ignitionPending = false;
-      this.params.enginesOn = false;
-      this._applyVisibility();
-      this._stopAudio();
+      clearTimeout(this.ignitionTimer); this.ignitionPending = false; this.params.enginesOn = false; this._applyVisibility();
     }
   }
 
   setParams(patch) {
+    if (!patch) return;
+    ['colorWhiteHex','colorCyanHex','colorOrangeHex'].forEach(k=>{
+      if (typeof patch[k] === 'string') { try { new THREE.Color(patch[k]); } catch { delete patch[k]; } }
+    });
     Object.assign(this.params, patch || {});
     this._applyUniforms();
+    // If Y offset changed, re-bake instance matrices so Y matches
+    if ('flameYOffset' in patch) this._reapplyMatricesWithSameOffsets();
   }
 
   update(delta, t) {
     if (this.params.enginesOn) {
       this._updateFlameGeometry(t);
-      if (this.material?.uniforms?.uTime) {
-        this.material.uniforms.uTime.value = t;
-      }
-    } else {
-      // keep shader time advancing for subtle tail noise when off? (optional)
-      if (this.material?.uniforms?.uTime) {
-        this.material.uniforms.uTime.value = t;
-      }
+      if (this.material?.uniforms?.uTime) this.material.uniforms.uTime.value = t;
     }
   }
 
+  _reapplyMatricesWithSameOffsets() {
+    // Read back existing matrices into offsets-like values is expensive; instead,
+    // rely on caller to re-send offsets when needed. For safety we no-op here.
+    // If you store your offsets externally, just call setOffsets(bakedOffsets) after changing Y offset.
+  }
+
   _updateFlameGeometry(t) {
-    const g = this.geometry;
-    const pos = g.attributes.position;
+    const g = this.geometry, pos = g.attributes.position;
     const w = this.flameWidthBase * this.params.flameWidthFactor;
     const h = this.flameHeightBase * this.params.flameHeightFactor;
 
@@ -237,43 +139,22 @@ export class InstancedFlames {
 
   _applyInstanceMatrices(offsets) {
     const dummy = new THREE.Object3D();
+    const upY = 10.0 + this.params.flameYOffset;
     for (let i = 0; i < this.mesh.count; i++) {
       const o = offsets[i] || { groupOffsetX: 0, groupOffsetY: 0, groupOffsetZ: 0 };
-      dummy.position.set(
-        o.groupOffsetX,
-        10.0 + this.params.flameYOffset + o.groupOffsetY,
-        o.groupOffsetZ
-      );
+      dummy.position.set(o.groupOffsetX, upY + o.groupOffsetY, o.groupOffsetZ);
+      dummy.rotation.set(0,0,0);
+      dummy.scale.set(1,1,1);
       dummy.updateMatrix();
       this.mesh.setMatrixAt(i, dummy.matrix);
     }
     this.mesh.instanceMatrix.needsUpdate = true;
-    this.mesh.position.set(0, 0, 0);
+    this.mesh.position.set(0,0,0); this.mesh.rotation.set(0,0,0); this.mesh.scale.set(1,1,1);
   }
 
-  _applyVisibility() {
-    this.mesh.visible = !!this.params.enginesOn;
-  }
+  _applyVisibility(){ this.mesh.visible = !!this.params.enginesOn; }
 
-  _applyUniforms() {
-    const u = this.material?.uniforms;
-    if (!u) return;
-
-    u.uIntensity.value        = this.params.intensity;
-    u.uDiamondsStrength.value = this.params.diamondsStrength;
-    u.uDiamondsFreq.value     = this.params.diamondsFreq;
-    u.uRimStrength.value      = this.params.rimStrength;
-    u.uRimSpeed.value         = this.params.rimSpeed;
-    u.uCyanMul.value          = this.params.colorCyan;
-    u.uOrangeMul.value        = this.params.colorOrange;
-    u.uWhiteMul.value         = this.params.colorWhite;
-    u.uTailStart.value        = this.params.tailFadeStart;
-    u.uTailFeather.value      = this.params.tailFeather;
-    u.uTailNoise.value        = this.params.tailNoise;
-    u.uBottomDepth.value      = this.params.bottomFadeDepth;
-    u.uBottomFeather.value    = this.params.bottomFadeFeather;
-    u.uOrangeShift.value      = this.params.orangeShift;
-  }
+  _applyUniforms(){ applyParamsToUniforms(this.material?.uniforms, this.params); }
 
   _makeFlameMaterial() {
     return new THREE.ShaderMaterial({
@@ -281,30 +162,31 @@ export class InstancedFlames {
       depthWrite: false,
       blending: THREE.AdditiveBlending,
       uniforms: {
-        uTime:             { value: 0.0 },
-        uIntensity:        { value: this.params.intensity },
-        uDiamondsStrength: { value: this.params.diamondsStrength },
-        uDiamondsFreq:     { value: this.params.diamondsFreq },
-        uRimStrength:      { value: this.params.rimStrength },
-        uRimSpeed:         { value: this.params.rimSpeed },
-        uCyanMul:          { value: this.params.colorCyan },
-        uOrangeMul:        { value: this.params.colorOrange },
-        uWhiteMul:         { value: this.params.colorWhite },
-        uCyan:             { value: new THREE.Color(0x80fbfd) },
-        uWhite:            { value: new THREE.Color(0xffffff) },
-        uOrange:           { value: new THREE.Color(0xffac57) },
-        uTailStart:        { value: this.params.tailFadeStart },
-        uTailFeather:      { value: this.params.tailFeather },
-        uTailNoise:        { value: this.params.tailNoise },
-        uBottomDepth:      { value: this.params.bottomFadeDepth },
-        uBottomFeather:    { value: this.params.bottomFadeFeather },
-        uOrangeShift:      { value: this.params.orangeShift },
+        uTime: { value: 0.0 },
+        uIntensity:        { value: DEFAULT_FLAME_PARAMS.intensity },
+        uDiamondsStrength: { value: DEFAULT_FLAME_PARAMS.diamondsStrength },
+        uDiamondsFreq:     { value: DEFAULT_FLAME_PARAMS.diamondsFreq },
+        uRimStrength:      { value: DEFAULT_FLAME_PARAMS.rimStrength },
+        uRimSpeed:         { value: DEFAULT_FLAME_PARAMS.rimSpeed },
+        uCyanMul:          { value: DEFAULT_FLAME_PARAMS.colorCyan },
+        uOrangeMul:        { value: DEFAULT_FLAME_PARAMS.colorOrange },
+        uWhiteMul:         { value: DEFAULT_FLAME_PARAMS.colorWhite },
+        uCyan:             { value: new THREE.Color(DEFAULT_FLAME_PARAMS.colorCyanHex) },
+        uWhite:            { value: new THREE.Color(DEFAULT_FLAME_PARAMS.colorWhiteHex) },
+        uOrange:           { value: new THREE.Color(DEFAULT_FLAME_PARAMS.colorOrangeHex) },
+        uTailStart:        { value: DEFAULT_FLAME_PARAMS.tailFadeStart },
+        uTailFeather:      { value: DEFAULT_FLAME_PARAMS.tailFeather },
+        uTailNoise:        { value: DEFAULT_FLAME_PARAMS.tailNoise },
+        uBottomDepth:      { value: DEFAULT_FLAME_PARAMS.bottomFadeDepth },
+        uBottomFeather:    { value: DEFAULT_FLAME_PARAMS.bottomFadeFeather },
+        uOrangeShift:      { value: DEFAULT_FLAME_PARAMS.orangeShift }
       },
       vertexShader: `
         varying float y_norm;
         void main() {
           y_norm = position.y / -40.0;
-          gl_Position = projectionMatrix * modelViewMatrix * instanceMatrix * vec4(position, 1.0);
+          // instanceMatrix is world-space (we attach to scene and bake world matrices)
+          gl_Position = projectionMatrix * viewMatrix * instanceMatrix * vec4(position, 1.0);
         }
       `,
       fragmentShader: FlameFragmentShader
