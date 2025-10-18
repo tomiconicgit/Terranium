@@ -1,37 +1,57 @@
 // src/scene/Terrain.js
 import * as THREE from 'three';
 
+/**
+ * Usage:
+ *  createTerrain({
+ *    selection: {
+ *      tileSize: 1,
+ *      tiles: [{ i: 15, j: -1, y: 0 }] // the REFERENCE tile
+ *    }
+ *  })
+ *
+ * This will make a 40×40 tile area centered on (15,-1) a metal pit at -15m.
+ * Everything outside that area is flat concrete at y=0.
+ */
 export function createTerrain(opts = {}) {
-  // Selection comes from the Highlighter: a perimeter (axis-aligned) loop of tiles.
   const selection = opts.selection || (typeof window !== 'undefined' ? window.EXCAVATION_SELECTION : null) || {};
   const tileSize  = typeof selection.tileSize === 'number' ? selection.tileSize : 1;
   const tiles     = Array.isArray(selection.tiles) ? selection.tiles : [];
+
+  // Reference tile (centre). If none given, default to origin.
+  const ref = tiles[0] || { i: 0, j: 0 };
+  const ci  = Number.isFinite(+ref.i) ? +ref.i : 0;
+  const cj  = Number.isFinite(+ref.j) ? +ref.j : 0;
 
   // World grid 100×100 centered on origin ⇒ i,j in [-50..49]
   const GRID = 100;
   const HALF = GRID / 2;
 
-  // --- Derive rectangle bounds from the perimeter loop ---
-  // We only need the inclusive bounding box: [minI..maxI] × [minJ..maxJ].
-  let minI, maxI, minJ, maxJ;
-  if (tiles.length) {
-    const is = tiles.map(t => +t.i);
-    const js = tiles.map(t => +t.j);
-    minI = Math.min(...is); maxI = Math.max(...is);
-    minJ = Math.min(...js); maxJ = Math.max(...js);
-  } else {
-    // Fallback safety zone (10×10 around origin) if nothing is highlighted.
-    minI = -5; maxI = 4;
-    minJ = -5; maxJ = 4;
-  }
+  // === CONFIG: size of the metal area (in tiles) ===
+  const PIT_TILES_X = 40;
+  const PIT_TILES_Z = 40;
 
-  // Clamp to world limits
+  // For even sizes, “centered on a tile” means offsets are asymmetric by 1:
+  // we take 19 tiles to the negative side and 20 tiles to the positive side
+  // (19 + 1 + 20 = 40).
+  const NEG_X = Math.floor((PIT_TILES_X - 1) / 2); // 19
+  const POS_X = PIT_TILES_X - 1 - NEG_X;           // 20
+  const NEG_Z = Math.floor((PIT_TILES_Z - 1) / 2); // 19
+  const POS_Z = PIT_TILES_Z - 1 - NEG_Z;           // 20
+
+  // Inclusive bounds in tile coords
+  let minI = ci - NEG_X;
+  let maxI = ci + POS_X;
+  let minJ = cj - NEG_Z;
+  let maxJ = cj + POS_Z;
+
+  // Clamp to world bounds
   minI = Math.max(minI, -HALF);
   maxI = Math.min(maxI,  HALF - 1);
   minJ = Math.max(minJ, -HALF);
   maxJ = Math.min(maxJ,  HALF - 1);
 
-  // Inclusive tile counts and spans in world units
+  // Spans in tiles & world units
   const pitTilesX = (maxI - minI + 1);
   const pitTilesZ = (maxJ - minJ + 1);
   const pitSpanX  = pitTilesX * tileSize;
@@ -41,83 +61,83 @@ export function createTerrain(opts = {}) {
   const worldSpanX = GRID * tileSize;
   const worldSpanZ = GRID * tileSize;
 
-  // Rectangle center in world units (aligned to our i/j grid)
+  // Pit centre in world units (aligned to our grid)
   const pitCenterX = (minI + maxI + 1) * 0.5 * tileSize;
   const pitCenterZ = (minJ + maxJ + 1) * 0.5 * tileSize;
 
-  // Root node
+  // Root
   const group = new THREE.Group();
   group.name = 'terrain_root';
 
   // Materials
-  const concreteMat = makeConcreteMaterial();        // outside the pit
+  const concreteMat = makeConcreteMaterial();        // outside pit
   const metalMat    = makeProceduralMetalMaterial(); // pit floor + walls
 
   // Geometry dims
-  const depth        = 15;    // pit depth target: -15m
-  const epsilon      = 0.02;  // small overlaps to hide seams
-  const groundThick  = 0.05;  // thin slab to avoid z-fighting
+  const depth        = 15;     // target floor height: -15m
+  const epsilon      = 0.02;   // hide seams
+  const groundThick  = 0.05;   // thin slab to avoid z-fighting
   const floorThick   = 0.08;
 
-  // ---------- Ground (concrete) around the pit ----------
-  // Left slab (everything with i < minI)
+  // ---------- Concrete ground around the pit (four slabs) ----------
+  // Left slab (i < minI)
   if (minI > -HALF) {
     const width = (minI - (-HALF)) * tileSize;
     const g = new THREE.BoxGeometry(width + epsilon, groundThick, worldSpanZ + epsilon);
     const m = new THREE.Mesh(g, concreteMat);
     m.name = 'ground_frame_left';
-    m.position.set(((-HALF) * tileSize) + (width * 0.5), 0 - groundThick * 0.5, 0);
-    m.castShadow = false; m.receiveShadow = true;
+    m.position.set(((-HALF) * tileSize) + (width * 0.5), -groundThick * 0.5, 0);
+    m.receiveShadow = true;
     group.add(m);
   }
-  // Right slab (everything with i > maxI)
+  // Right slab (i > maxI)
   if (maxI < HALF - 1) {
     const width = ((HALF - 1) - maxI) * tileSize;
     const g = new THREE.BoxGeometry(width + epsilon, groundThick, worldSpanZ + epsilon);
     const m = new THREE.Mesh(g, concreteMat);
     m.name = 'ground_frame_right';
-    m.position.set(((maxI + 1) * tileSize) + (width * 0.5), 0 - groundThick * 0.5, 0);
-    m.castShadow = false; m.receiveShadow = true;
+    m.position.set(((maxI + 1) * tileSize) + (width * 0.5), -groundThick * 0.5, 0);
+    m.receiveShadow = true;
     group.add(m);
   }
-  // Front slab (everything with j < minJ)
+  // Front slab (j < minJ)
   if (minJ > -HALF) {
     const depthSpan = (minJ - (-HALF)) * tileSize;
     const g = new THREE.BoxGeometry(pitSpanX + epsilon, groundThick, depthSpan + epsilon);
     const m = new THREE.Mesh(g, concreteMat);
     m.name = 'ground_frame_front';
-    m.position.set(pitCenterX, 0 - groundThick * 0.5, ((-HALF) * tileSize) + (depthSpan * 0.5));
-    m.castShadow = false; m.receiveShadow = true;
+    m.position.set(pitCenterX, -groundThick * 0.5, ((-HALF) * tileSize) + (depthSpan * 0.5));
+    m.receiveShadow = true;
     group.add(m);
   }
-  // Back slab (everything with j > maxJ)
+  // Back slab (j > maxJ)
   if (maxJ < HALF - 1) {
     const depthSpan = ((HALF - 1) - maxJ) * tileSize;
     const g = new THREE.BoxGeometry(pitSpanX + epsilon, groundThick, depthSpan + epsilon);
     const m = new THREE.Mesh(g, concreteMat);
     m.name = 'ground_frame_back';
-    m.position.set(pitCenterX, 0 - groundThick * 0.5, ((maxJ + 1) * tileSize) + (depthSpan * 0.5));
-    m.castShadow = false; m.receiveShadow = true;
+    m.position.set(pitCenterX, -groundThick * 0.5, ((maxJ + 1) * tileSize) + (depthSpan * 0.5));
+    m.receiveShadow = true;
     group.add(m);
   }
 
-  // ---------- Pit floor (metal) at -15m ----------
+  // ---------- Metal floor at -15m ----------
   {
     const g = new THREE.BoxGeometry(pitSpanX + epsilon, floorThick, pitSpanZ + epsilon);
     const m = new THREE.Mesh(g, metalMat);
     m.name = 'pit_floor';
-    // center the slab at Y ≈ -15; we place its top surface at exactly -15 (with tiny epsilon)
+    // Top surface sits at ≈ -15 (nudged by epsilon to avoid z-fight with wall bottoms)
     m.position.set(pitCenterX, -depth - floorThick * 0.5 + epsilon * 0.5, pitCenterZ);
-    m.castShadow = false; m.receiveShadow = true;
+    m.receiveShadow = true;
     group.add(m);
   }
 
-  // ---------- Pit perimeter walls (metal), aligned to the rectangle outline ----------
-  const wallHeight    = depth + groundThick + epsilon; // extends slightly into the ground slab
+  // ---------- Metal perimeter walls (outline of the 40×40) ----------
+  const wallHeight    = depth + groundThick + epsilon; // slightly pokes into ground slab
   const wallThickness = Math.max(0.2 * tileSize, 0.1);
-  const wallYCenter   = -depth * 0.5; // centered between 0 and -depth (top ≈ 0, bottom ≈ -15)
+  const wallYCenter   = -depth * 0.5;                  // roughly centred between 0 and -15
 
-  // -Z edge (front wall runs along j = minJ boundary)
+  // -Z edge (front)
   group.add(makeWall(
     pitSpanX + wallThickness, wallHeight, wallThickness,
     pitCenterX, wallYCenter - (floorThick * 0.5),
@@ -125,7 +145,7 @@ export function createTerrain(opts = {}) {
     metalMat, 0, 'pit_wall_front'
   ));
 
-  // +Z edge (back wall runs along j = maxJ boundary)
+  // +Z edge (back)
   group.add(makeWall(
     pitSpanX + wallThickness, wallHeight, wallThickness,
     pitCenterX, wallYCenter - (floorThick * 0.5),
@@ -133,7 +153,7 @@ export function createTerrain(opts = {}) {
     metalMat, 0, 'pit_wall_back'
   ));
 
-  // -X edge (left wall runs along i = minI boundary)
+  // -X edge (left)
   group.add(makeWall(
     pitSpanZ + wallThickness, wallHeight, wallThickness,
     (minI * tileSize) - (wallThickness * 0.5) + epsilon,
@@ -142,7 +162,7 @@ export function createTerrain(opts = {}) {
     metalMat, Math.PI / 2, 'pit_wall_left'
   ));
 
-  // +X edge (right wall runs along i = maxI boundary)
+  // +X edge (right)
   group.add(makeWall(
     pitSpanZ + wallThickness, wallHeight, wallThickness,
     ((maxI + 1) * tileSize) + (wallThickness * 0.5) - epsilon,
@@ -151,8 +171,7 @@ export function createTerrain(opts = {}) {
     metalMat, Math.PI / 2, 'pit_wall_right'
   ));
 
-  // ---------- Bookkeeping / export helpers ----------
-  // Enumerate every interior tile (inclusive bounds).
+  // ---------- Bookkeeping / debug ----------
   const interiorTiles = [];
   for (let i = minI; i <= maxI; i++) {
     for (let j = minJ; j <= maxJ; j++) {
@@ -162,9 +181,11 @@ export function createTerrain(opts = {}) {
   group.userData.pit = {
     tileSize,
     depth,
+    reference: { i: ci, j: cj },
+    widthTiles: pitTilesX,
+    heightTiles: pitTilesZ,
     bounds: { minI, maxI, minJ, maxJ },
-    interiorTiles,
-    perimeter: tiles   // original highlighted loop (as provided)
+    interiorTiles
   };
 
   return group;
@@ -235,8 +256,7 @@ function makeConcreteMaterial() {
     fragmentShader: fragment,
     lights: false
   });
-  // Helps with any grazing-angle artifacts against wall tops
-  mat.polygonOffset = true;
+  mat.polygonOffset = true; // fight z-fighting on rim
   mat.polygonOffsetFactor = 1;
   mat.polygonOffsetUnits = 1;
   return mat;
@@ -248,13 +268,12 @@ function makeProceduralMetalMaterial() {
   tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
   tex.repeat.set(2, 2);
 
-  const mat = new THREE.MeshStandardMaterial({
+  return new THREE.MeshStandardMaterial({
     color: 0xffffff,
     metalness: 0.95,
     roughness: 0.28,
     map: tex,
   });
-  return mat;
 }
 
 function makeMetalCanvasTexture(size = 256) {
