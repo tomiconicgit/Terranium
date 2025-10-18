@@ -17,12 +17,11 @@ function fbm(v) {
 
 export class InstancedFlames {
   /**
-   * Backwards-compatible API. You can optionally pass a camera and audio URLs.
    * @param {THREE.Object3D} rocketRoot
    * @param {Array} offsets
    * @param {Object} paramsBaseline
-   * @param {THREE.Camera|null} [camera]           optional listener parent
-   * @param {Object|null}        [audioUrls]       { ignite?: string, cutoff?: string }
+   * @param {THREE.Camera|null} [camera]
+   * @param {Object|null}        [audioUrls] { ignite?: string, cutoff?: string }
    */
   constructor(rocketRoot, offsets = [], paramsBaseline = {}, camera = null, audioUrls = null) {
     this.rocketRoot = rocketRoot;
@@ -31,12 +30,9 @@ export class InstancedFlames {
 
     this.ignitionDelayMs = 2800; this.ignitionTimer = null; this.ignitionPending = false;
 
-    // --- Optional AUDIO (non-breaking) ---
-    this.listener = null;
-    this.igniteAudio = null;
-    this.cutoffAudio = null;
-    this._igniteLoaded = false;
-    this._cutoffLoaded = false;
+    // Optional audio
+    this.listener = null; this.igniteAudio = null; this.cutoffAudio = null;
+    this._igniteLoaded = false; this._cutoffLoaded = false;
     if (camera && audioUrls) this._setupAudio(camera, audioUrls);
 
     this.geometry = new THREE.CylinderGeometry(0.001, 0.001, this.flameHeightBase, this.segments, 20, true);
@@ -53,7 +49,7 @@ export class InstancedFlames {
     const pos = this.geometry.attributes.position;
     for (let i = 0; i < pos.count; i++) this.initialVertices.push(new THREE.Vector3().fromBufferAttribute(pos, i));
 
-    // Attach to scene root (same reference as EngineFX)
+    // Attach to same parent as rocket so group transforms apply
     const parent = rocketRoot?.parent || rocketRoot;
     parent.add(this.mesh);
 
@@ -74,9 +70,7 @@ export class InstancedFlames {
         this.igniteAudio.setVolume(0.9);
         new THREE.AudioLoader().load(
           ignite,
-          (buffer) => { this.igniteAudio.setBuffer(buffer); this._igniteLoaded = true; },
-          undefined,
-          () => { /* ignore */ }
+          (buffer) => { this.igniteAudio.setBuffer(buffer); this._igniteLoaded = true; }
         );
       }
 
@@ -86,12 +80,10 @@ export class InstancedFlames {
         this.cutoffAudio.setVolume(0.8);
         new THREE.AudioLoader().load(
           cutoff,
-          (buffer) => { this.cutoffAudio.setBuffer(buffer); this._cutoffLoaded = true; },
-          undefined,
-          () => { /* ignore */ }
+          (buffer) => { this.cutoffAudio.setBuffer(buffer); this._cutoffLoaded = true; }
         );
       }
-    } catch { /* no-op if AudioContext blocked */ }
+    } catch {}
   }
 
   async _playIgnite() {
@@ -99,8 +91,7 @@ export class InstancedFlames {
       if (!this.igniteAudio || !this._igniteLoaded) return;
       if (this.listener?.context?.state !== 'running') await this.listener.context.resume();
       if (this.igniteAudio.isPlaying) this.igniteAudio.stop();
-      this.igniteAudio.offset = 0;
-      this.igniteAudio.play();
+      this.igniteAudio.offset = 0; this.igniteAudio.play();
     } catch {}
   }
   async _playCutoff() {
@@ -108,8 +99,7 @@ export class InstancedFlames {
       if (!this.cutoffAudio || !this._cutoffLoaded) return;
       if (this.listener?.context?.state !== 'running') await this.listener.context.resume();
       if (this.cutoffAudio.isPlaying) this.cutoffAudio.stop();
-      this.cutoffAudio.offset = 0;
-      this.cutoffAudio.play();
+      this.cutoffAudio.offset = 0; this.cutoffAudio.play();
     } catch {}
   }
   _stopAll() {
@@ -127,8 +117,7 @@ export class InstancedFlames {
       this.mesh.name = 'InstancedFlames';
       const parent = old.parent || this.rocketRoot?.parent || this.rocketRoot;
       if (parent) parent.add(this.mesh);
-      old.removeFromParent?.();
-      old.dispose?.();
+      old.removeFromParent?.(); old.dispose?.();
     }
     this._applyInstanceMatrices(offsets);
   }
@@ -136,9 +125,7 @@ export class InstancedFlames {
   setIgnition(on) {
     if (on) {
       if (this.params.enginesOn || this.ignitionPending) return;
-      // play the ignite sfx immediately (while the visual waits for delay)
       this._playIgnite();
-
       this.ignitionPending = true; clearTimeout(this.ignitionTimer);
       this.ignitionTimer = setTimeout(() => {
         this.params.enginesOn = true; this.ignitionPending = false; this._applyVisibility();
@@ -148,10 +135,7 @@ export class InstancedFlames {
       this.ignitionPending = false;
       this.params.enginesOn = false;
       this._applyVisibility();
-
-      // stop any ignite sound; optionally play a cutoff sfx
-      this._stopAll();
-      this._playCutoff(); // safe even if no cutoff clip loaded
+      this._stopAll(); this._playCutoff();
     }
   }
 
@@ -173,9 +157,7 @@ export class InstancedFlames {
   }
 
   /* --------------- INTERNALS --------------- */
-  _reapplyMatricesWithSameOffsets() {
-    // no-op; call setOffsets(...) from caller if you change offsets externally
-  }
+  _reapplyMatricesWithSameOffsets() { /* no-op; caller can re-send offsets if needed */ }
 
   _updateFlameGeometry(t) {
     const g = this.geometry, pos = g.attributes.position;
@@ -231,7 +213,9 @@ export class InstancedFlames {
       this.mesh.setMatrixAt(i, dummy.matrix);
     }
     this.mesh.instanceMatrix.needsUpdate = true;
-    this.mesh.position.set(0,0,0); this.mesh.rotation.set(0,0,0); this.mesh.scale.set(1,1,1);
+    this.mesh.position.set(0,0,0);
+    this.mesh.rotation.set(0,0,0);
+    this.mesh.scale.set(1,1,1);
   }
 
   _applyVisibility(){ this.mesh.visible = !!this.params.enginesOn; }
@@ -267,8 +251,9 @@ export class InstancedFlames {
         varying float y_norm;
         void main() {
           y_norm = position.y / -40.0;
-          // instanceMatrix is world-space (we attach to scene and bake world matrices)
-          gl_Position = projectionMatrix * viewMatrix * instanceMatrix * vec4(position, 1.0);
+          // IMPORTANT FIX:
+          // Use modelViewMatrix so parent transforms (e.g., launchGroup) affect the instances.
+          gl_Position = projectionMatrix * modelViewMatrix * instanceMatrix * vec4(position, 1.0);
         }
       `,
       fragmentShader: FlameFragmentShader
