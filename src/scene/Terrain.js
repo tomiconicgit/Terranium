@@ -3,11 +3,11 @@ import * as THREE from 'three';
 
 /**
  * Terrain with:
- * - A big concrete ground slab at y=0 (world-sized).
- * - A metal pit (floor at -15) sized 40×40 tiles, centered on a reference tile.
- * - Snap logic to move the edge that was at i=20 to i=40 (as per your last step).
- * - Rim details (hazard stripe caps + rim lights/bollards).
- * - Interior details (floor grate grid + angled deflectors).
+ * - Concrete ground (as four frame slabs) that leaves an opening for the pit.
+ * - Metal pit (floor at -15) sized 40×40 tiles, centered on a reference tile.
+ * - Edge-snap that moves the edge that was at i=20 to i=40 (your correct spot).
+ * - Rim details (hazard caps + rim lights/bollards).
+ * - Interior details (floor grate + angled deflectors).
  */
 export function createTerrain(opts = {}) {
   const selection = opts.selection || (typeof window !== 'undefined' ? window.EXCAVATION_SELECTION : null) || {};
@@ -29,7 +29,7 @@ export function createTerrain(opts = {}) {
   const depth       = 15;     // pit depth (floor around y=-15)
   const groundThick = 0.08;   // concrete ground thickness
   const floorThick  = 0.10;   // metal floor thickness
-  const epsilon     = 0.02;   // anti-seam overlap
+  const epsilon     = 0.02;   // tiny overlap to hide seams
 
   // Centered bounds for an even-size (40): 19 to negative, 20 to positive side
   const NEG_X = Math.floor((PIT_TILES_X - 1) / 2); // 19
@@ -83,16 +83,54 @@ export function createTerrain(opts = {}) {
   const bollardMat    = new THREE.MeshStandardMaterial({ color: 0x59626b, roughness: 0.7, metalness: 0.3 });
 
   /* ------------------------------------------------------------------------ */
-  /*  Concrete base slab (BRINGS BACK THE GROUND)                              */
+  /*  Concrete around the pit (FOUR FRAME SLABS, leaves a clean hole)        */
   /* ------------------------------------------------------------------------ */
   {
-    const g = new THREE.BoxGeometry(worldSpanX + 0.1, groundThick, worldSpanZ + 0.1);
-    const m = new THREE.Mesh(g, concreteMat);
-    m.name = 'ground_base';
-    // Slightly below 0 so tops of walls meet cleanly without z-fighting.
-    m.position.set(0, -groundThick * 0.5, 0);
-    m.receiveShadow = true;
-    group.add(m);
+    const y = -groundThick * 0.5;
+
+    // Left slab (i < minI)
+    if (minI > -HALF) {
+      const width = (minI - (-HALF)) * tileSize;
+      const g = new THREE.BoxGeometry(width + epsilon, groundThick, worldSpanZ + epsilon);
+      const m = new THREE.Mesh(g, concreteMat);
+      m.name = 'ground_frame_left';
+      m.position.set(((-HALF) * tileSize) + (width * 0.5), y, 0);
+      m.receiveShadow = true;
+      group.add(m);
+    }
+
+    // Right slab (i > maxI)
+    if (maxI < HALF - 1) {
+      const width = ((HALF - 1) - maxI) * tileSize;
+      const g = new THREE.BoxGeometry(width + epsilon, groundThick, worldSpanZ + epsilon);
+      const m = new THREE.Mesh(g, concreteMat);
+      m.name = 'ground_frame_right';
+      m.position.set(((maxI + 1) * tileSize) + (width * 0.5), y, 0);
+      m.receiveShadow = true;
+      group.add(m);
+    }
+
+    // Front slab (j < minJ)
+    if (minJ > -HALF) {
+      const depthSpan = (minJ - (-HALF)) * tileSize;
+      const g = new THREE.BoxGeometry(pitSpanX + epsilon, groundThick, depthSpan + epsilon);
+      const m = new THREE.Mesh(g, concreteMat);
+      m.name = 'ground_frame_front';
+      m.position.set(pitCenterX, y, ((-HALF) * tileSize) + (depthSpan * 0.5));
+      m.receiveShadow = true;
+      group.add(m);
+    }
+
+    // Back slab (j > maxJ)
+    if (maxJ < HALF - 1) {
+      const depthSpan = ((HALF - 1) - maxJ) * tileSize;
+      const g = new THREE.BoxGeometry(pitSpanX + epsilon, groundThick, depthSpan + epsilon);
+      const m = new THREE.Mesh(g, concreteMat);
+      m.name = 'ground_frame_back';
+      m.position.set(pitCenterX, y, ((maxJ + 1) * tileSize) + (depthSpan * 0.5));
+      m.receiveShadow = true;
+      group.add(m);
+    }
   }
 
   /* ------------------------------------------------------------------------ */
@@ -111,7 +149,7 @@ export function createTerrain(opts = {}) {
   /* ------------------------------------------------------------------------ */
   /*  Perimeter walls                                                         */
   /* ------------------------------------------------------------------------ */
-  const wallHeight    = depth + groundThick + epsilon; // overlap into ground slab
+  const wallHeight    = depth + groundThick + epsilon; // overlap into ground slab slightly
   const wallThickness = Math.max(0.2 * tileSize, 0.1);
   const wallYCenter   = -depth * 0.5;
 
@@ -141,16 +179,16 @@ export function createTerrain(opts = {}) {
   ));
 
   /* ------------------------------------------------------------------------ */
-  /*  Rim details (hazard stripe caps + rim lights/bollards)                  */
+  /*  Rim details (hazard caps + rim lights/bollards)                         */
   /* ------------------------------------------------------------------------ */
   addRimCaps(group, hazardMat, {
     minI, maxI, minJ, maxJ, tileSize,
-    rimWidth: Math.max(0.35 * tileSize, 0.25)   // thickness of the cap
+    rimWidth: Math.max(0.35 * tileSize, 0.25) // thickness of the cap
   });
 
-  addRimLightsAndBollards(group, {                // small emissive lights & posts
+  addRimLightsAndBollards(group, {
     minI, maxI, minJ, maxJ, tileSize,
-    spacingTiles: 4,                              // place every N tiles
+    spacingTiles: 4,
     lightMat: rimLightMat,
     postMat:  bollardMat
   });
@@ -161,19 +199,19 @@ export function createTerrain(opts = {}) {
   addFloorGrate(group, metalMat, {
     centerX: pitCenterX, centerZ: pitCenterZ,
     spanX: pitSpanX, spanZ: pitSpanZ,
-    yTop: -depth + 0.02,                          // sits just above floor top
-    barEvery: 2 * tileSize,                       // grid spacing
-    barThick: 0.04,                               // bar thickness
+    yTop: -depth + 0.02,          // just above the floor top
+    barEvery: 2 * tileSize,
+    barThick: 0.04,
     barHeight: 0.06
   });
 
   addAngledDeflectors(group, metalMat, {
     minI, maxI, minJ, maxJ, tileSize,
     yTop: -depth + 0.0,
-    inset: 2.0 * tileSize,                        // inset from each wall
+    inset: 2.0 * tileSize,
     length: 6.0 * tileSize,
-    height: 2.0,                                   // plate height
-    angle: THREE.MathUtils.degToRad(28)           // lean angle
+    height: 2.0,
+    angle: THREE.MathUtils.degToRad(28)
   });
 
   /* ------------------------------------------------------------------------ */
@@ -201,7 +239,7 @@ export function createTerrain(opts = {}) {
 /* ---------------- RIM HELPERS ---------------- */
 
 function addRimCaps(root, hazardMat, { minI, maxI, minJ, maxJ, tileSize, rimWidth }) {
-  const y = 0.01; // tiny offset above ground to avoid z-fight
+  const y = 0.01; // tiny offset above concrete frames to avoid z-fight
   const spanX = (maxI - minI + 1) * tileSize;
   const spanZ = (maxJ - minJ + 1) * tileSize;
   const centerX = (minI + maxI + 1) * 0.5 * tileSize;
@@ -215,12 +253,14 @@ function addRimCaps(root, hazardMat, { minI, maxI, minJ, maxJ, tileSize, rimWidt
   root.add(makeCap(
     spanX + rimWidth, rimWidth, centerX, y, ((maxJ + 1) * tileSize) + rimWidth * 0.5, hazardMat, 0, 'rim_cap_back'
   ));
-  // Left cap (-X edge) – rotate 90° to align along Z
-  const left = makeCap(spanZ + rimWidth, rimWidth, (minI * tileSize) - rimWidth * 0.5, y, centerZ, hazardMat, Math.PI/2, 'rim_cap_left');
-  root.add(left);
+  // Left cap (-X edge)
+  root.add(makeCap(
+    spanZ + rimWidth, rimWidth, (minI * tileSize) - rimWidth * 0.5, y, centerZ, hazardMat, Math.PI/2, 'rim_cap_left'
+  ));
   // Right cap (+X edge)
-  const right = makeCap(spanZ + rimWidth, rimWidth, ((maxI + 1) * tileSize) + rimWidth * 0.5, y, centerZ, hazardMat, Math.PI/2, 'rim_cap_right');
-  root.add(right);
+  root.add(makeCap(
+    spanZ + rimWidth, rimWidth, ((maxI + 1) * tileSize) + rimWidth * 0.5, y, centerZ, hazardMat, Math.PI/2, 'rim_cap_right'
+  ));
 }
 
 function makeCap(length, width, x, y, z, material, rotY = 0, name = 'rim_cap') {
@@ -237,23 +277,21 @@ function makeCap(length, width, x, y, z, material, rotY = 0, name = 'rim_cap') {
 function addRimLightsAndBollards(root, { minI, maxI, minJ, maxJ, tileSize, spacingTiles, lightMat, postMat }) {
   const spacing = Math.max(1, spacingTiles) * tileSize;
   const yLight = 0.18;
-  const yPost  = 0.0;
+  const yPost  = -0.01; // sit a hair into concrete
   const postH  = 0.55;
   const postR  = 0.06;
 
   const addPairAlongX = (jWorld) => {
-    let x0 = (minI * tileSize);
-    let x1 = ((maxI + 1) * tileSize);
+    const x0 = (minI * tileSize);
+    const x1 = ((maxI + 1) * tileSize);
     for (let x = x0; x <= x1; x += spacing) {
-      // Light
       root.add(makeLightBox(x, yLight, jWorld, 0.20 * tileSize, 0.06, 0.12 * tileSize, lightMat));
-      // Bollard
       root.add(makePost(x, yPost, jWorld + Math.sign(jWorld) * 0.18, postR, postH, postMat));
     }
   };
   const addPairAlongZ = (iWorld) => {
-    let z0 = (minJ * tileSize);
-    let z1 = ((maxJ + 1) * tileSize);
+    const z0 = (minJ * tileSize);
+    const z1 = ((maxJ + 1) * tileSize);
     for (let z = z0; z <= z1; z += spacing) {
       root.add(makeLightBox(iWorld, yLight, z, 0.12 * tileSize, 0.06, 0.20 * tileSize, lightMat));
       root.add(makePost(iWorld + Math.sign(iWorld) * 0.18, yPost, z, postR, postH, postMat));
@@ -319,7 +357,6 @@ function addFloorGrate(root, mat, { centerX, centerZ, spanX, spanZ, yTop, barEve
 }
 
 function addAngledDeflectors(root, mat, { minI, maxI, minJ, maxJ, tileSize, yTop, inset, length, height, angle }) {
-  // Two simple angled plates facing each other along +Z and -Z near the center
   const centerX = (minI + maxI + 1) * 0.5 * tileSize;
   const centerZ = (minJ + maxJ + 1) * 0.5 * tileSize;
 
@@ -333,9 +370,8 @@ function addAngledDeflectors(root, mat, { minI, maxI, minJ, maxJ, tileSize, yTop
     return m;
   };
 
-  // Forward plate (faces -Z → +Z)
+  // Facing each other along Z
   root.add(makePlate(centerX, centerZ - inset, 0, 'deflector_front'));
-  // Back plate
   root.add(makePlate(centerX, centerZ + inset, Math.PI, 'deflector_back'));
 }
 
