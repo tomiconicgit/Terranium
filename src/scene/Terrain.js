@@ -6,13 +6,13 @@ export function createTerrain(opts = {}) {
   const tileSize  = typeof selection.tileSize === 'number' ? selection.tileSize : 1;
 
   // --- Determine pit rectangle in tile coordinates ---
-  // Priority 1: explicit rectangle override
+  // Priority 1: explicit rectangle override (optional)
   let rect = (typeof window !== 'undefined' && window.PIT_RECT) ? sanitizeRect(window.PIT_RECT) : null;
 
   if (!rect) {
     const tiles = Array.isArray(selection.tiles) ? selection.tiles : [];
     if (tiles.length >= 2) {
-      // Use AABB over ALL provided tiles (good for your big outline case)
+      // Use AABB over provided tiles (works for outlines)
       let minI = +Infinity, maxI = -Infinity, minJ = +Infinity, maxJ = -Infinity;
       for (const t of tiles) {
         if (!Number.isFinite(t?.i) || !Number.isFinite(t?.j)) continue;
@@ -21,10 +21,10 @@ export function createTerrain(opts = {}) {
       }
       rect = { minI, maxI, minJ, maxJ };
     } else {
-      // Single tile → make a 40×40 area centered on that tile (override via size/sizeI/sizeJ)
+      // Single tile → default to 40×40 centered on that tile (override with size/sizeI/sizeJ)
       const center = tiles[0] || { i: 0, j: 0 };
-      const sizeI = clampInt(selection.sizeI ?? selection.size ?? 40, 1, 1000);
-      const sizeJ = clampInt(selection.sizeJ ?? selection.size ?? 40, 1, 1000);
+      const sizeI = clampInt(selection.sizeI ?? selection.size ?? 40, 1, 2000);
+      const sizeJ = clampInt(selection.sizeJ ?? selection.size ?? 40, 1, 2000);
       const halfI = Math.floor(sizeI / 2), halfJ = Math.floor(sizeJ / 2);
       rect = {
         minI: (center.i|0) - halfI,
@@ -33,6 +33,13 @@ export function createTerrain(opts = {}) {
         maxJ: (center.j|0) + (sizeJ - halfJ - 1)
       };
     }
+  }
+
+  // --- WHOLE-PIT MOVE (what you asked for) ---
+  // Provide via opts.pitMove OR window.PIT_MOVE = { i:{from,to} | {di}, j:{from,to} | {dj} }
+  const pitMove = opts.pitMove || (typeof window !== 'undefined' ? window.PIT_MOVE : null);
+  if (pitMove) {
+    rect = applyWholePitMove(rect, pitMove);
   }
 
   const { minI, maxI, minJ, maxJ } = rect;
@@ -49,7 +56,7 @@ export function createTerrain(opts = {}) {
   const metalMat    = makeProceduralMetalMaterial(); // pit floor + walls
 
   // Common dims
-  const depth        = 15;       // pit depth
+  const depth        = 15;       // pit depth (-15)
   const epsilon      = 0.02;     // small overlap to hide seams
   const groundThick  = 0.05;     // thin ground slab (avoid z-fight)
   const floorThick   = 0.08;
@@ -135,7 +142,42 @@ export function createTerrain(opts = {}) {
   return group;
 }
 
-/* ---------------- helpers ---------------- */
+/* ---------------- WHOLE-PIT MOVE helpers ---------------- */
+function applyWholePitMove(rect, move) {
+  const r = { ...rect };
+
+  // Axis I
+  if (move.i) {
+    if (Number.isFinite(move.i.di)) {
+      r.minI += move.i.di|0; r.maxI += move.i.di|0;
+    } else if (Number.isFinite(move.i.from) && Number.isFinite(move.i.to)) {
+      const from = move.i.from|0, to = move.i.to|0;
+      // If either i-edge equals 'from', compute delta and shift both edges
+      if (r.minI === from || r.maxI === from) {
+        const di = to - from;
+        r.minI += di; r.maxI += di;
+      }
+    }
+  }
+  // Axis J (same idea if you ever need it)
+  if (move.j) {
+    if (Number.isFinite(move.j.dj)) {
+      r.minJ += move.j.dj|0; r.maxJ += move.j.dj|0;
+    } else if (Number.isFinite(move.j.from) && Number.isFinite(move.j.to)) {
+      const from = move.j.from|0, to = move.j.to|0;
+      if (r.minJ === from || r.maxJ === from) {
+        const dj = to - from;
+        r.minJ += dj; r.maxJ += dj;
+      }
+    }
+  }
+  // Keep ordering correct
+  if (r.minI > r.maxI) [r.minI, r.maxI] = [r.maxI, r.minI];
+  if (r.minJ > r.maxJ) [r.minJ, r.maxJ] = [r.maxJ, r.minJ];
+  return r;
+}
+
+/* ---------------- geometry helpers ---------------- */
 function sanitizeRect(r) {
   const minI = Math.min(r.minI|0, r.maxI|0);
   const maxI = Math.max(r.minI|0, r.maxI|0);
