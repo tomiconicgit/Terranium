@@ -16,12 +16,28 @@ function fbm(v) {
 }
 
 export class InstancedFlames {
-  constructor(rocketRoot, offsets = [], paramsBaseline = {}) {
+  /**
+   * Backwards-compatible API. You can optionally pass a camera and audio URLs.
+   * @param {THREE.Object3D} rocketRoot
+   * @param {Array} offsets
+   * @param {Object} paramsBaseline
+   * @param {THREE.Camera|null} [camera]           optional listener parent
+   * @param {Object|null}        [audioUrls]       { ignite?: string, cutoff?: string }
+   */
+  constructor(rocketRoot, offsets = [], paramsBaseline = {}, camera = null, audioUrls = null) {
     this.rocketRoot = rocketRoot;
     this.params = Object.assign(cloneDefaults(), paramsBaseline || {});
     this.flameWidthBase = 3.5; this.flameHeightBase = 40.0; this.segments = 32;
 
     this.ignitionDelayMs = 2800; this.ignitionTimer = null; this.ignitionPending = false;
+
+    // --- Optional AUDIO (non-breaking) ---
+    this.listener = null;
+    this.igniteAudio = null;
+    this.cutoffAudio = null;
+    this._igniteLoaded = false;
+    this._cutoffLoaded = false;
+    if (camera && audioUrls) this._setupAudio(camera, audioUrls);
 
     this.geometry = new THREE.CylinderGeometry(0.001, 0.001, this.flameHeightBase, this.segments, 20, true);
     this.geometry.translate(0, -this.flameHeightBase / 2, 0);
@@ -46,6 +62,62 @@ export class InstancedFlames {
     this._applyUniforms();
   }
 
+  /* ---------------- AUDIO ---------------- */
+  _setupAudio(camera, { ignite, cutoff } = {}) {
+    try {
+      this.listener = new THREE.AudioListener();
+      camera.add(this.listener);
+
+      if (ignite) {
+        this.igniteAudio = new THREE.Audio(this.listener);
+        this.igniteAudio.setLoop(false);
+        this.igniteAudio.setVolume(0.9);
+        new THREE.AudioLoader().load(
+          ignite,
+          (buffer) => { this.igniteAudio.setBuffer(buffer); this._igniteLoaded = true; },
+          undefined,
+          () => { /* ignore */ }
+        );
+      }
+
+      if (cutoff) {
+        this.cutoffAudio = new THREE.Audio(this.listener);
+        this.cutoffAudio.setLoop(false);
+        this.cutoffAudio.setVolume(0.8);
+        new THREE.AudioLoader().load(
+          cutoff,
+          (buffer) => { this.cutoffAudio.setBuffer(buffer); this._cutoffLoaded = true; },
+          undefined,
+          () => { /* ignore */ }
+        );
+      }
+    } catch { /* no-op if AudioContext blocked */ }
+  }
+
+  async _playIgnite() {
+    try {
+      if (!this.igniteAudio || !this._igniteLoaded) return;
+      if (this.listener?.context?.state !== 'running') await this.listener.context.resume();
+      if (this.igniteAudio.isPlaying) this.igniteAudio.stop();
+      this.igniteAudio.offset = 0;
+      this.igniteAudio.play();
+    } catch {}
+  }
+  async _playCutoff() {
+    try {
+      if (!this.cutoffAudio || !this._cutoffLoaded) return;
+      if (this.listener?.context?.state !== 'running') await this.listener.context.resume();
+      if (this.cutoffAudio.isPlaying) this.cutoffAudio.stop();
+      this.cutoffAudio.offset = 0;
+      this.cutoffAudio.play();
+    } catch {}
+  }
+  _stopAll() {
+    try { if (this.igniteAudio?.isPlaying) this.igniteAudio.stop(); } catch {}
+    try { if (this.cutoffAudio?.isPlaying) this.cutoffAudio.stop(); } catch {}
+  }
+
+  /* --------------- PUBLIC API --------------- */
   setOffsets(offsets = []) {
     const n = Math.max(0, offsets.length | 0);
     if (n !== this.mesh.count) {
@@ -64,10 +136,22 @@ export class InstancedFlames {
   setIgnition(on) {
     if (on) {
       if (this.params.enginesOn || this.ignitionPending) return;
+      // play the ignite sfx immediately (while the visual waits for delay)
+      this._playIgnite();
+
       this.ignitionPending = true; clearTimeout(this.ignitionTimer);
-      this.ignitionTimer = setTimeout(() => { this.params.enginesOn = true; this.ignitionPending = false; this._applyVisibility(); }, this.ignitionDelayMs);
+      this.ignitionTimer = setTimeout(() => {
+        this.params.enginesOn = true; this.ignitionPending = false; this._applyVisibility();
+      }, this.ignitionDelayMs);
     } else {
-      clearTimeout(this.ignitionTimer); this.ignitionPending = false; this.params.enginesOn = false; this._applyVisibility();
+      clearTimeout(this.ignitionTimer);
+      this.ignitionPending = false;
+      this.params.enginesOn = false;
+      this._applyVisibility();
+
+      // stop any ignite sound; optionally play a cutoff sfx
+      this._stopAll();
+      this._playCutoff(); // safe even if no cutoff clip loaded
     }
   }
 
@@ -78,7 +162,6 @@ export class InstancedFlames {
     });
     Object.assign(this.params, patch || {});
     this._applyUniforms();
-    // If Y offset changed, re-bake instance matrices so Y matches
     if ('flameYOffset' in patch) this._reapplyMatricesWithSameOffsets();
   }
 
@@ -89,10 +172,9 @@ export class InstancedFlames {
     }
   }
 
+  /* --------------- INTERNALS --------------- */
   _reapplyMatricesWithSameOffsets() {
-    // Read back existing matrices into offsets-like values is expensive; instead,
-    // rely on caller to re-send offsets when needed. For safety we no-op here.
-    // If you store your offsets externally, just call setOffsets(bakedOffsets) after changing Y offset.
+    // no-op; call setOffsets(...) from caller if you change offsets externally
   }
 
   _updateFlameGeometry(t) {
