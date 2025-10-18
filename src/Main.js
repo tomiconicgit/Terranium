@@ -16,11 +16,8 @@ import { InstancedFlames }   from './effects/InstancedFlames.js';
 import { bakedFlameOffsets } from './world/BakedFlames.js';
 import { cloneDefaults }     from './effects/FlameDefaults.js';
 
-// New smoke system
+// Smoke (kept)
 import { SmokePlume } from './effects/SmokePlume.js';
-
-// (Optional) Environment panel (still useful for day/dusk)
-import { EnvironmentPanelUI } from './ui/EnvironmentPanel.js';
 
 export class Main {
   constructor(debuggerInstance) {
@@ -61,13 +58,7 @@ export class Main {
     this.initModelSystems();
     this.loadStaticModels();
 
-    // Environment panel (plume controls are no-ops now)
-    this.envPanel = new EnvironmentPanelUI({
-      setDay:  () => this.applyDayPreset(),
-      setDusk: () => this.applyDuskPreset(),
-      getPlume: () => null,
-      setPlume: () => {}
-    }, this.debugger);
+    // NOTE: Environment panel removed (no button, no import)
 
     try { this.highlighter = new HighlighterUI({ scene:this.scene, camera:this.camera, terrainGroup:this.terrain, debugger:this.debugger }); }
     catch(e){ this.debugger?.handleError(e,'HighlighterInit'); }
@@ -93,10 +84,9 @@ export class Main {
 
   _handleIgnition(on){
     if (!this.instanced) return;
-    // Forward to flames
     this.instanced.setIgnition(on);
 
-    // Smoke: 2800ms after pressing ignite (matching your flame delay)
+    // Smoke: 2800ms after pressing ignite
     clearTimeout(this._igniteSmokeTimer);
     if (on) {
       this._igniteSmokeTimer = setTimeout(()=>{ this.smoke?.ignite(); }, 2800);
@@ -118,7 +108,7 @@ export class Main {
         if (obj.name === 'SuperHeavy') {
           this.rocketModel = model;
 
-          // Instanced flames (sound wired inside your class)
+          // Instanced flames (with ignite SFX)
           this.instanced = new InstancedFlames(
             this.rocketModel,
             bakedFlameOffsets,
@@ -129,13 +119,9 @@ export class Main {
           this.instanced.setIgnition(false);
           this.effects.push(this.instanced);
 
-          // Smoke plume (anchor = centroid of flame offsets + Y from flame params)
+          // ---- Smoke anchored at world Y = -5 ----
           const centroid = computeLocalCentroid(bakedFlameOffsets);
-          const getAnchor = () => {
-            const p = this.instanced?.params || {};
-            const upY = 10.0 + (p.flameYOffset ?? 7.6);
-            return new THREE.Vector3(centroid.x, upY + centroid.y, centroid.z);
-          };
+          const getAnchor = () => new THREE.Vector3(centroid.x, -5.0, centroid.z);
           this.smoke = new SmokePlume(this.scene, { getAnchor, count: 1800 });
           this.effects.push(this.smoke);
 
@@ -145,7 +131,7 @@ export class Main {
     });
   }
 
-  /* ---------- Lighting/Sky Presets ---------- */
+  // (Presets kept here in case you still call them from elsewhere)
   applyDayPreset() {
     this.ambientLight.color.setHex(0xffffff);
     this.ambientLight.intensity = 0.45;
@@ -192,7 +178,6 @@ export class Main {
     const dt = this.clock.getDelta(), t = this.clock.elapsedTime;
     if (dt>0) this.updatePlayer(dt);
 
-    // effects
     for (const fx of this.effects) fx.update?.(dt, t, this.camera);
 
     if (this.highlighter?.update) this.highlighter.update(dt);
