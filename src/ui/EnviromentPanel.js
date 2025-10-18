@@ -1,26 +1,28 @@
 // src/ui/EnvironmentPanel.js
 // Small UI for switching sky/lighting Day↔Dusk and tweaking the plume light rig.
 //
-// Usage in Main:
-//   this.envPanel = new EnvironmentPanelUI({
-//     setDay: () => this.applyDayPreset(),
-//     setDusk: () => this.applyDuskPreset(),
-//     getPlume: () => this.plumeRig?.getParams(),
-//     setPlume: (patch) => this.plumeRig?.setParams(patch),
-//   }, this.debugger);
+// Main wires it like:
+//
+// this.envPanel = new EnvironmentPanelUI({
+//   setDay:  () => this.applyDayPreset(),
+//   setDusk: () => this.applyDuskPreset(),
+//   getPlume: () => this.plumeRig?.getParams(),
+//   setPlume: (patch) => this.plumeRig?.setParams(patch),
+// }, this.debugger);
 
 export class EnvironmentPanelUI {
   constructor(api, dbg) {
     this.api = api;
     this.debugger = dbg;
     this.panel = null;
+    this.ctrl = {};
     this._build();
   }
 
   _build() {
     const container = document.getElementById('ui-container') || document.body;
 
-    // Button that toggles the panel
+    // Toggle button
     const openBtn = document.createElement('button');
     openBtn.id = 'environment-panel-btn';
     openBtn.textContent = 'Environment';
@@ -45,32 +47,29 @@ export class EnvironmentPanelUI {
       background:rgba(24,24,28,0.95); color:#fff; border:1px solid rgba(255,255,255,0.18);
       box-shadow:0 10px 20px rgba(0,0,0,0.35); backdrop-filter:blur(8px);
       -webkit-overflow-scrolling: touch;`;
-    container.appendChild(panel);
+    (document.getElementById('ui-container') || document.body).appendChild(panel);
     this.panel = panel;
 
-    // Header
     const h = document.createElement('h4');
     h.textContent = 'Environment & Plume Lighting';
     h.style.cssText = 'margin:0 0 10px; border-bottom:1px solid #3f3f45; padding-bottom:8px;';
     panel.appendChild(h);
 
-    // Day / Dusk buttons
+    // Day / Dusk row
     const rowDay = document.createElement('div');
     rowDay.style.cssText = 'display:flex; gap:10px; margin-bottom:14px;';
     const dayBtn = document.createElement('button');
     dayBtn.textContent = 'Day';
     dayBtn.style.cssText = 'flex:1; padding:8px; background:#2c7ef2; color:#fff; border:none; border-radius:6px; cursor:pointer;';
     dayBtn.onclick = () => { try { this.api.setDay?.(); } catch(e){ this.debugger?.handleError(e,'EnvPanel.Day'); } };
-
     const duskBtn = document.createElement('button');
     duskBtn.textContent = 'Dusk';
     duskBtn.style.cssText = 'flex:1; padding:8px; background:#f28c2c; color:#fff; border:none; border-radius:6px; cursor:pointer;';
     duskBtn.onclick = () => { try { this.api.setDusk?.(); } catch(e){ this.debugger?.handleError(e,'EnvPanel.Dusk'); } };
-
     rowDay.appendChild(dayBtn); rowDay.appendChild(duskBtn);
     panel.appendChild(rowDay);
 
-    // Plume Light controls
+    // Subheader
     const sub = document.createElement('h5');
     sub.textContent = 'Rocket Flame Lighting';
     sub.style.cssText = 'margin:8px 0 8px;';
@@ -110,16 +109,16 @@ export class EnvironmentPanelUI {
     // Controls
     this.ctrl = {
       angle:   mkSlider('Spot Angle',       'pl_angle',   10, 60, 1, 'deg', 'Spot cone angle'),
-      pen:     mkSlider('Spot Penumbra',    'pl_pen',      0, 60, 1, '%',   'Feathering of the edge'),
+      pen:     mkSlider('Spot Penumbra',    'pl_pen',      0, 60, 1, '%',   'Edge softness'),
       sScale:  mkSlider('Spot Intensity ×', 'pl_sscale',   0, 300, 1, '%',  'Multiplier (100% = default)'),
       pScale:  mkSlider('Point Intensity ×','pl_pscale',   0, 300, 1, '%',  'Multiplier (100% = default)'),
-      dist:    mkSlider('Spot Distance',    'pl_dist',    50, 400, 1, 'm',  'Max range before full falloff'),
+      dist:    mkSlider('Spot Distance',    'pl_dist',    50, 400, 1, 'm',  'Max range before falloff'),
       core:    mkColor('Cookie: Core',   'pl_core',  '#fff7e6'),
       orange:  mkColor('Cookie: Orange', 'pl_oran',  '#ffba78'),
       cyan:    mkColor('Cookie: Cyan',   'pl_cyan',  '#80fbfd'),
     };
 
-    // Reset row
+    // Reset
     const resetRow = document.createElement('div');
     resetRow.style.cssText = 'display:flex; gap:10px; margin-top:4px;';
     const resetBtn = document.createElement('button');
@@ -133,7 +132,7 @@ export class EnvironmentPanelUI {
     resetRow.appendChild(resetBtn);
     form.appendChild(resetRow);
 
-    // Wire slider <-> number and apply
+    // Bind sliders ↔ numbers ↔ apply
     const link = (c, key, mapFromUI, mapToUI) => {
       const apply = () => this._apply({ [key]: mapFromUI() });
       c.s.oninput = () => { c.n.value = mapToUI(c.s.value); apply(); };
@@ -159,14 +158,12 @@ export class EnvironmentPanelUI {
     this.ctrl.orange.oninput = applyColors;
     this.ctrl.cyan.oninput = applyColors;
 
-    // Initialize from rig (if present)
     this._syncFromRig();
   }
 
   _syncFromRig() {
     const p = this.api.getPlume?.();
     if (!p) return;
-    // Sliders expect: angles in deg, pen in %, scales in %, dist in meters.
     const deg = p.spotAngleDeg ?? 30;
     const pen = (p.spotPenumbra ?? 0.35) * 100;
     const ss  = (p.spotIntensityScale ?? 1.0) * 100;
