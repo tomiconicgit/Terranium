@@ -12,10 +12,9 @@ import { HighlighterUI }  from './ui/Highlighter.js';
 import { worldObjects }   from './world/Mapping.js';
 import { loadModel }      from './ModelLoading.js';
 import { EngineFX }       from './effects/EngineFX.js';
-
-// ✅ Re-enable instanced flames
-import { InstancedFlames }      from './effects/InstancedFlames.js';
-import { bakedFlameOffsets }    from './world/BakedFlames.js';
+import { InstancedFlames } from './effects/InstancedFlames.js';
+import { bakedFlameOffsets } from './world/BakedFlames.js';
+import { cloneDefaults } from './effects/FlameDefaults.js';
 
 export class Main {
   constructor(debuggerInstance) {
@@ -67,10 +66,10 @@ export class Main {
     this.modelSliders = new ModelSlidersUI(this.debugger);
 
     this.enginePanel = new EnginePanelUI({
-      get: () => (this.fx ? this.fx.getParams() : this.defaultFXParams()),
+      get: () => (this.fx ? this.fx.getParams() : cloneDefaults()),
       set: (patch) => {
         if (this.fx) this.fx.setParams(patch);
-        if (this.instanced) this.instanced.setParams(patch); // keep in sync
+        if (this.instanced) this.instanced.setParams(patch);
       },
       setIgnition: (on) => {
         if (this.fx) this.fx.setIgnition(on);
@@ -87,19 +86,6 @@ export class Main {
       copyFixedJSON: () => JSON.stringify(this.getFixedList(), null, 2),
     }, this.debugger);
   }
-
-  defaultFXParams(){ return {
-    enginesOn:false, flameWidthFactor:0.7, flameHeightFactor:0.8, flameYOffset:7.6,
-    intensity:1.5, taper:0.0, bulge:1.0, tear:1.0, turbulence:0.5, noiseSpeed:2.2,
-    diamondsStrength:0.9, diamondsFreq:2.8, rimStrength:0.0, rimSpeed:4.1,
-    colorCyan:0.5, colorOrange:3.0, colorWhite:0.9,
-    // base color hex (panel color pickers)
-    colorWhiteHex:'#ffffff', colorCyanHex:'#80fbfd', colorOrangeHex:'#ffac57',
-    groupOffsetX:3.1, groupOffsetY:-3.0, groupOffsetZ:1.2,
-    tailFadeStart:0.3, tailFeather:4.0, tailNoise:0.2,
-    bottomFadeDepth:0.12, bottomFadeFeather:0.80,
-    orangeShift:-0.2, lightIntensity:50.0, lightDistance:800.0, lightColor:'#ffb869'
-  };}
 
   placeFixedFlame(){
     if (!this.fx || !this.rocketModel) return -1;
@@ -160,18 +146,14 @@ export class Main {
         if (obj.name === 'SuperHeavy') {
           this.rocketModel = model;
           
-          // Editable flame
+          // Editable flame from centralized defaults
           this.fx = new EngineFX(this.rocketModel, this.scene, this.camera);
-          this.fx.setParams(this.defaultFXParams());
+          this.fx.setParams(cloneDefaults());
           this.fx.setIgnition(false);
           this.effects.push(this.fx);
 
-          // Instanced flames (now using your 9 offsets + inverse-parent-scale compensation)
-          this.instanced = new InstancedFlames(
-            this.rocketModel,
-            bakedFlameOffsets,
-            this.fx.getParams() // seed to match editable flame settings & colors
-          );
+          // Instanced flames mirror the same design
+          this.instanced = new InstancedFlames(this.rocketModel, bakedFlameOffsets, this.fx.getParams());
           this.instanced.setIgnition(false);
           this.effects.push(this.instanced);
 
