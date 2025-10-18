@@ -42,15 +42,13 @@ export class Main {
     this.effects = [];
     this.instanced = null;
 
-    // Fixed flames system depended on EngineFX (editable) – leaving disabled
     this.fixedFX = []; this.activeFixedIndex = -1;
 
-    this.flameMoveMode = false; // (moving cones feature was for EngineFX)
+    this.flameMoveMode = false;
     this._dragActive = false;
     this._dragStart = { x: 0, y: 0 };
     this._dragBase  = { x: 0, z: 0 };
     this._dragTarget = null;
-    // No bind move handlers since we removed EngineFX pick targets
 
     this.clock = new THREE.Clock(); this.frameCount = 0;
 
@@ -68,21 +66,13 @@ export class Main {
     this.modelSliders = new ModelSlidersUI(this.debugger);
 
     this.enginePanel = new EnginePanelUI({
-      // With only instanced flames, the panel proxies to it.
       get: () => (this.instanced ? { ...this.instanced.params } : cloneDefaults()),
       set: (patch) => { if (this.instanced) this.instanced.setParams(patch); },
       setIgnition: (on) => { if (this.instanced) this.instanced.setIgnition(on); },
       getIgnition: () => (this.instanced ? !!this.instanced.params.enginesOn : false),
-
       onPanelOpen: () => { this.controlsPaused = true; this.controls.setPaused(true); },
       onPanelClose: () => { this.controlsPaused = false; this.controls.setPaused(false); this.setMoveMode(false); },
-
-      // Fixed flames / move were for EngineFX – keep no-ops so UI won’t break
-      placeFlame: () => -1,
-      setMoveMode: (_on) => {},
-      selectFixed: (_idx) => false,
-      getFixedList: () => [],
-      copyFixedJSON: () => '[]',
+      placeFlame: () => -1, setMoveMode: (_on) => {}, selectFixed: (_idx) => false, getFixedList: () => [], copyFixedJSON: () => '[]',
     }, this.debugger);
   }
 
@@ -101,11 +91,13 @@ export class Main {
         if (obj.name === 'SuperHeavy') {
           this.rocketModel = model;
 
-          // Instanced flames only – seeded with centralized defaults
+          // Instanced flames ONLY — pass camera + ignition SFX so sound works
           this.instanced = new InstancedFlames(
             this.rocketModel,
             bakedFlameOffsets,
-            cloneDefaults()
+            cloneDefaults(),
+            this.camera,
+            'src/assets/RocketIgnition.wav'
           );
           this.instanced.setIgnition(false);
           this.effects.push(this.instanced);
@@ -139,7 +131,6 @@ export class Main {
     this.playerVelocity.z = mv.y*moveSpeed; this.playerVelocity.x = mv.x*moveSpeed;
     this.camera.translateX(this.playerVelocity.x); this.camera.translateZ(this.playerVelocity.z);
 
-    // Keep camera on terrain
     const rayOrigin = new THREE.Vector3(this.camera.position.x,80,this.camera.position.z);
     this.raycaster.set(rayOrigin,this.rayDown);
     const terrainMeshes=[]; this.terrain.traverse(o=>{ if (o.isMesh) terrainMeshes.push(o); });
