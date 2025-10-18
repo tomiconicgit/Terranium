@@ -91,13 +91,17 @@ export class Main {
         if (obj.name === 'SuperHeavy') {
           this.rocketModel = model;
 
-          // Instanced flames ONLY — pass camera + ignition SFX so sound works
+          // Instanced flames ONLY — pass camera + ignite/cutoff SFX so sound works
           this.instanced = new InstancedFlames(
             this.rocketModel,
             bakedFlameOffsets,
             cloneDefaults(),
             this.camera,
-            'src/assets/RocketIgnition.wav'
+            {
+              ignite: 'src/assets/RocketIgnition.wav',
+              // Provide a cutoff file if you add one later, else this is optional:
+              // cutoff: 'src/assets/RocketCutoff.wav'
+            }
           );
           this.instanced.setIgnition(false);
           this.effects.push(this.instanced);
