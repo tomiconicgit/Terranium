@@ -40,13 +40,13 @@ export const DEFAULT_FLAME_PARAMS = Object.freeze({
   groupOffsetZ: 1.2,
 
   // Tail / nozzle fades
-  tailFadeStart: 0.00,
-  tailFeather:   6.00,
+  tailFadeStart: 0.46,  // <<< updated
+  tailFeather:   3.68,  // <<< updated
   tailNoise:     0.00,
   bottomFadeDepth:   0.14,
   bottomFadeFeather: 1.00,
 
-  // Lighting
+  // Lighting (kept for future use)
   lightIntensity: 50.0,
   lightDistance: 800.0,
   lightColor: '#ffb869'
