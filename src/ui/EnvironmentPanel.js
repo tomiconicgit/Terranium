@@ -35,15 +35,12 @@ export class EnvironmentPanelUI {
         openBtn.style.left = `${Math.round(r.right + 10)}px`;
         openBtn.style.top  = `${Math.round(r.top)}px`;
       } else {
-        // Fallback to top-left
         openBtn.style.left = '20px';
         openBtn.style.top  = '20px';
       }
     };
     this._placeBtn();
     window.addEventListener('resize', this._placeBtn);
-
-    // Watch for the Highlighter button being added later
     const mo = new MutationObserver(() => this._placeBtn());
     mo.observe(document.body, { childList: true, subtree: true });
 
@@ -112,15 +109,27 @@ export class EnvironmentPanelUI {
 
     // Controls
     this.ctrl = {
-      angle:   mkSlider('Spot Angle',        'pl_angle',   10, 60, 1, 'deg', 'Spot cone angle'),
-      pen:     mkSlider('Spot Penumbra',     'pl_pen',      0, 60, 1, '%',   'Edge softness'),
-      sScale:  mkSlider('Spot Intensity x',  'pl_sscale',   0, 300, 1, '%',  'Multiplier (100% = default)'),
-      pScale:  mkSlider('Point Intensity x', 'pl_pscale',   0, 300, 1, '%',  'Multiplier (100% = default)'),
-      dist:    mkSlider('Spot Distance',     'pl_dist',    50, 500, 1, 'm',  'Max range before falloff'),
-      core:    mkColor('Cookie: Core',   'pl_core',  '#fff7e6'),
-      orange:  mkColor('Cookie: Orange', 'pl_oran',  '#ffba78'),
-      cyan:    mkColor('Cookie: Cyan',   'pl_cyan',  '#80fbfd'),
+      auto:   (() => {
+        const el = document.createElement('label');
+        el.style.cssText = 'display:flex; align-items:center; gap:8px;';
+        el.innerHTML = `<input type="checkbox" id="pl_autofit"> <span>Auto-fit cone to coverage</span>`;
+        form.appendChild(el);
+        return el.querySelector('#pl_autofit');
+      })(),
+      cover:  mkSlider('Coverage Width',     'pl_cover',   10, 120, 1, 'm', 'Target lit width on floor (y=-15)'),
+      angle:  mkSlider('Spot Angle (manual)','pl_angle',   10, 80, 1, 'deg', 'Half-angle. Only used when Auto-fit is OFF'),
+      pen:    mkSlider('Spot Penumbra',      'pl_pen',      0, 60, 1, '%',   'Edge softness'),
+      sScale: mkSlider('Spot Intensity x',   'pl_sscale',   0, 300, 1, '%',  'Multiplier (100% = default)'),
+      pScale: mkSlider('Point Intensity x',  'pl_pscale',   0, 300, 1, '%',  'Multiplier (100% = default)'),
+      dist:   mkSlider('Spot Distance',      'pl_dist',    50, 800, 1, 'm',  'Max range before falloff'),
+      core:   mkColor('Cookie: Core',   'pl_core',  '#fff7e6'),
+      orange: mkColor('Cookie: Orange', 'pl_oran',  '#ffba78'),
+      cyan:   mkColor('Cookie: Cyan',   'pl_cyan',  '#80fbfd'),
     };
+
+    // Defaults for new controls
+    this.ctrl.auto.checked = true;
+    this.ctrl.cover.s.value = '50'; this.ctrl.cover.n.value = '50';
 
     // Reset
     const resetRow = document.createElement('div');
@@ -129,8 +138,13 @@ export class EnvironmentPanelUI {
     resetBtn.textContent = 'Reset Plume Light';
     resetBtn.style.cssText = neutralBtn();
     resetBtn.onclick = () => this._apply({
-      spotAngleDeg: 35, spotPenumbra: 0.40, spotDistance: 380,
-      spotIntensityScale: 1.35, pointIntensityScale: 1.40,
+      autoFitAngle: true,
+      coverageMeters: 50,
+      spotAngleDeg: 35,
+      spotPenumbra: 0.40,
+      spotDistance: 420,
+      spotIntensityScale: 1.5,
+      pointIntensityScale: 1.6,
       cookieCore: '#fff7e6', cookieOrange: '#ffba78', cookieCyan: '#80fbfd'
     });
     resetRow.appendChild(resetBtn);
@@ -146,11 +160,18 @@ export class EnvironmentPanelUI {
         c.n.value = mapToUI(v); c.s.value = v; apply();
       };
     };
-    link(this.ctrl.angle,  'spotAngleDeg',       ()=>+this.ctrl.angle.s.value,           v=>String(+v));
+    // Coverage
+    link(this.ctrl.cover, 'coverageMeters', ()=>+this.ctrl.cover.s.value,  v=>String(+v));
+    // Manual angle: only applied if auto-fit is OFF (we still send it; rig respects autoFitAngle)
+    link(this.ctrl.angle, 'spotAngleDeg',   ()=>+this.ctrl.angle.s.value, v=>String(+v));
+    // Others
     link(this.ctrl.pen,    'spotPenumbra',       ()=>+this.ctrl.pen.s.value/100,         v=>String(+v));
     link(this.ctrl.sScale, 'spotIntensityScale', ()=>+this.ctrl.sScale.s.value/100,      v=>String(+v));
     link(this.ctrl.pScale, 'pointIntensityScale',()=>+this.ctrl.pScale.s.value/100,      v=>String(+v));
     link(this.ctrl.dist,   'spotDistance',       ()=>+this.ctrl.dist.s.value,            v=>String(+v));
+
+    // Auto-fit checkbox
+    this.ctrl.auto.onchange = () => this._apply({ autoFitAngle: !!this.ctrl.auto.checked });
 
     // Colors
     const applyColors = () => this._apply({
@@ -174,17 +195,21 @@ export class EnvironmentPanelUI {
   _syncFromRig() {
     const p = this.api.getPlume?.();
     if (!p) return;
-    const deg = p.spotAngleDeg ?? 35;
-    const pen = (p.spotPenumbra ?? 0.40) * 100;
-    const ss  = (p.spotIntensityScale ?? 1.35) * 100;
-    const ps  = (p.pointIntensityScale ?? 1.40) * 100;
-    const dist= p.spotDistance ?? 380;
+    const deg  = p.spotAngleDeg ?? 35;
+    const pen  = (p.spotPenumbra ?? 0.40) * 100;
+    const ss   = (p.spotIntensityScale ?? 1.5) * 100;
+    const ps   = (p.pointIntensityScale ?? 1.6) * 100;
+    const dist = p.spotDistance ?? 420;
+    const cov  = p.coverageMeters ?? 50;
 
-    this.ctrl.angle.s.value  = String(deg);  this.ctrl.angle.n.value  = String(deg);
-    this.ctrl.pen.s.value    = String(pen);  this.ctrl.pen.n.value    = String(pen);
-    this.ctrl.sScale.s.value = String(ss);   this.ctrl.sScale.n.value = String(ss);
-    this.ctrl.pScale.s.value = String(ps);   this.ctrl.pScale.n.value = String(ps);
-    this.ctrl.dist.s.value   = String(dist); this.ctrl.dist.n.value   = String(dist);
+    this.ctrl.auto.checked = !!p.autoFitAngle;
+
+    this.ctrl.cover.s.value = String(cov);  this.ctrl.cover.n.value = String(cov);
+    this.ctrl.angle.s.value = String(deg);  this.ctrl.angle.n.value = String(deg);
+    this.ctrl.pen.s.value   = String(pen);  this.ctrl.pen.n.value   = String(pen);
+    this.ctrl.sScale.s.value = String(ss);  this.ctrl.sScale.n.value = String(ss);
+    this.ctrl.pScale.s.value = String(ps);  this.ctrl.pScale.n.value = String(ps);
+    this.ctrl.dist.s.value   = String(dist);this.ctrl.dist.n.value   = String(dist);
 
     if (p.cookieCore)   this.ctrl.core.value   = toHex(p.cookieCore);
     if (p.cookieOrange) this.ctrl.orange.value = toHex(p.cookieOrange);
