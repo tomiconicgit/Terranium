@@ -24,6 +24,11 @@ function fbm(v) {
 }
 
 export class InstancedFlames {
+  /**
+   * @param {THREE.Object3D} rocketRoot  Used only to find the scene (rocketRoot.parent).
+   * @param {Array<{groupOffsetX:number,groupOffsetY:number,groupOffsetZ:number}>} offsets
+   * @param {Object} paramsBaseline
+   */
   constructor(rocketRoot, offsets = [], paramsBaseline = {}) {
     this.rocketRoot = rocketRoot;
 
@@ -35,7 +40,7 @@ export class InstancedFlames {
       flameYOffset: 7.6,
       intensity: 1.5,
       taper: 0.0,
-      bulge: 1.0,                // panel now allows up to 3.0; code supports >1
+      bulge: 1.0, // panel allows >1, code supports it
       tear: 1.0,
       turbulence: 0.5,
       noiseSpeed: 2.2,
@@ -53,7 +58,7 @@ export class InstancedFlames {
       bottomFadeFeather: 0.80,
       orangeShift: -0.2,
 
-      // NEW: editable base colors (match EngineFX)
+      // Base color hex (match EngineFX / panel)
       colorWhiteHex:  '#ffffff',
       colorCyanHex:   '#80fbfd',
       colorOrangeHex: '#ffac57',
@@ -67,41 +72,33 @@ export class InstancedFlames {
     this.ignitionTimer = null;
     this.ignitionPending = false;
 
+    // Geometry shared by all instances
     this.geometry = new THREE.CylinderGeometry(0.001, 0.001, this.flameHeightBase, this.segments, 20, true);
     this.geometry.translate(0, -this.flameHeightBase / 2, 0);
 
+    // Material with uniforms parallel to EngineFX
     this.material = this._makeFlameMaterial();
+
     const count = Math.max(0, offsets.length | 0);
     this.mesh = new THREE.InstancedMesh(this.geometry, this.material, count);
     this.mesh.frustumCulled = false;
     this.mesh.name = 'InstancedFlames';
 
+    // Cache original verts to morph dynamically (shared for all instances)
     this.initialVertices = [];
     const pos = this.geometry.attributes.position;
     for (let i = 0; i < pos.count; i++) {
       this.initialVertices.push(new THREE.Vector3().fromBufferAttribute(pos, i));
     }
 
-    // Cache inverse parent scale used to neutralize rocketRoot scaling.
-    this._invParentScale = new THREE.Vector3(1, 1, 1);
-    this._refreshInverseParentScale();
+    // Attach to SCENE (same as editable flame). If rocketRoot has a parent, assume that's the scene.
+    const parent = rocketRoot?.parent || rocketRoot;
+    parent.add(this.mesh);
 
-    this.rocketRoot.add(this.mesh);
+    // Apply world-space matrices to match EngineFX world offsets
     this._applyInstanceMatrices(offsets);
     this._applyVisibility();
     this._applyUniforms();
-  }
-
-  // If your rocket model scale changes at runtime, call this and then setOffsets(...)
-  _refreshInverseParentScale() {
-    const s = new THREE.Vector3(1, 1, 1);
-    this.rocketRoot.updateWorldMatrix(true, false);
-    this.rocketRoot.getWorldScale(s);
-    this._invParentScale.set(
-      s.x !== 0 ? 1 / s.x : 1,
-      s.y !== 0 ? 1 / s.y : 1,
-      s.z !== 0 ? 1 / s.z : 1
-    );
   }
 
   setOffsets(offsets = []) {
@@ -111,11 +108,11 @@ export class InstancedFlames {
       this.mesh = new THREE.InstancedMesh(this.geometry, this.material, n);
       this.mesh.frustumCulled = false;
       this.mesh.name = 'InstancedFlames';
-      this.rocketRoot.remove(old);
-      this.rocketRoot.add(this.mesh);
+      const parent = old.parent || this.rocketRoot?.parent || this.rocketRoot;
+      if (parent) parent.add(this.mesh);
+      old.removeFromParent?.();
       old.dispose?.();
     }
-    this._refreshInverseParentScale();
     this._applyInstanceMatrices(offsets);
   }
 
@@ -204,22 +201,31 @@ export class InstancedFlames {
   }
 
   _applyInstanceMatrices(offsets) {
-    const inv = this._invParentScale;
+    // Build world-space matrices (same reference as EngineFX group.position)
     const dummy = new THREE.Object3D();
+    const upY = 10.0 + this.params.flameYOffset;
+
     for (let i = 0; i < this.mesh.count; i++) {
       const o = offsets[i] || { groupOffsetX: 0, groupOffsetY: 0, groupOffsetZ: 0 };
-      const px = o.groupOffsetX * inv.x;
-      const py = (10.0 + this.params.flameYOffset + o.groupOffsetY) * inv.y;
-      const pz = o.groupOffsetZ * inv.z;
 
-      dummy.position.set(px, py, pz);
-      // neutralize parent scale so resulting world scale == editable flame
-      dummy.scale.set(inv.x, inv.y, inv.z);
+      // World-space position equals the same formula EngineFX uses for its group:
+      // (groupOffsetX, 10 + groupOffsetY + flameYOffset, groupOffsetZ)
+      dummy.position.set(
+        o.groupOffsetX,
+        upY + o.groupOffsetY,
+        o.groupOffsetZ
+      );
+
+      // No rotation, world scale (1,1,1) like the editable flame.
       dummy.rotation.set(0, 0, 0);
+      dummy.scale.set(1, 1, 1);
+
       dummy.updateMatrix();
       this.mesh.setMatrixAt(i, dummy.matrix);
     }
     this.mesh.instanceMatrix.needsUpdate = true;
+
+    // Keep the instanced mesh object itself identity, since matrices are world-space.
     this.mesh.position.set(0, 0, 0);
     this.mesh.rotation.set(0, 0, 0);
     this.mesh.scale.set(1, 1, 1);
@@ -248,7 +254,7 @@ export class InstancedFlames {
     u.uBottomFeather.value = this.params.bottomFeather;
     u.uOrangeShift.value = this.params.orangeShift;
 
-    // NEW: base color uniforms from hex
+    // Base color uniforms from hex
     try { u.uWhite.value.set(this.params.colorWhiteHex); } catch {}
     try { u.uCyan.value.set(this.params.colorCyanHex); } catch {}
     try { u.uOrange.value.set(this.params.colorOrangeHex); } catch {}
@@ -282,9 +288,10 @@ export class InstancedFlames {
       vertexShader: `
         varying float y_norm;
         void main() {
-          // NOTE: base flame height is 40.0 (same as EngineFX)
+          // Base flame height is 40.0 (same as EngineFX)
           y_norm = position.y / -40.0;
-          gl_Position = projectionMatrix * modelViewMatrix * instanceMatrix * vec4(position, 1.0);
+          // instanceMatrix here is already a WORLD transform (we attach to scene and bake world matrices)
+          gl_Position = projectionMatrix * viewMatrix * instanceMatrix * vec4(position, 1.0);
         }
       `,
       fragmentShader: FlameFragmentShader
