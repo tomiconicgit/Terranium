@@ -1,6 +1,6 @@
 // src/ui/EnvironmentPanel.js
 // Environment switch (Day/Dusk) + Plume light controls.
-// Button auto-positions NEXT TO the Highlighter button if present.
+// The button auto-positions NEXT TO the Highlighter button if present.
 
 export class EnvironmentPanelUI {
   constructor(api, dbg) {
@@ -25,8 +25,11 @@ export class EnvironmentPanelUI {
     this.openBtn = openBtn;
 
     // Position next to the Highlighter button if available
-    const placeBtn = () => {
-      const hi = document.getElementById('highlighter-btn'); // from HighlighterUI
+    this._placeBtn = () => {
+      const hi =
+        document.getElementById('highlighter-btn') ||
+        document.querySelector('[data-role="highlighter-btn"]') ||
+        document.querySelector('button[id*="highlight"],button[id*="Highlighter"]');
       if (hi) {
         const r = hi.getBoundingClientRect();
         openBtn.style.left = `${Math.round(r.right + 10)}px`;
@@ -37,8 +40,12 @@ export class EnvironmentPanelUI {
         openBtn.style.top  = '20px';
       }
     };
-    placeBtn();
-    window.addEventListener('resize', placeBtn);
+    this._placeBtn();
+    window.addEventListener('resize', this._placeBtn);
+
+    // Watch for the Highlighter button being added later
+    const mo = new MutationObserver(() => this._placeBtn());
+    mo.observe(document.body, { childList: true, subtree: true });
 
     // Panel
     const panel = document.createElement('div');
@@ -105,11 +112,11 @@ export class EnvironmentPanelUI {
 
     // Controls
     this.ctrl = {
-      angle:   mkSlider('Spot Angle',       'pl_angle',   10, 60, 1, 'deg', 'Spot cone angle'),
-      pen:     mkSlider('Spot Penumbra',    'pl_pen',      0, 60, 1, '%',   'Edge softness'),
-      sScale:  mkSlider('Spot Intensity ×', 'pl_sscale',   0, 300, 1, '%',  'Multiplier (100% = default)'),
-      pScale:  mkSlider('Point Intensity ×','pl_pscale',   0, 300, 1, '%',  'Multiplier (100% = default)'),
-      dist:    mkSlider('Spot Distance',    'pl_dist',    50, 400, 1, 'm',  'Max range before falloff'),
+      angle:   mkSlider('Spot Angle',        'pl_angle',   10, 60, 1, 'deg', 'Spot cone angle'),
+      pen:     mkSlider('Spot Penumbra',     'pl_pen',      0, 60, 1, '%',   'Edge softness'),
+      sScale:  mkSlider('Spot Intensity x',  'pl_sscale',   0, 300, 1, '%',  'Multiplier (100% = default)'),
+      pScale:  mkSlider('Point Intensity x', 'pl_pscale',   0, 300, 1, '%',  'Multiplier (100% = default)'),
+      dist:    mkSlider('Spot Distance',     'pl_dist',    50, 500, 1, 'm',  'Max range before falloff'),
       core:    mkColor('Cookie: Core',   'pl_core',  '#fff7e6'),
       orange:  mkColor('Cookie: Orange', 'pl_oran',  '#ffba78'),
       cyan:    mkColor('Cookie: Cyan',   'pl_cyan',  '#80fbfd'),
@@ -122,8 +129,8 @@ export class EnvironmentPanelUI {
     resetBtn.textContent = 'Reset Plume Light';
     resetBtn.style.cssText = neutralBtn();
     resetBtn.onclick = () => this._apply({
-      spotAngleDeg: 30, spotPenumbra: 0.35, spotDistance: 260,
-      spotIntensityScale: 1.0, pointIntensityScale: 1.0,
+      spotAngleDeg: 35, spotPenumbra: 0.40, spotDistance: 380,
+      spotIntensityScale: 1.35, pointIntensityScale: 1.40,
       cookieCore: '#fff7e6', cookieOrange: '#ffba78', cookieCyan: '#80fbfd'
     });
     resetRow.appendChild(resetBtn);
@@ -139,11 +146,11 @@ export class EnvironmentPanelUI {
         c.n.value = mapToUI(v); c.s.value = v; apply();
       };
     };
-    link(this.ctrl.angle,  'spotAngleDeg',      ()=>+this.ctrl.angle.s.value,  v=>String(+v));
-    link(this.ctrl.pen,    'spotPenumbra',      ()=>+this.ctrl.pen.s.value/100, v=>String(+v));
-    link(this.ctrl.sScale, 'spotIntensityScale',()=>+this.ctrl.sScale.s.value/100, v=>String(+v));
-    link(this.ctrl.pScale, 'pointIntensityScale',()=>+this.ctrl.pScale.s.value/100, v=>String(+v));
-    link(this.ctrl.dist,   'spotDistance',      ()=>+this.ctrl.dist.s.value,  v=>String(+v));
+    link(this.ctrl.angle,  'spotAngleDeg',       ()=>+this.ctrl.angle.s.value,           v=>String(+v));
+    link(this.ctrl.pen,    'spotPenumbra',       ()=>+this.ctrl.pen.s.value/100,         v=>String(+v));
+    link(this.ctrl.sScale, 'spotIntensityScale', ()=>+this.ctrl.sScale.s.value/100,      v=>String(+v));
+    link(this.ctrl.pScale, 'pointIntensityScale',()=>+this.ctrl.pScale.s.value/100,      v=>String(+v));
+    link(this.ctrl.dist,   'spotDistance',       ()=>+this.ctrl.dist.s.value,            v=>String(+v));
 
     // Colors
     const applyColors = () => this._apply({
@@ -167,11 +174,11 @@ export class EnvironmentPanelUI {
   _syncFromRig() {
     const p = this.api.getPlume?.();
     if (!p) return;
-    const deg = p.spotAngleDeg ?? 30;
-    const pen = (p.spotPenumbra ?? 0.35) * 100;
-    const ss  = (p.spotIntensityScale ?? 1.0) * 100;
-    const ps  = (p.pointIntensityScale ?? 1.0) * 100;
-    const dist= p.spotDistance ?? 260;
+    const deg = p.spotAngleDeg ?? 35;
+    const pen = (p.spotPenumbra ?? 0.40) * 100;
+    const ss  = (p.spotIntensityScale ?? 1.35) * 100;
+    const ps  = (p.pointIntensityScale ?? 1.40) * 100;
+    const dist= p.spotDistance ?? 380;
 
     this.ctrl.angle.s.value  = String(deg);  this.ctrl.angle.n.value  = String(deg);
     this.ctrl.pen.s.value    = String(pen);  this.ctrl.pen.n.value    = String(pen);
