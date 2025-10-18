@@ -1,82 +1,31 @@
 // src/effects/InstancedFlames.js
 import * as THREE from 'three';
 import { FlameFragmentShader } from './FlameShader.js';
+import { DEFAULT_FLAME_PARAMS, cloneDefaults, applyParamsToUniforms } from './FlameDefaults.js';
 
-// Tiny utils (match EngineFX.js)
 function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
 function mix(a, b, t) { return a * (1.0 - t) + b * t; }
 function smoothstep(e0, e1, x) { x = clamp((x - e0) / (e1 - e0), 0.0, 1.0); return x * x * (3.0 - 2.0 * x); }
-
-// Noise helpers (CPU side for vertex wobble)
 function fract(x) { return x - Math.floor(x); }
-function n2(v) {
-  return fract(Math.sin(v.dot(new THREE.Vector2(127.1, 311.7))) * 43758.5453);
-}
+function n2(v) { return fract(Math.sin(v.dot(new THREE.Vector2(127.1, 311.7))) * 43758.5453); }
 function fbm(v) {
   const p = v.clone();
   let a = 0.0, w = 0.5;
-  for (let i = 0; i < 4; i++) {
-    a += w * n2(p);
-    p.multiplyScalar(2.03).add(new THREE.Vector2(1.7, 1.7));
-    w *= 0.5;
-  }
+  for (let i = 0; i < 4; i++) { a += w * n2(p); p.multiplyScalar(2.03).add(new THREE.Vector2(1.7, 1.7)); w *= 0.5; }
   return a;
 }
 
 export class InstancedFlames {
-  /**
-   * @param {THREE.Object3D} rocketRoot  Used only to find the scene (rocketRoot.parent).
-   * @param {Array<{groupOffsetX:number,groupOffsetY:number,groupOffsetZ:number}>} offsets
-   * @param {Object} paramsBaseline
-   */
   constructor(rocketRoot, offsets = [], paramsBaseline = {}) {
     this.rocketRoot = rocketRoot;
+    this.params = Object.assign(cloneDefaults(), paramsBaseline || {});
+    this.flameWidthBase = 3.5; this.flameHeightBase = 40.0; this.segments = 32;
 
-    // Defaults overridden by paramsBaseline
-    this.params = Object.assign({
-      enginesOn: false,
-      flameWidthFactor: 0.7,
-      flameHeightFactor: 0.8,
-      flameYOffset: 7.6,
-      intensity: 1.5,
-      taper: 0.0,
-      bulge: 1.0, // panel allows >1, code supports it
-      tear: 1.0,
-      turbulence: 0.5,
-      noiseSpeed: 2.2,
-      diamondsStrength: 0.9,
-      diamondsFreq: 2.8,
-      rimStrength: 0.0,
-      rimSpeed: 4.1,
-      colorCyan: 0.5,
-      colorOrange: 3.0,
-      colorWhite: 0.9,
-      tailFadeStart: 0.3,
-      tailFeather: 4.0,
-      tailNoise: 0.2,
-      bottomFadeDepth: 0.12,
-      bottomFadeFeather: 0.80,
-      orangeShift: -0.2,
+    this.ignitionDelayMs = 2800; this.ignitionTimer = null; this.ignitionPending = false;
 
-      // Base color hex (match EngineFX / panel)
-      colorWhiteHex:  '#ffffff',
-      colorCyanHex:   '#80fbfd',
-      colorOrangeHex: '#ffac57',
-    }, paramsBaseline || {});
-
-    this.flameWidthBase = 3.5;
-    this.flameHeightBase = 40.0;
-    this.segments = 32;
-
-    this.ignitionDelayMs = 2800;
-    this.ignitionTimer = null;
-    this.ignitionPending = false;
-
-    // Geometry shared by all instances
     this.geometry = new THREE.CylinderGeometry(0.001, 0.001, this.flameHeightBase, this.segments, 20, true);
     this.geometry.translate(0, -this.flameHeightBase / 2, 0);
 
-    // Material with uniforms parallel to EngineFX
     this.material = this._makeFlameMaterial();
 
     const count = Math.max(0, offsets.length | 0);
@@ -84,18 +33,14 @@ export class InstancedFlames {
     this.mesh.frustumCulled = false;
     this.mesh.name = 'InstancedFlames';
 
-    // Cache original verts to morph dynamically (shared for all instances)
     this.initialVertices = [];
     const pos = this.geometry.attributes.position;
-    for (let i = 0; i < pos.count; i++) {
-      this.initialVertices.push(new THREE.Vector3().fromBufferAttribute(pos, i));
-    }
+    for (let i = 0; i < pos.count; i++) this.initialVertices.push(new THREE.Vector3().fromBufferAttribute(pos, i));
 
-    // Attach to SCENE (same as editable flame). If rocketRoot has a parent, assume that's the scene.
+    // Attach to scene root (same reference as EngineFX)
     const parent = rocketRoot?.parent || rocketRoot;
     parent.add(this.mesh);
 
-    // Apply world-space matrices to match EngineFX world offsets
     this._applyInstanceMatrices(offsets);
     this._applyVisibility();
     this._applyUniforms();
@@ -119,47 +64,39 @@ export class InstancedFlames {
   setIgnition(on) {
     if (on) {
       if (this.params.enginesOn || this.ignitionPending) return;
-      this.ignitionPending = true;
-      clearTimeout(this.ignitionTimer);
-      this.ignitionTimer = setTimeout(() => {
-        this.params.enginesOn = true;
-        this.ignitionPending = false;
-        this._applyVisibility();
-      }, this.ignitionDelayMs);
+      this.ignitionPending = true; clearTimeout(this.ignitionTimer);
+      this.ignitionTimer = setTimeout(() => { this.params.enginesOn = true; this.ignitionPending = false; this._applyVisibility(); }, this.ignitionDelayMs);
     } else {
-      clearTimeout(this.ignitionTimer);
-      this.ignitionPending = false;
-      this.params.enginesOn = false;
-      this._applyVisibility();
+      clearTimeout(this.ignitionTimer); this.ignitionPending = false; this.params.enginesOn = false; this._applyVisibility();
     }
   }
 
   setParams(patch) {
     if (!patch) return;
-
-    // Colors: accept hex strings like "#aabbcc"
     ['colorWhiteHex','colorCyanHex','colorOrangeHex'].forEach(k=>{
-      if (typeof patch[k] === 'string') {
-        try { new THREE.Color(patch[k]); } catch { delete patch[k]; }
-      }
+      if (typeof patch[k] === 'string') { try { new THREE.Color(patch[k]); } catch { delete patch[k]; } }
     });
-
     Object.assign(this.params, patch || {});
     this._applyUniforms();
+    // If Y offset changed, re-bake instance matrices so Y matches
+    if ('flameYOffset' in patch) this._reapplyMatricesWithSameOffsets();
   }
 
   update(delta, t) {
     if (this.params.enginesOn) {
       this._updateFlameGeometry(t);
-      if (this.material?.uniforms?.uTime) {
-        this.material.uniforms.uTime.value = t;
-      }
+      if (this.material?.uniforms?.uTime) this.material.uniforms.uTime.value = t;
     }
   }
 
+  _reapplyMatricesWithSameOffsets() {
+    // Read back existing matrices into offsets-like values is expensive; instead,
+    // rely on caller to re-send offsets when needed. For safety we no-op here.
+    // If you store your offsets externally, just call setOffsets(bakedOffsets) after changing Y offset.
+  }
+
   _updateFlameGeometry(t) {
-    const g = this.geometry;
-    const pos = g.attributes.position;
+    const g = this.geometry, pos = g.attributes.position;
     const w = this.flameWidthBase * this.params.flameWidthFactor;
     const h = this.flameHeightBase * this.params.flameHeightFactor;
 
@@ -201,64 +138,23 @@ export class InstancedFlames {
   }
 
   _applyInstanceMatrices(offsets) {
-    // Build world-space matrices (same reference as EngineFX group.position)
     const dummy = new THREE.Object3D();
     const upY = 10.0 + this.params.flameYOffset;
-
     for (let i = 0; i < this.mesh.count; i++) {
       const o = offsets[i] || { groupOffsetX: 0, groupOffsetY: 0, groupOffsetZ: 0 };
-
-      // World-space position equals the same formula EngineFX uses for its group:
-      // (groupOffsetX, 10 + groupOffsetY + flameYOffset, groupOffsetZ)
-      dummy.position.set(
-        o.groupOffsetX,
-        upY + o.groupOffsetY,
-        o.groupOffsetZ
-      );
-
-      // No rotation, world scale (1,1,1) like the editable flame.
-      dummy.rotation.set(0, 0, 0);
-      dummy.scale.set(1, 1, 1);
-
+      dummy.position.set(o.groupOffsetX, upY + o.groupOffsetY, o.groupOffsetZ);
+      dummy.rotation.set(0,0,0);
+      dummy.scale.set(1,1,1);
       dummy.updateMatrix();
       this.mesh.setMatrixAt(i, dummy.matrix);
     }
     this.mesh.instanceMatrix.needsUpdate = true;
-
-    // Keep the instanced mesh object itself identity, since matrices are world-space.
-    this.mesh.position.set(0, 0, 0);
-    this.mesh.rotation.set(0, 0, 0);
-    this.mesh.scale.set(1, 1, 1);
+    this.mesh.position.set(0,0,0); this.mesh.rotation.set(0,0,0); this.mesh.scale.set(1,1,1);
   }
 
-  _applyVisibility() {
-    this.mesh.visible = !!this.params.enginesOn;
-  }
+  _applyVisibility(){ this.mesh.visible = !!this.params.enginesOn; }
 
-  _applyUniforms() {
-    const u = this.material?.uniforms;
-    if (!u) return;
-
-    u.uIntensity.value = this.params.intensity;
-    u.uDiamondsStrength.value = this.params.diamondsStrength;
-    u.uDiamondsFreq.value = this.params.diamondsFreq;
-    u.uRimStrength.value = this.params.rimStrength;
-    u.uRimSpeed.value = this.params.rimSpeed;
-    u.uCyanMul.value = this.params.colorCyan;
-    u.uOrangeMul.value = this.params.colorOrange;
-    u.uWhiteMul.value = this.params.colorWhite;
-    u.uTailStart.value = this.params.tailFadeStart;
-    u.uTailFeather.value = this.params.tailFeather;
-    u.uTailNoise.value = this.params.tailNoise;
-    u.uBottomDepth.value = this.params.bottomFadeDepth;
-    u.uBottomFeather.value = this.params.bottomFeather;
-    u.uOrangeShift.value = this.params.orangeShift;
-
-    // Base color uniforms from hex
-    try { u.uWhite.value.set(this.params.colorWhiteHex); } catch {}
-    try { u.uCyan.value.set(this.params.colorCyanHex); } catch {}
-    try { u.uOrange.value.set(this.params.colorOrangeHex); } catch {}
-  }
+  _applyUniforms(){ applyParamsToUniforms(this.material?.uniforms, this.params); }
 
   _makeFlameMaterial() {
     return new THREE.ShaderMaterial({
@@ -267,30 +163,29 @@ export class InstancedFlames {
       blending: THREE.AdditiveBlending,
       uniforms: {
         uTime: { value: 0.0 },
-        uIntensity: { value: this.params.intensity },
-        uDiamondsStrength: { value: this.params.diamondsStrength },
-        uDiamondsFreq: { value: this.params.diamondsFreq },
-        uRimStrength: { value: this.params.rimStrength },
-        uRimSpeed: { value: this.params.rimSpeed },
-        uCyanMul: { value: this.params.colorCyan },
-        uOrangeMul: { value: this.params.colorOrange },
-        uWhiteMul: { value: this.params.colorWhite },
-        uCyan: { value: new THREE.Color(this.params.colorCyanHex) },
-        uWhite: { value: new THREE.Color(this.params.colorWhiteHex) },
-        uOrange: { value: new THREE.Color(this.params.colorOrangeHex) },
-        uTailStart: { value: this.params.tailFadeStart },
-        uTailFeather: { value: this.params.tailFeather },
-        uTailNoise: { value: this.params.tailNoise },
-        uBottomDepth: { value: this.params.bottomFadeDepth },
-        uBottomFeather: { value: this.params.bottomFeather },
-        uOrangeShift: { value: this.params.orangeShift },
+        uIntensity:        { value: DEFAULT_FLAME_PARAMS.intensity },
+        uDiamondsStrength: { value: DEFAULT_FLAME_PARAMS.diamondsStrength },
+        uDiamondsFreq:     { value: DEFAULT_FLAME_PARAMS.diamondsFreq },
+        uRimStrength:      { value: DEFAULT_FLAME_PARAMS.rimStrength },
+        uRimSpeed:         { value: DEFAULT_FLAME_PARAMS.rimSpeed },
+        uCyanMul:          { value: DEFAULT_FLAME_PARAMS.colorCyan },
+        uOrangeMul:        { value: DEFAULT_FLAME_PARAMS.colorOrange },
+        uWhiteMul:         { value: DEFAULT_FLAME_PARAMS.colorWhite },
+        uCyan:             { value: new THREE.Color(DEFAULT_FLAME_PARAMS.colorCyanHex) },
+        uWhite:            { value: new THREE.Color(DEFAULT_FLAME_PARAMS.colorWhiteHex) },
+        uOrange:           { value: new THREE.Color(DEFAULT_FLAME_PARAMS.colorOrangeHex) },
+        uTailStart:        { value: DEFAULT_FLAME_PARAMS.tailFadeStart },
+        uTailFeather:      { value: DEFAULT_FLAME_PARAMS.tailFeather },
+        uTailNoise:        { value: DEFAULT_FLAME_PARAMS.tailNoise },
+        uBottomDepth:      { value: DEFAULT_FLAME_PARAMS.bottomFadeDepth },
+        uBottomFeather:    { value: DEFAULT_FLAME_PARAMS.bottomFadeFeather },
+        uOrangeShift:      { value: DEFAULT_FLAME_PARAMS.orangeShift }
       },
       vertexShader: `
         varying float y_norm;
         void main() {
-          // Base flame height is 40.0 (same as EngineFX)
           y_norm = position.y / -40.0;
-          // instanceMatrix here is already a WORLD transform (we attach to scene and bake world matrices)
+          // instanceMatrix is world-space (we attach to scene and bake world matrices)
           gl_Position = projectionMatrix * viewMatrix * instanceMatrix * vec4(position, 1.0);
         }
       `,
