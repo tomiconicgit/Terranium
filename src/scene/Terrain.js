@@ -2,91 +2,98 @@
 import * as THREE from 'three';
 
 export function createTerrain(opts = {}) {
-  // Selection / center tile
   const selection = opts.selection || (typeof window !== 'undefined' ? window.EXCAVATION_SELECTION : null) || {};
   const tileSize  = typeof selection.tileSize === 'number' ? selection.tileSize : 1;
-  const center    = (Array.isArray(selection.tiles) && selection.tiles[0]) || { i: 0, j: 0 };
-  const ci = Number.isFinite(center.i) ? center.i : 0;
-  const cj = Number.isFinite(center.j) ? center.j : 0;
 
-  // 30×30 area around the center
-  const halfMinus = 15;
-  const halfPlus  = 14;
-  const minI = ci - halfMinus, maxI = ci + halfPlus;
-  const minJ = cj - halfMinus, maxJ = cj + halfPlus;
+  // --- Determine pit rectangle in tile coordinates ---
+  // Priority 1: explicit rectangle override
+  let rect = (typeof window !== 'undefined' && window.PIT_RECT) ? sanitizeRect(window.PIT_RECT) : null;
 
-  // World grid 100×100 centered on origin  → i,j in [-50..49]
+  if (!rect) {
+    const tiles = Array.isArray(selection.tiles) ? selection.tiles : [];
+    if (tiles.length >= 2) {
+      // Use AABB over ALL provided tiles (good for your big outline case)
+      let minI = +Infinity, maxI = -Infinity, minJ = +Infinity, maxJ = -Infinity;
+      for (const t of tiles) {
+        if (!Number.isFinite(t?.i) || !Number.isFinite(t?.j)) continue;
+        if (t.i < minI) minI = t.i; if (t.i > maxI) maxI = t.i;
+        if (t.j < minJ) minJ = t.j; if (t.j > maxJ) maxJ = t.j;
+      }
+      rect = { minI, maxI, minJ, maxJ };
+    } else {
+      // Single tile → make a 40×40 area centered on that tile (override via size/sizeI/sizeJ)
+      const center = tiles[0] || { i: 0, j: 0 };
+      const sizeI = clampInt(selection.sizeI ?? selection.size ?? 40, 1, 1000);
+      const sizeJ = clampInt(selection.sizeJ ?? selection.size ?? 40, 1, 1000);
+      const halfI = Math.floor(sizeI / 2), halfJ = Math.floor(sizeJ / 2);
+      rect = {
+        minI: (center.i|0) - halfI,
+        maxI: (center.i|0) + (sizeI - halfI - 1),
+        minJ: (center.j|0) - halfJ,
+        maxJ: (center.j|0) + (sizeJ - halfJ - 1)
+      };
+    }
+  }
+
+  const { minI, maxI, minJ, maxJ } = rect;
+
+  // World grid 100×100 centered on origin → i,j in [-50..49]
   const GRID = 100;
   const HALF = GRID / 2;
 
   const group = new THREE.Group();
   group.name = 'terrain_root';
 
-  // Materials
-  const concreteMat = makeConcretePBRMaterial();     // level 0 (outside pit) — now LIT
-  const metalMat    = makeProceduralMetalMaterial(); // pit floor + walls (already PBR)
+  // Materials (PBR so lights affect them)
+  const concreteMat = makeConcretePBRMaterial();     // outside pit
+  const metalMat    = makeProceduralMetalMaterial(); // pit floor + walls
 
   // Common dims
-  const depth        = 15;                 // pit depth
-  const epsilon      = 0.02;               // small overlaps to hide seams
-  const groundThick  = 0.05;               // thin slab to avoid z-fight
+  const depth        = 15;       // pit depth
+  const epsilon      = 0.02;     // small overlap to hide seams
+  const groundThick  = 0.05;     // thin ground slab (avoid z-fight)
   const floorThick   = 0.08;
+  const wallThickness= Math.max(0.2 * tileSize, 0.1);
 
-  // Span in world units for the pit
+  // Pit span in world units
   const pitSpanX = (maxI - minI + 1) * tileSize;
   const pitSpanZ = (maxJ - minJ + 1) * tileSize;
 
-  // World extents (full board)
+  // Full world extents
   const worldSpanX = GRID * tileSize;
   const worldSpanZ = GRID * tileSize;
 
-  // Convert i,j to world center positions
+  // World center of the pit rect
   const pitCenterX = (minI + maxI + 1) * 0.5 * tileSize;
   const pitCenterZ = (minJ + maxJ + 1) * 0.5 * tileSize;
 
-  // ---------- Ground at level 0 (four frame slabs around the pit) ----------
-  // Left strip
+  // ---------- Ground at level 0 (frame around the pit, not covering it) ----------
+  // Left frame
   if (minI > -HALF) {
     const width = (minI - (-HALF)) * tileSize;
-    const g = new THREE.BoxGeometry(width + epsilon, groundThick, worldSpanZ + epsilon);
-    const m = new THREE.Mesh(g, concreteMat);
-    m.name = 'ground_frame_left';
-    m.position.set(((-HALF) * tileSize) + (width * 0.5), -groundThick * 0.5, 0);
-    m.castShadow = false; m.receiveShadow = true;
-    group.add(m);
+    addSlab(group, concreteMat, width + epsilon, worldSpanZ + epsilon,
+      ((-HALF) * tileSize) + (width * 0.5), -groundThick * 0.5, 0, 'ground_frame_left');
   }
-  // Right strip
+  // Right frame
   if (maxI < HALF - 1) {
     const width = ((HALF - 1) - maxI) * tileSize;
-    const g = new THREE.BoxGeometry(width + epsilon, groundThick, worldSpanZ + epsilon);
-    const m = new THREE.Mesh(g, concreteMat);
-    m.name = 'ground_frame_right';
-    m.position.set(((maxI + 1) * tileSize) + (width * 0.5), -groundThick * 0.5, 0);
-    m.castShadow = false; m.receiveShadow = true;
-    group.add(m);
+    addSlab(group, concreteMat, width + epsilon, worldSpanZ + epsilon,
+      ((maxI + 1) * tileSize) + (width * 0.5), -groundThick * 0.5, 0, 'ground_frame_right');
   }
-  // Front strip (-Z)
+  // Front frame (-Z)
   if (minJ > -HALF) {
-    const depthSpan = (minJ - (-HALF)) * tileSize;
-    const g = new THREE.BoxGeometry(pitSpanX + epsilon, groundThick, depthSpan + epsilon);
-    const m = new THREE.Mesh(g, concreteMat);
-    m.name = 'ground_frame_front';
-    m.position.set(pitCenterX, -groundThick * 0.5, ((-HALF) * tileSize) + (depthSpan * 0.5));
-    m.castShadow = false; m.receiveShadow = true;
-    group.add(m);
+    const span = (minJ - (-HALF)) * tileSize;
+    addSlab(group, concreteMat, pitSpanX + epsilon, span + epsilon,
+      pitCenterX, -groundThick * 0.5, ((-HALF) * tileSize) + (span * 0.5), 'ground_frame_front');
   }
-  // Back strip (+Z)
+  // Back frame (+Z)
   if (maxJ < HALF - 1) {
-    const depthSpan = ((HALF - 1) - maxJ) * tileSize;
-    const g = new THREE.BoxGeometry(pitSpanX + epsilon, groundThick, depthSpan + epsilon);
-    const m = new THREE.Mesh(g, concreteMat);
-    m.name = 'ground_frame_back';
-    m.position.set(pitCenterX, -groundThick * 0.5, ((maxJ + 1) * tileSize) + (depthSpan * 0.5));
-    m.castShadow = false; m.receiveShadow = true;
-    group.add(m);
+    const span = ((HALF - 1) - maxJ) * tileSize;
+    addSlab(group, concreteMat, pitSpanX + epsilon, span + epsilon,
+      pitCenterX, -groundThick * 0.5, ((maxJ + 1) * tileSize) + (span * 0.5), 'ground_frame_back');
   }
 
-  // ---------- Pit floor (single solid box, no seams) ----------
+  // ---------- Pit floor (solid plate at -15) ----------
   {
     const g = new THREE.BoxGeometry(pitSpanX + epsilon, floorThick, pitSpanZ + epsilon);
     const m = new THREE.Mesh(g, metalMat);
@@ -96,10 +103,9 @@ export function createTerrain(opts = {}) {
     group.add(m);
   }
 
-  // ---------- Perimeter walls (slight overlap into ground & floor) ----------
-  const wallHeight    = depth + groundThick + epsilon; // poke slightly into ground
-  const wallThickness = Math.max(0.2 * tileSize, 0.1);
-  const wallYCenter   = -depth * 0.5; // centered between 0 and -depth
+  // ---------- Perimeter walls ----------
+  const wallHeight  = depth + groundThick + epsilon;
+  const wallYCenter = -depth * 0.5;
 
   // -Z edge (front)
   group.add(makeWall(
@@ -130,6 +136,24 @@ export function createTerrain(opts = {}) {
 }
 
 /* ---------------- helpers ---------------- */
+function sanitizeRect(r) {
+  const minI = Math.min(r.minI|0, r.maxI|0);
+  const maxI = Math.max(r.minI|0, r.maxI|0);
+  const minJ = Math.min(r.minJ|0, r.maxJ|0);
+  const maxJ = Math.max(r.minJ|0, r.maxJ|0);
+  return { minI, maxI, minJ, maxJ };
+}
+function clampInt(v, lo, hi){ v = (v|0); return Math.max(lo, Math.min(hi, v)); }
+
+function addSlab(group, mat, sx, sz, x, y, z, name) {
+  const g = new THREE.BoxGeometry(sx, 0.05, sz);
+  const m = new THREE.Mesh(g, mat);
+  m.name = name;
+  m.position.set(x, y, z);
+  m.castShadow = false; m.receiveShadow = true;
+  group.add(m);
+}
+
 function makeWall(length, height, thickness, x, y, z, material, rotY = 0, name = 'pit_wall') {
   const geo = new THREE.BoxGeometry(length, height, thickness);
   const mesh = new THREE.Mesh(geo, material);
@@ -141,36 +165,30 @@ function makeWall(length, height, thickness, x, y, z, material, rotY = 0, name =
   return mesh;
 }
 
-/* ---------- Concrete (now LIT: PBR, reacts to lights & shadows) ---------- */
+/* ---------- Concrete: PBR so it reacts to light ---------- */
 function makeConcretePBRMaterial() {
   const tex = makeConcreteCanvasTexture(512);
   tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-  // Gentle tiling; big slabs
   tex.repeat.set(6, 6);
-
   const mat = new THREE.MeshStandardMaterial({
     color: 0xffffff,
     map: tex,
     metalness: 0.0,
     roughness: 0.85
   });
-  // Make sure self-shadowing looks clean
   mat.polygonOffset = true;
   mat.polygonOffsetFactor = 1;
   mat.polygonOffsetUnits = 1;
   return mat;
 }
-
 function makeConcreteCanvasTexture(size = 512) {
   const canvas = document.createElement('canvas');
   canvas.width = canvas.height = size;
   const ctx = canvas.getContext('2d');
 
-  // Base
   ctx.fillStyle = '#c9c9c9';
   ctx.fillRect(0, 0, size, size);
 
-  // Soft noise clouds
   const bands = 140;
   for (let i = 0; i < bands; i++) {
     const y = Math.floor((i / bands) * size);
@@ -178,8 +196,6 @@ function makeConcreteCanvasTexture(size = 512) {
     ctx.fillStyle = `rgba(0,0,0,${a})`;
     ctx.fillRect(0, y, size, 1);
   }
-
-  // Speckles
   ctx.globalAlpha = 0.08;
   for (let i = 0; i < size * 2; i++) {
     const x = Math.random() * size;
@@ -189,7 +205,6 @@ function makeConcreteCanvasTexture(size = 512) {
   }
   ctx.globalAlpha = 1.0;
 
-  // Light seams grid
   ctx.strokeStyle = 'rgba(0,0,0,0.12)';
   ctx.lineWidth = 1;
   const cells = 8;
@@ -210,25 +225,21 @@ function makeProceduralMetalMaterial() {
   tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
   tex.repeat.set(2, 2);
 
-  const mat = new THREE.MeshStandardMaterial({
+  return new THREE.MeshStandardMaterial({
     color: 0xffffff,
     metalness: 0.95,
     roughness: 0.28,
     map: tex,
   });
-  return mat;
 }
-
 function makeMetalCanvasTexture(size = 256) {
   const canvas = document.createElement('canvas');
   canvas.width = canvas.height = size;
   const ctx = canvas.getContext('2d');
 
-  // Base steel tone
   ctx.fillStyle = '#b3b6bb';
   ctx.fillRect(0, 0, size, size);
 
-  // Brushed noise streaks
   for (let y = 0; y < size; y++) {
     const a = 0.06 + Math.random() * 0.08;
     ctx.fillStyle = `rgba(255,255,255,${a})`;
@@ -237,7 +248,6 @@ function makeMetalCanvasTexture(size = 256) {
     ctx.fillRect(x, y, len, 1);
   }
 
-  // Subtle plate seams
   ctx.strokeStyle = 'rgba(0,0,0,0.12)';
   ctx.lineWidth = 1;
   const cells = 8;
