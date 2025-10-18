@@ -54,16 +54,16 @@ export class Main {
     this.launchActive = false;
     this.liftoffTime = 0;
 
-    // Timing (seconds, per your instructions)
-    this.IGNITION_DELAY = 2.8;        // handled visually in InstancedFlames too
-    this.HOLD_AFTER_IGNITION = 5.0;   // wait this long, then start moving up
-    this.TILT_START = 20.0;           // seconds after liftoff tilt begins
-    this.DISAPPEAR_AT = 48.0;         // seconds after liftoff hide rocket/flames
+    // Timing (seconds)
+    this.IGNITION_DELAY = 2.8;        // visual delay inside InstancedFlames too
+    this.HOLD_AFTER_IGNITION = 5.0;   // after flames appear, wait 5s, then move
+    this.TILT_START = 30.0;           // was 20.0 → now 30s after liftoff
+    this.DISAPPEAR_AT = 48.0;         // hide stack 48s after liftoff
 
     // Motion tuning
-    this.ascentHeight = 2000;         // world units climbed by 48s
+    this.ascentHeight = 2400;         // was 2000 → slightly faster overall climb
     this.maxTiltDeg = 5.0;            // gentle pitch
-    this.tiltRampSeconds = 8.0;       // how long to ramp in tilt after TILT_START
+    this.tiltRampSeconds = 8.0;       // time to ramp tilt after it starts
 
     this.clock = new THREE.Clock(); this.frameCount = 0;
 
@@ -152,7 +152,7 @@ export class Main {
       if (this.originalTransform) this.applyWorld(this.launchGroup, this.originalTransform);
       this.launchGroup.visible = true;
 
-      // Flames visually appear after ~2.8s; we start liftoff 5s later.
+      // Flames appear after ~2.8s; start liftoff 5s later.
       const liftoffDelayMs = (this.IGNITION_DELAY + this.HOLD_AFTER_IGNITION) * 1000;
       this.launchTimers.push(setTimeout(()=>{
         this.launchActive = true;
