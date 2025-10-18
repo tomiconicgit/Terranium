@@ -3,11 +3,10 @@ import * as THREE from 'three';
 
 /**
  * RocketLightRig
- *  - One shadow-casting SpotLight with a colored cookie (hot white core → orange → cyan)
- *  - One PointLight for near-field glow (no shadows for perf)
- *  - Follows the plume "anchor" computed from your instance offsets + flameYOffset
- *  - Intensity and reach scale with flame params and (optionally) number of engines
- *  - Runtime controls via setParams()/getParams() for UI
+ *  - Shadow-casting SpotLight with a colored cookie (white → orange → cyan)
+ *  - Near-field PointLight for glow
+ *  - Auto cone-sizing to cover a target area on the pit floor (y = -15)
+ *  - Runtime controls via setParams()/getParams() (incl. coverageMeters)
  */
 export class RocketLightRig {
   constructor({ parent, rocketRoot, offsets = [], getParams }) {
@@ -20,16 +19,19 @@ export class RocketLightRig {
     this.group.name = 'RocketLightRig';
     (this.parent || this.rocketRoot).add(this.group);
 
-    // Defaults for runtime controls (stronger so it's clearly visible in Day)
+    // Strong defaults so it’s visible in Day
     this.runtime = {
-      spotAngleDeg: 35,
+      // desired footprint width on the pit floor
+      coverageMeters: 50,        // <— NEW: ensures ~50×50 coverage on y=-15
+      spotAngleDeg: 35,          // will be overridden by auto-fit unless you change it via UI
       spotPenumbra: 0.40,
-      spotDistance: 380,
-      spotIntensityScale: 1.35,
-      pointIntensityScale: 1.40,
+      spotDistance: 420,         // large falloff range so it reaches far
+      spotIntensityScale: 1.5,
+      pointIntensityScale: 1.6,
       cookieCore:   '#fff7e6',
       cookieOrange: '#ffba78',
       cookieCyan:   '#80fbfd',
+      autoFitAngle: true         // <— NEW: auto-compute angle from coverageMeters
     };
 
     // --- Lights ---
@@ -39,18 +41,18 @@ export class RocketLightRig {
       this.runtime.spotDistance,
       THREE.MathUtils.degToRad(this.runtime.spotAngleDeg),
       this.runtime.spotPenumbra,
-      1.8
+      1.8 // decay
     );
     this.spot.name = 'PlumeSpot';
     this.spot.castShadow = true;
-    this.spot.shadow.mapSize.set(2048, 2048);
-    this.spot.shadow.camera.near = 1.0;
-    this.spot.shadow.camera.far  = 400;
-    this.spot.shadow.bias = -0.00015;
+    this.spot.shadow.mapSize.set(4096, 4096);     // crisper cookie/shadows at big footprint
+    this.spot.shadow.camera.near = 0.5;
+    this.spot.shadow.camera.far  = 800;
+    this.spot.shadow.bias = -0.00012;
 
-    // cookie (projected texture) for color/shape
-    this.spot.map = makePlumeCookieTexture(256, this.runtime.cookieCore, this.runtime.cookieOrange, this.runtime.cookieCyan);
-    this.spot.color.set(0xffffff); // cookie handles color distribution
+    // Cookie texture (color/shape)
+    this.spot.map = makePlumeCookieTexture(512, this.runtime.cookieCore, this.runtime.cookieOrange, this.runtime.cookieCyan);
+    this.spot.color.set(0xffffff);
 
     // target
     this.spotTarget = new THREE.Object3D();
@@ -59,34 +61,37 @@ export class RocketLightRig {
     this.group.add(this.spotTarget);
 
     // Near-field omni glow (no shadows)
-    this.point = new THREE.PointLight(0xffcfa3, 0.0, 120, 1.6);
+    this.point = new THREE.PointLight(0xffcfa3, 0.0, 160, 1.6);
     this.point.name = 'PlumePoint';
     this.point.castShadow = false;
     this.group.add(this.point);
 
     // Internal dynamics
-    this.maxSpotIntensity  = 32.0; // higher caps so it can punch through daylight
-    this.maxPointIntensity = 10.0;
+    this.maxSpotIntensity  = 36.0; // higher caps so it can punch through daylight
+    this.maxPointIntensity = 12.0;
     this.dir = new THREE.Vector3(0, -1, 0); // plume direction (down)
     this.anchor = new THREE.Vector3();
 
     // Cache centroid for offsets (local space)
     this.localCentroid = computeLocalCentroid(this.offsets);
+
+    // Pit floor reference (where we size the footprint)
+    this.floorY = -15; // your pit floor level
   }
 
   /* ---------- UI Runtime Controls ---------- */
   setParams(patch = {}) {
     Object.assign(this.runtime, patch);
 
-    // Apply directly to light properties
-    if ('spotAngleDeg' in patch)   this.spot.angle    = THREE.MathUtils.degToRad(this.runtime.spotAngleDeg);
+    // Apply directly to light properties when explicitly provided
     if ('spotPenumbra' in patch)   this.spot.penumbra = this.runtime.spotPenumbra;
     if ('spotDistance' in patch)   this.spot.distance = this.runtime.spotDistance;
-
-    // Rebuild cookie if any colour changed
+    if ('spotAngleDeg' in patch && !this.runtime.autoFitAngle) {
+      this.spot.angle = THREE.MathUtils.degToRad(this.runtime.spotAngleDeg);
+    }
     if ('cookieCore' in patch || 'cookieOrange' in patch || 'cookieCyan' in patch) {
       this.spot.map?.dispose?.();
-      this.spot.map = makePlumeCookieTexture(256, this.runtime.cookieCore, this.runtime.cookieOrange, this.runtime.cookieCyan);
+      this.spot.map = makePlumeCookieTexture(512, this.runtime.cookieCore, this.runtime.cookieOrange, this.runtime.cookieCyan);
       this.spot.needsUpdate = true;
     }
   }
@@ -96,19 +101,19 @@ export class RocketLightRig {
 
   // Compute a plausible anchor from offsets + flameYOffset
   _computeAnchor() {
-    const p = this.getParamsFromFlames();
+    const p = this._flameParams();
     const upY = 10.0 + (p.flameYOffset ?? 7.6);
     this.anchor.set(this.localCentroid.x, upY + this.localCentroid.y, this.localCentroid.z);
   }
 
-  getParamsFromFlames() {
-    // keep separated for clarity (this is the InstancedFlames params object)
+  _flameParams() {
+    // (this function name avoids confusion with getParams which is our runtime params)
     return this.getParams();
   }
 
   // Desired brightness derived from flame params + runtime scale
   _desiredIntensities() {
-    const p = this.getParamsFromFlames();
+    const p = this._flameParams();
     const on = !!p.enginesOn;
     const I  = Math.max(0, Number(p.intensity ?? 1.0));
     const N  = Math.max(1, this.offsets.length || 1);
@@ -116,14 +121,30 @@ export class RocketLightRig {
     // Sublinear growth with engine count to avoid blowout
     const engineBoost = Math.pow(N, 0.55);
 
-    // Stronger baselines so illumination is obvious in bright daylight
+    // Strong baselines so illumination is obvious in bright daylight
     const baseSpot  = on ? Math.min(this.maxSpotIntensity, 16.0 * I * engineBoost) : 0.0;
-    const basePoint = on ? Math.min(this.maxPointIntensity,  4.0 * I * Math.pow(N, 0.4)) : 0.0;
+    const basePoint = on ? Math.min(this.maxPointIntensity,  4.2 * I * Math.pow(N, 0.4)) : 0.0;
 
     return {
       spot:  baseSpot  * (this.runtime.spotIntensityScale  ?? 1.0),
       point: basePoint * (this.runtime.pointIntensityScale ?? 1.0)
     };
+  }
+
+  // Auto-fit the cone to achieve the requested footprint on y = floorY
+  _autoFitConeAngle(spotPosY) {
+    if (!this.runtime.autoFitAngle || !Number.isFinite(this.runtime.coverageMeters)) return;
+
+    const halfWidth = Math.max(0.1, this.runtime.coverageMeters * 0.5); // radius to cover
+    const vertical = Math.max(0.1, (spotPosY - this.floorY));           // distance down to floor
+    // angle is HALF-angle for SpotLight
+    const halfAngleRad = Math.atan(halfWidth / vertical) * 1.07;        // 7% pad so edges still lit
+    const halfAngleDeg = THREE.MathUtils.radToDeg(halfAngleRad);
+
+    // Clamp to sane range
+    const clampedDeg = Math.max(10, Math.min(80, halfAngleDeg));
+    this.runtime.spotAngleDeg = clampedDeg;
+    this.spot.angle = THREE.MathUtils.degToRad(clampedDeg);
   }
 
   update(dt/*, t */) {
@@ -136,6 +157,9 @@ export class RocketLightRig {
     const spotPos = tmp3.copy(this.anchor).addScaledVector(this.dir, -back).add(0, up, 0);
     this.spot.position.copy(spotPos);
     this.spotTarget.position.copy(tmp3.copy(this.anchor).addScaledVector(this.dir, 10.0));
+
+    // Auto-fit cone angle for requested coverage on the floor plane
+    this._autoFitConeAngle(this.spot.position.y);
 
     // Point at the anchor
     this.point.position.copy(this.anchor);
@@ -152,8 +176,9 @@ export class RocketLightRig {
     this.point.intensity = THREE.MathUtils.lerp(this.point.intensity, targetPoint, lerp);
 
     // 3) Range tweaks with intensity (keeps falloff believable)
-    this.spot.distance  = this.runtime.spotDistance ?? (220 + this.spot.intensity * 6.0);
-    this.point.distance = 100 + this.point.intensity * 6.0;
+    // Use runtime distance if set; otherwise derive a roomy default
+    this.spot.distance  = this.runtime.spotDistance ?? (240 + this.spot.intensity * 6.0);
+    this.point.distance = 110 + this.point.intensity * 8.0;
   }
 
   dispose() {
@@ -174,7 +199,7 @@ function computeLocalCentroid(offsets) {
   return c;
 }
 
-function makePlumeCookieTexture(size = 256, core = '#fff7e6', orange = '#ffba78', cyan = '#80fbfd') {
+function makePlumeCookieTexture(size = 512, core = '#fff7e6', orange = '#ffba78', cyan = '#80fbfd') {
   const canvas = document.createElement('canvas');
   canvas.width = canvas.height = size;
   const ctx = canvas.getContext('2d');
