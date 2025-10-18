@@ -1,14 +1,6 @@
 // src/ui/EnvironmentPanel.js
-// Small UI for switching sky/lighting Day↔Dusk and tweaking the plume light rig.
-//
-// Main wires it like:
-//
-// this.envPanel = new EnvironmentPanelUI({
-//   setDay:  () => this.applyDayPreset(),
-//   setDusk: () => this.applyDuskPreset(),
-//   getPlume: () => this.plumeRig?.getParams(),
-//   setPlume: (patch) => this.plumeRig?.setParams(patch),
-// }, this.debugger);
+// Environment switch (Day/Dusk) + Plume light controls.
+// Button auto-positions NEXT TO the Highlighter button if present.
 
 export class EnvironmentPanelUI {
   constructor(api, dbg) {
@@ -16,6 +8,7 @@ export class EnvironmentPanelUI {
     this.debugger = dbg;
     this.panel = null;
     this.ctrl = {};
+    this.openBtn = null;
     this._build();
   }
 
@@ -27,26 +20,30 @@ export class EnvironmentPanelUI {
     openBtn.id = 'environment-panel-btn';
     openBtn.textContent = 'Environment';
     openBtn.title = 'Open environment & plume lighting controls';
-    openBtn.style.cssText = `
-      position:fixed; top:20px; left:20px; z-index:11;
-      padding:8px 12px; border-radius:6px; border:1px solid rgba(255,255,255,0.25);
-      background:rgba(30,30,36,0.9); color:#fff; cursor:pointer;`;
-    openBtn.onclick = () => {
-      if (!this.panel) return;
-      this.panel.style.display = (this.panel.style.display === 'block') ? 'none' : 'block';
-      if (this.panel.style.display === 'block') this._syncFromRig();
-    };
+    openBtn.style.cssText = baseBtnStyle();
     container.appendChild(openBtn);
+    this.openBtn = openBtn;
+
+    // Position next to the Highlighter button if available
+    const placeBtn = () => {
+      const hi = document.getElementById('highlighter-btn'); // from HighlighterUI
+      if (hi) {
+        const r = hi.getBoundingClientRect();
+        openBtn.style.left = `${Math.round(r.right + 10)}px`;
+        openBtn.style.top  = `${Math.round(r.top)}px`;
+      } else {
+        // Fallback to top-left
+        openBtn.style.left = '20px';
+        openBtn.style.top  = '20px';
+      }
+    };
+    placeBtn();
+    window.addEventListener('resize', placeBtn);
 
     // Panel
     const panel = document.createElement('div');
     panel.id = 'environment-panel';
-    panel.style.cssText = `
-      position:fixed; top:60px; left:20px; z-index:10; width:340px; max-height:76vh;
-      overflow:auto; padding:14px; display:none; border-radius:10px;
-      background:rgba(24,24,28,0.95); color:#fff; border:1px solid rgba(255,255,255,0.18);
-      box-shadow:0 10px 20px rgba(0,0,0,0.35); backdrop-filter:blur(8px);
-      -webkit-overflow-scrolling: touch;`;
+    panel.style.cssText = panelStyle();
     (document.getElementById('ui-container') || document.body).appendChild(panel);
     this.panel = panel;
 
@@ -60,11 +57,11 @@ export class EnvironmentPanelUI {
     rowDay.style.cssText = 'display:flex; gap:10px; margin-bottom:14px;';
     const dayBtn = document.createElement('button');
     dayBtn.textContent = 'Day';
-    dayBtn.style.cssText = 'flex:1; padding:8px; background:#2c7ef2; color:#fff; border:none; border-radius:6px; cursor:pointer;';
+    dayBtn.style.cssText = blueBtn();
     dayBtn.onclick = () => { try { this.api.setDay?.(); } catch(e){ this.debugger?.handleError(e,'EnvPanel.Day'); } };
     const duskBtn = document.createElement('button');
     duskBtn.textContent = 'Dusk';
-    duskBtn.style.cssText = 'flex:1; padding:8px; background:#f28c2c; color:#fff; border:none; border-radius:6px; cursor:pointer;';
+    duskBtn.style.cssText = orangeBtn();
     duskBtn.onclick = () => { try { this.api.setDusk?.(); } catch(e){ this.debugger?.handleError(e,'EnvPanel.Dusk'); } };
     rowDay.appendChild(dayBtn); rowDay.appendChild(duskBtn);
     panel.appendChild(rowDay);
@@ -123,7 +120,7 @@ export class EnvironmentPanelUI {
     resetRow.style.cssText = 'display:flex; gap:10px; margin-top:4px;';
     const resetBtn = document.createElement('button');
     resetBtn.textContent = 'Reset Plume Light';
-    resetBtn.style.cssText = 'flex:1; padding:8px; background:#2b2f3a; color:#fff; border:none; border-radius:6px; cursor:pointer;';
+    resetBtn.style.cssText = neutralBtn();
     resetBtn.onclick = () => this._apply({
       spotAngleDeg: 30, spotPenumbra: 0.35, spotDistance: 260,
       spotIntensityScale: 1.0, pointIntensityScale: 1.0,
@@ -158,6 +155,12 @@ export class EnvironmentPanelUI {
     this.ctrl.orange.oninput = applyColors;
     this.ctrl.cyan.oninput = applyColors;
 
+    // Toggle panel visibility
+    this.openBtn.onclick = () => {
+      this.panel.style.display = (this.panel.style.display === 'block') ? 'none' : 'block';
+      if (this.panel.style.display === 'block') this._syncFromRig();
+    };
+
     this._syncFromRig();
   }
 
@@ -186,6 +189,27 @@ export class EnvironmentPanelUI {
     catch (e) { this.debugger?.handleError(e, 'EnvPanel.Apply'); }
   }
 }
+
+/* ------- styles ------- */
+function baseBtnStyle() {
+  return `
+    position:fixed; z-index:11;
+    padding:8px 12px; border-radius:6px; border:1px solid rgba(255,255,255,0.25);
+    background:rgba(30,30,36,0.9); color:#fff; cursor:pointer;
+  `;
+}
+function panelStyle() {
+  return `
+    position:fixed; top:60px; left:20px; z-index:10; width:340px; max-height:76vh;
+    overflow:auto; padding:14px; display:none; border-radius:10px;
+    background:rgba(24,24,28,0.95); color:#fff; border:1px solid rgba(255,255,255,0.18);
+    box-shadow:0 10px 20px rgba(0,0,0,0.35); backdrop-filter:blur(8px);
+    -webkit-overflow-scrolling: touch;
+  `;
+}
+function blueBtn(){ return 'flex:1; padding:8px; background:#2c7ef2; color:#fff; border:none; border-radius:6px; cursor:pointer;'; }
+function orangeBtn(){ return 'flex:1; padding:8px; background:#f28c2c; color:#fff; border:none; border-radius:6px; cursor:pointer;'; }
+function neutralBtn(){ return 'flex:1; padding:8px; background:#2b2f3a; color:#fff; border:none; border-radius:6px; cursor:pointer;'; }
 
 function toHex(c) {
   try { return (typeof c === 'string') ? c : '#ffffff'; }
