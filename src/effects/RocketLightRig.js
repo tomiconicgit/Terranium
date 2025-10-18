@@ -7,16 +7,7 @@ import * as THREE from 'three';
  *  - One PointLight for near-field glow (no shadows for perf)
  *  - Follows the plume "anchor" computed from your instance offsets + flameYOffset
  *  - Intensity and reach scale with flame params and (optionally) number of engines
- *
- * Usage:
- *   const rig = new RocketLightRig({
- *     parent: rocketRoot.parent || rocketRoot,
- *     rocketRoot,           // used only for transforms if needed in future
- *     offsets: bakedFlameOffsets,
- *     getParams: () => instanced.params
- *   });
- *   scene.add(rig.group);
- *   effects.push(rig); // so .update(dt,t) runs
+ *  - Runtime controls via setParams()/getParams() for UI
  */
 export class RocketLightRig {
   constructor({ parent, rocketRoot, offsets = [], getParams }) {
@@ -29,8 +20,20 @@ export class RocketLightRig {
     this.group.name = 'RocketLightRig';
     (this.parent || this.rocketRoot).add(this.group);
 
+    // Defaults for runtime controls
+    this.runtime = {
+      spotAngleDeg: 30,
+      spotPenumbra: 0.35,
+      spotDistance: 260,
+      spotIntensityScale: 1.0,
+      pointIntensityScale: 1.0,
+      cookieCore:   '#fff7e6',
+      cookieOrange: '#ffba78',
+      cookieCyan:   '#80fbfd',
+    };
+
     // --- Lights ---
-    this.spot = new THREE.SpotLight(0xffffff, 0.0, 260, THREE.MathUtils.degToRad(30), 0.35, 1.8);
+    this.spot = new THREE.SpotLight(0xffffff, 0.0, this.runtime.spotDistance, THREE.MathUtils.degToRad(this.runtime.spotAngleDeg), this.runtime.spotPenumbra, 1.8);
     this.spot.name = 'PlumeSpot';
     this.spot.castShadow = true;
     this.spot.shadow.mapSize.set(2048, 2048);
@@ -39,7 +42,7 @@ export class RocketLightRig {
     this.spot.shadow.bias = -0.00015;
 
     // cookie (projected texture) for color/shape
-    this.spot.map = makePlumeCookieTexture(256);
+    this.spot.map = makePlumeCookieTexture(256, this.runtime.cookieCore, this.runtime.cookieOrange, this.runtime.cookieCyan);
     this.spot.color.set(0xffffff); // cookie handles color distribution
 
     // target
@@ -55,8 +58,7 @@ export class RocketLightRig {
     this.group.add(this.point);
 
     // Internal dynamics
-    this.currentIntensity = 0.0; // smooth ramp
-    this.maxSpotIntensity = 22.0;  // overall cap; will be scaled by params
+    this.maxSpotIntensity = 22.0;  // overall cap; will be scaled by params * runtime scale
     this.maxPointIntensity = 6.0;
     this.dir = new THREE.Vector3(0, -1, 0); // plume direction (down)
     this.anchor = new THREE.Vector3();
@@ -65,30 +67,55 @@ export class RocketLightRig {
     this.localCentroid = computeLocalCentroid(this.offsets);
   }
 
-  // Compute a plausible anchor from offsets + flameYOffset
-  _computeAnchor() {
-    const p = this.getParams();
-    const upY = 10.0 + (p.flameYOffset ?? 7.6);
-    this.anchor.set(this.localCentroid.x, upY + this.localCentroid.y, this.localCentroid.z);
-    // Because we parented to the same node as instances (rocketRoot.parent or rocketRoot),
-    // local space == instanced local; no extra transform needed here.
+  /* ---------- UI Runtime Controls ---------- */
+  setParams(patch = {}) {
+    Object.assign(this.runtime, patch);
+
+    // Apply directly to light properties
+    if ('spotAngleDeg' in patch)   this.spot.angle    = THREE.MathUtils.degToRad(this.runtime.spotAngleDeg);
+    if ('spotPenumbra' in patch)   this.spot.penumbra = this.runtime.spotPenumbra;
+    if ('spotDistance' in patch)   this.spot.distance = this.runtime.spotDistance;
+
+    // Rebuild cookie if any colour changed
+    if ('cookieCore' in patch || 'cookieOrange' in patch || 'cookieCyan' in patch) {
+      this.spot.map?.dispose?.();
+      this.spot.map = makePlumeCookieTexture(256, this.runtime.cookieCore, this.runtime.cookieOrange, this.runtime.cookieCyan);
+      this.spot.needsUpdate = true;
+    }
+  }
+  getParams() {
+    return { ...this.runtime };
   }
 
-  // Desired brightness derived from params (enginesOn + intensity + engine count)
+  // Compute a plausible anchor from offsets + flameYOffset
+  _computeAnchor() {
+    const p = this.getParamsFromFlames();
+    const upY = 10.0 + (p.flameYOffset ?? 7.6);
+    this.anchor.set(this.localCentroid.x, upY + this.localCentroid.y, this.localCentroid.z);
+  }
+
+  getParamsFromFlames() {
+    // keep separated for clarity
+    return this.getParams();
+  }
+
+  // Desired brightness derived from flame params + runtime scale
   _desiredIntensities() {
-    const p = this.getParams();
+    const p = this.getParamsFromFlames();
     const on = !!p.enginesOn;
     const I  = Math.max(0, Number(p.intensity ?? 1.0));
     const N  = Math.max(1, this.offsets.length || 1);
 
-    // Sublinear growth with engine count to avoid blowing out
+    // Sublinear growth with engine count to avoid blowout
     const engineBoost = Math.pow(N, 0.55);
 
-    // Base scalars give a good starting look; tweak to taste
-    const spot = on ? Math.min(this.maxSpotIntensity, 8.0 * I * engineBoost) : 0.0;
-    const point = on ? Math.min(this.maxPointIntensity, 2.2 * I * Math.pow(N, 0.4)) : 0.0;
+    const baseSpot  = on ? Math.min(this.maxSpotIntensity, 8.0 * I * engineBoost) : 0.0;
+    const basePoint = on ? Math.min(this.maxPointIntensity, 2.2 * I * Math.pow(N, 0.4)) : 0.0;
 
-    return { spot, point };
+    return {
+      spot:  baseSpot  * (this.runtime.spotIntensityScale  ?? 1.0),
+      point: basePoint * (this.runtime.pointIntensityScale ?? 1.0)
+    };
   }
 
   update(dt/*, t */) {
@@ -108,13 +135,12 @@ export class RocketLightRig {
     // 2) Intensity ramping
     const { spot: targetSpot, point: targetPoint } = this._desiredIntensities();
 
-    // smooth ramp (critically damped-ish)
     const lerp = 1.0 - Math.exp(-dt * 10.0); // ~150–200ms to settle
     this.spot.intensity  = THREE.MathUtils.lerp(this.spot.intensity,  targetSpot,  lerp);
     this.point.intensity = THREE.MathUtils.lerp(this.point.intensity, targetPoint, lerp);
 
     // 3) Range tweaks with intensity (keeps falloff believable)
-    this.spot.distance = 180 + this.spot.intensity * 4.0;
+    this.spot.distance = this.runtime.spotDistance ?? (180 + this.spot.intensity * 4.0);
     this.point.distance = 80 + this.point.intensity * 6.0;
   }
 
@@ -136,22 +162,20 @@ function computeLocalCentroid(offsets) {
   return c;
 }
 
-function makePlumeCookieTexture(size = 256) {
+function makePlumeCookieTexture(size = 256, core = '#fff7e6', orange = '#ffba78', cyan = '#80fbfd') {
   const canvas = document.createElement('canvas');
   canvas.width = canvas.height = size;
   const ctx = canvas.getContext('2d');
 
-  // Radial gradient: center white-hot -> orange -> cyan -> transparent
   const g = ctx.createRadialGradient(size/2, size/2, 0, size/2, size/2, size/2);
-  g.addColorStop(0.00, 'rgba(255, 247, 230, 1.0)'); // hot white
-  g.addColorStop(0.28, 'rgba(255, 186, 120, 0.95)'); // warm orange
-  g.addColorStop(0.58, 'rgba(128, 251, 253, 0.55)'); // cyan fringe
-  g.addColorStop(1.00, 'rgba(0, 0, 0, 0.0)');        // fade out
+  g.addColorStop(0.00, hexToRgba(core,   1.00));
+  g.addColorStop(0.28, hexToRgba(orange, 0.95));
+  g.addColorStop(0.58, hexToRgba(cyan,   0.55));
+  g.addColorStop(1.00, 'rgba(0,0,0,0)');
 
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, size, size);
 
-  // Very light banding/noise to break up uniformity
   ctx.globalAlpha = 0.08;
   for (let i=0;i<18;i++){
     const r = (size/2) * (0.2 + Math.random()*0.7);
@@ -166,4 +190,16 @@ function makePlumeCookieTexture(size = 256) {
   tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
   tex.anisotropy = 4;
   return tex;
+}
+
+function hexToRgba(hex, a=1) {
+  try {
+    const c = new THREE.Color(hex);
+    const r = Math.round(c.r * 255);
+    const g = Math.round(c.g * 255);
+    const b = Math.round(c.b * 255);
+    return `rgba(${r},${g},${b},${a})`;
+  } catch {
+    return `rgba(255,255,255,${a})`;
+  }
 }
