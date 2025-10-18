@@ -15,9 +15,10 @@ import { loadModel }      from './ModelLoading.js';
 import { InstancedFlames }   from './effects/InstancedFlames.js';
 import { bakedFlameOffsets } from './world/BakedFlames.js';
 import { cloneDefaults }     from './effects/FlameDefaults.js';
-
-// NEW: plume lighting rig
 import { RocketLightRig }    from './effects/RocketLightRig.js';
+
+// NEW: Environment panel
+import { EnvironmentPanelUI } from './ui/EnvironmentPanel.js';
 
 export class Main {
   constructor(debuggerInstance) {
@@ -30,10 +31,16 @@ export class Main {
 
     this.scene = new THREE.Scene();
     this.camera = createCamera(); this.camera.rotation.order = 'YXZ'; this.scene.add(this.camera);
-    const { ambientLight, sunLight } = createLighting(); this.scene.add(ambientLight, sunLight, sunLight.target);
 
+    const lights = createLighting();
+    this.ambientLight = lights.ambientLight;
+    this.sunLight     = lights.sunLight;
+    this.scene.add(this.ambientLight, this.sunLight, this.sunLight.target);
+
+    this.sky = createSkyDome();
     this.terrain = createTerrain({ selection: window.EXCAVATION_SELECTION || null });
-    this.scene.add(this.terrain); this.scene.add(createSkyDome());
+    this.scene.add(this.terrain);
+    this.scene.add(this.sky);
 
     this.controls = new TouchPad(); this.controlsPaused = false;
 
@@ -55,7 +62,16 @@ export class Main {
 
     this.clock = new THREE.Clock(); this.frameCount = 0;
 
-    this.initModelSystems(); this.loadStaticModels();
+    this.initModelSystems();
+    this.loadStaticModels();
+
+    // NEW: Environment panel wiring
+    this.envPanel = new EnvironmentPanelUI({
+      setDay:  () => this.applyDayPreset(),
+      setDusk: () => this.applyDuskPreset(),
+      getPlume: () => this.plumeRig?.getParams(),
+      setPlume: (patch) => this.plumeRig?.setParams(patch),
+    }, this.debugger);
 
     try { this.highlighter = new HighlighterUI({ scene:this.scene, camera:this.camera, terrainGroup:this.terrain, debugger:this.debugger }); }
     catch(e){ this.debugger?.handleError(e,'HighlighterInit'); }
@@ -100,15 +116,12 @@ export class Main {
             bakedFlameOffsets,
             cloneDefaults(),
             this.camera,
-            {
-              ignite: 'src/assets/RocketIgnition.wav'
-              // cutoff: 'src/assets/RocketCutoff.wav' // optional if you add one
-            }
+            { ignite: 'src/assets/RocketIgnition.wav' }
           );
           this.instanced.setIgnition(false);
           this.effects.push(this.instanced);
 
-          // NEW: plume lighting rig (follows instance offsets & params)
+          // Plume lighting rig (follows instance offsets & params)
           this.plumeRig = new RocketLightRig({
             parent: this.rocketModel.parent || this.rocketModel,
             rocketRoot: this.rocketModel,
@@ -122,6 +135,55 @@ export class Main {
         }
       },(error)=>{ this.debugger?.handleError(error, `StaticModel: ${obj.name}`); });
     });
+  }
+
+  /* ---------- Lighting/Sky Presets ---------- */
+  applyDayPreset() {
+    // Lighting
+    this.ambientLight.color.setHex(0xffffff);
+    this.ambientLight.intensity = 0.45;
+
+    this.sunLight.color.setHex(0xffffff);
+    this.sunLight.intensity = 1.4;
+
+    // High sun
+    const az = THREE.MathUtils.degToRad(45);
+    const el = THREE.MathUtils.degToRad(65);
+    const R  = 600;
+    this.sunLight.position.set(Math.sin(az)*Math.cos(el)*R, Math.sin(el)*R, Math.cos(az)*Math.cos(el)*R);
+
+    // Sky
+    const mat = this.sky.material;
+    if (mat?.uniforms) {
+      mat.uniforms.topColor.value.set(0x4fa8ff);
+      mat.uniforms.bottomColor.value.set(0xdfeaff);
+      mat.uniforms.offset.value = 20.0;
+      mat.uniforms.exponent.value = 0.45;
+    }
+  }
+
+  applyDuskPreset() {
+    // Lighting (warmer, dimmer sun; cooler ambient)
+    this.ambientLight.color.setHex(0x243760);
+    this.ambientLight.intensity = 0.28;
+
+    this.sunLight.color.setHex(0xffb07a);
+    this.sunLight.intensity = 0.95;
+
+    // Low sun near horizon
+    const az = THREE.MathUtils.degToRad(80);
+    const el = THREE.MathUtils.degToRad(6);
+    const R  = 600;
+    this.sunLight.position.set(Math.sin(az)*Math.cos(el)*R, Math.sin(el)*R, Math.cos(az)*Math.cos(el)*R);
+
+    // Sky (dusk palette)
+    const mat = this.sky.material;
+    if (mat?.uniforms) {
+      mat.uniforms.topColor.value.set(0x0e203a);
+      mat.uniforms.bottomColor.value.set(0xf2a15a);
+      mat.uniforms.offset.value = 6.0;
+      mat.uniforms.exponent.value = 0.45;
+    }
   }
 
   start(){ this.animate(); }
