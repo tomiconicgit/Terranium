@@ -35,8 +35,7 @@ export class Main {
 
     this.sky = createSkyDome();
     this.terrain = createTerrain({ selection: window.EXCAVATION_SELECTION || null });
-    this.scene.add(this.terrain);
-    this.scene.add(this.sky);
+    this.scene.add(this.terrain, this.sky);
 
     this.controls = new TouchPad(); this.controlsPaused = false;
 
@@ -48,11 +47,15 @@ export class Main {
     this.instanced = null;
     this.rocketModel = null;
 
-    // launch/restore state
-    this.originalTransform = null;  // filled after rocket loads
-    this.launchGroup = null;        // if you already use one, we’ll honor it
-    this._launchTimers = [];        // if you use timeouts elsewhere, we’ll clear them
-    this._launchActive = false;
+    // Launch rig
+    this.launchGroup = null;          // parent of rocket + flames
+    this.originalTransform = null;    // world-space snapshot of launchGroup
+    this.launchTimers = [];
+    this.launchActive = false;
+    this.liftoffTime = 0;             // seconds (clock time when lift starts)
+    this.disappearAfter = 48.0;       // seconds after liftoff
+    this.ascentHeight = 2000;         // world units to climb before hiding
+    this.maxTiltDeg = 5.0;            // gentle pitch during ascent
 
     this.clock = new THREE.Clock(); this.frameCount = 0;
 
@@ -65,7 +68,6 @@ export class Main {
       });
     } catch(e){ this.debugger?.handleError(e,'HighlighterInit'); }
 
-    // === Reset button ===
     this.makeResetButton();
 
     window.addEventListener('resize', () => this.onWindowResize(), false);
@@ -76,10 +78,11 @@ export class Main {
     this.importModelUI = new ImportModelUI(this.scene,(m)=>{ this.modelSliders.setActiveModel(m); },this.debugger);
     this.modelSliders = new ModelSlidersUI(this.debugger);
 
+    // Wrap ignition so we can arm/cancel the launch sequence reliably
     this.enginePanel = new EnginePanelUI({
       get: () => (this.instanced ? { ...this.instanced.params } : cloneDefaults()),
       set: (patch) => { if (this.instanced) this.instanced.setParams(patch); },
-      setIgnition: (on) => { if (this.instanced) this.instanced.setIgnition(on); },
+      setIgnition: (on) => this.onIgnitionToggle(on),
       getIgnition: () => (this.instanced ? !!this.instanced.params.enginesOn : false),
       onPanelOpen: () => { this.controlsPaused = true; this.controls.setPaused(true); },
       onPanelClose: () => { this.controlsPaused = false; this.controls.setPaused(false); },
@@ -91,22 +94,27 @@ export class Main {
     this.debugger?.log(`Loading ${worldObjects.length} static models from Mapping.js...`);
     worldObjects.forEach(obj=>{
       loadModel(obj.path,(model)=>{
+        // Add a dedicated launch group that will be moved/tilted.
+        if (!this.launchGroup) {
+          this.launchGroup = new THREE.Group();
+          this.launchGroup.name = 'LaunchGroup';
+          this.scene.add(this.launchGroup);
+        }
+        // Place model in scene first
         model.position.set(obj.position.x,obj.position.y,obj.position.z);
         model.scale.set(obj.scale.x,obj.scale.y,obj.scale.z);
         model.rotation.set(obj.rotation.x,obj.rotation.y,obj.rotation.z);
         this.scene.add(model);
+
+        // Reparent into launchGroup while preserving world transform
+        this.launchGroup.attach(model);
+
         this.debugger?.log(`Loaded static model: ${obj.name}`);
 
         if (obj.name === 'SuperHeavy') {
           this.rocketModel = model;
 
-          // Capture original transform (world-space safe)
-          this.originalTransform = this.captureTransform(this.rocketModel);
-
-          // If your launch sequence already uses a group, keep it.
-          // Otherwise leave model as-is; reset() works with or without a group.
-
-          // Instanced flames (with ignite SFX)
+          // Instanced flames attach to (rocketRoot.parent || rocketRoot) -> our launchGroup
           this.instanced = new InstancedFlames(
             this.rocketModel,
             bakedFlameOffsets,
@@ -117,13 +125,73 @@ export class Main {
           this.instanced.setIgnition(false);
           this.effects.push(this.instanced);
 
+          // Capture the group's original world transform (so reset is exact)
+          this.originalTransform = this.captureWorld(this.launchGroup);
+
           this.enginePanel.setReady(true);
         }
       },(error)=>{ this.debugger?.handleError(error, `StaticModel: ${obj.name}`); });
     });
   }
 
-  /* ---------- Reset Launch ---------- */
+  /* ---------------- Launch Sequencer ---------------- */
+  onIgnitionToggle(on){
+    if (!this.instanced) return;
+    this.instanced.setIgnition(on);
+
+    // Clear any previous schedule
+    this.launchTimers.forEach(t=>clearTimeout(t)); this.launchTimers.length=0;
+
+    if (on) {
+      // Ensure launch group visible & at base before re-arming
+      if (this.originalTransform) this.applyWorld(this.launchGroup, this.originalTransform);
+      this.launchGroup.visible = true;
+
+      // Arm sequence: after 2.8s flames appear; +5s = liftoff
+      const liftoffDelayMs = 2800 + 5000;
+      this.launchTimers.push(setTimeout(()=>{
+        this.launchActive = true;
+        this.liftoffTime = this.clock.getElapsedTime(); // seconds
+      }, liftoffDelayMs));
+    } else {
+      // Cancel in-flight motion
+      this.launchActive = false;
+    }
+  }
+
+  updateLaunch(dt, nowSec){
+    if (!this.launchActive || !this.launchGroup) return;
+
+    const t = Math.max(0, nowSec - this.liftoffTime);       // seconds since liftoff
+    const u = Math.min(1, t / this.disappearAfter);         // 0..1 over the ascent window
+
+    // Ease-in height (cubic for gentle start)
+    const easeInCubic = (x)=> x*x*x;
+    const y = easeInCubic(u) * this.ascentHeight;
+
+    // Small tilt over first ~12s, then hold
+    const tiltU = Math.min(1, t / 12);
+    const easeInOut = (x)=> 0.5 - 0.5*Math.cos(Math.PI*x);
+    const tiltRad = THREE.MathUtils.degToRad(this.maxTiltDeg) * easeInOut(tiltU);
+
+    // Apply to launchGroup
+    this.launchGroup.position.y = this.originalTransform ? this.originalTransform.pos.y + y : y;
+    // Pitch slightly forward (around X). Keep Y/Z from original.
+    this.launchGroup.rotation.set(
+      (this.originalTransform ? this.originalTransform.rot.x : 0) + tiltRad,
+      this.originalTransform ? this.originalTransform.rot.y : 0,
+      this.originalTransform ? this.originalTransform.rot.z : 0
+    );
+
+    if (u >= 1) {
+      // Done: hide and cut engines
+      this.launchActive = false;
+      this.launchGroup.visible = false;
+      this.instanced.setIgnition(false);
+    }
+  }
+
+  /* ---------------- Reset ---------------- */
   makeResetButton(){
     const btn = document.createElement('button');
     btn.id = 'reset-launch-btn';
@@ -135,89 +203,64 @@ export class Main {
     `;
     document.body.appendChild(btn);
 
-    // place it to the right of the Highlight button if present
     const place = () => {
       const hi = document.querySelector('#highlighter-btn, #highlight-btn');
       if (hi) {
         const r = hi.getBoundingClientRect();
         btn.style.left = `${Math.round(r.right + 10)}px`;
         btn.style.top  = `${Math.round(r.top)}px`;
-      } else {
-        btn.style.left = '20px';
-        btn.style.top  = '20px';
-      }
+      } else { btn.style.left='20px'; btn.style.top='20px'; }
     };
-    place();
-    window.addEventListener('resize', place);
+    place(); window.addEventListener('resize', place);
 
     btn.onclick = () => this.resetLaunch();
   }
 
-  captureTransform(obj) {
-    // World-space snapshot so we can restore regardless of parenting
-    const p = new THREE.Vector3();
-    const q = new THREE.Quaternion();
-    const s = new THREE.Vector3();
-    obj.updateMatrixWorld(true);
-    obj.matrixWorld.decompose(p, q, s);
-    return {
-      pos: p.clone(),
-      rot: new THREE.Euler().setFromQuaternion(q.clone()),
-      scl: s.clone()
-    };
-  }
+  resetLaunch(){
+    try{
+      // stop sequence + timers
+      this.launchActive = false;
+      this.launchTimers.forEach(t=>clearTimeout(t)); this.launchTimers.length=0;
 
-  applyTransformWorld(obj, tr) {
-    // Apply world transform even if parented
-    const parent = obj.parent;
-    const parentInv = new THREE.Matrix4();
-    const m = new THREE.Matrix4();
-    const q = new THREE.Quaternion();
-
-    if (parent) {
-      parent.updateMatrixWorld(true);
-      parentInv.copy(parent.matrixWorld).invert();
-    } else {
-      parentInv.identity();
-    }
-
-    const mw = new THREE.Matrix4()
-      .compose(tr.pos, new THREE.Quaternion().setFromEuler(tr.rot), tr.scl);
-
-    m.multiplyMatrices(parentInv, mw);
-    const p = new THREE.Vector3(), s = new THREE.Vector3();
-    m.decompose(p, q, s);
-
-    obj.position.copy(p);
-    obj.quaternion.copy(q);
-    obj.scale.copy(s);
-    obj.updateMatrixWorld(true);
-  }
-
-  resetLaunch() {
-    try {
-      // 1) stop flames & any pending ignition timer
+      // flames off and pending ignition canceled inside InstancedFlames
       this.instanced?.setIgnition(false);
 
-      // 2) clear any timers you might be using for the launch sequence
-      for (const t of this._launchTimers) clearTimeout(t);
-      this._launchTimers.length = 0;
-      this._launchActive = false;
-
-      // 3) put the rocket back exactly where it started
-      const target = this.launchGroup || this.rocketModel;
-      if (target && this.originalTransform) {
-        this.applyTransformWorld(target, this.originalTransform);
+      // restore exact original transform to the whole launchGroup
+      if (this.launchGroup && this.originalTransform) {
+        this.applyWorld(this.launchGroup, this.originalTransform);
+        this.launchGroup.visible = true;
       }
 
-      // 4) done — user can press IGNITE again
       this.debugger?.log('Launch reset complete.');
-    } catch (e) {
-      this.debugger?.handleError(e, 'ResetLaunch');
-    }
+    }catch(e){ this.debugger?.handleError(e,'ResetLaunch'); }
   }
 
-  // Presets (kept for completeness)
+  /* ---------------- Transform helpers (world-space safe) ---------------- */
+  captureWorld(obj){
+    const p = new THREE.Vector3(), q = new THREE.Quaternion(), s = new THREE.Vector3();
+    obj.updateMatrixWorld(true);
+    obj.matrixWorld.decompose(p,q,s);
+    return { pos:p.clone(), rot:new THREE.Euler().setFromQuaternion(q), scl:s.clone() };
+  }
+  applyWorld(obj, tr){
+    // parent-aware application
+    const parent = obj.parent;
+    const parentInv = new THREE.Matrix4();
+    if (parent) { parent.updateMatrixWorld(true); parentInv.copy(parent.matrixWorld).invert(); }
+    else parentInv.identity();
+
+    const mw = new THREE.Matrix4().compose(
+      tr.pos, new THREE.Quaternion().setFromEuler(tr.rot), tr.scl
+    );
+    const mLocal = new THREE.Matrix4().multiplyMatrices(parentInv, mw);
+
+    const p = new THREE.Vector3(), q = new THREE.Quaternion(), s = new THREE.Vector3();
+    mLocal.decompose(p,q,s);
+    obj.position.copy(p); obj.quaternion.copy(q); obj.scale.copy(s);
+    obj.updateMatrixWorld(true);
+  }
+
+  /* ---------------- Presets (kept) ---------------- */
   applyDayPreset() {
     this.ambientLight.color.setHex(0xffffff);
     this.ambientLight.intensity = 0.45;
@@ -239,7 +282,6 @@ export class Main {
       mat.uniforms.exponent.value = 0.45;
     }
   }
-
   applyDuskPreset() {
     this.ambientLight.color.setHex(0x243760);
     this.ambientLight.intensity = 0.28;
@@ -262,14 +304,18 @@ export class Main {
     }
   }
 
+  /* ---------------- Main loop ---------------- */
   start(){ this.animate(); }
   animate(){
     requestAnimationFrame(()=>this.animate());
-    const dt = this.clock.getDelta(), t = this.clock.elapsedTime;
+    const dt = this.clock.getDelta(), now = this.clock.getElapsedTime();
     if (dt>0) this.updatePlayer(dt);
 
-    // forward ticks to FX
-    for (const fx of this.effects) fx.update?.(dt, t, this.camera);
+    // Launch motion
+    this.updateLaunch(dt, now);
+
+    // FX updates
+    for (const fx of this.effects) fx.update?.(dt, now, this.camera);
 
     if (this.highlighter?.update) this.highlighter.update(dt);
     this.renderer.render(this.scene,this.camera);
