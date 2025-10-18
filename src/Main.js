@@ -12,10 +12,12 @@ import { HighlighterUI }  from './ui/Highlighter.js';
 import { worldObjects }   from './world/Mapping.js';
 import { loadModel }      from './ModelLoading.js';
 
-// Instanced flames only
 import { InstancedFlames }   from './effects/InstancedFlames.js';
 import { bakedFlameOffsets } from './world/BakedFlames.js';
 import { cloneDefaults }     from './effects/FlameDefaults.js';
+
+// NEW: plume lighting rig
+import { RocketLightRig }    from './effects/RocketLightRig.js';
 
 export class Main {
   constructor(debuggerInstance) {
@@ -41,6 +43,7 @@ export class Main {
 
     this.effects = [];
     this.instanced = null;
+    this.plumeRig = null;
 
     this.fixedFX = []; this.activeFixedIndex = -1;
 
@@ -91,20 +94,29 @@ export class Main {
         if (obj.name === 'SuperHeavy') {
           this.rocketModel = model;
 
-          // Instanced flames ONLY — pass camera + ignite/cutoff SFX so sound works
+          // Instanced flames ONLY — with ignite SFX
           this.instanced = new InstancedFlames(
             this.rocketModel,
             bakedFlameOffsets,
             cloneDefaults(),
             this.camera,
             {
-              ignite: 'src/assets/RocketIgnition.wav',
-              // Provide a cutoff file if you add one later, else this is optional:
-              // cutoff: 'src/assets/RocketCutoff.wav'
+              ignite: 'src/assets/RocketIgnition.wav'
+              // cutoff: 'src/assets/RocketCutoff.wav' // optional if you add one
             }
           );
           this.instanced.setIgnition(false);
           this.effects.push(this.instanced);
+
+          // NEW: plume lighting rig (follows instance offsets & params)
+          this.plumeRig = new RocketLightRig({
+            parent: this.rocketModel.parent || this.rocketModel,
+            rocketRoot: this.rocketModel,
+            offsets: bakedFlameOffsets,
+            getParams: () => (this.instanced ? this.instanced.params : cloneDefaults())
+          });
+          this.scene.add(this.plumeRig.group);
+          this.effects.push(this.plumeRig);
 
           this.enginePanel.setReady(true);
         }
