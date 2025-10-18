@@ -2,47 +2,61 @@
 import * as THREE from 'three';
 
 export function createTerrain(opts = {}) {
-  // Selection / center tile
+  // Selection passed from Highlighter (expects 4 corner tiles making a rectangle)
   const selection = opts.selection || (typeof window !== 'undefined' ? window.EXCAVATION_SELECTION : null) || {};
   const tileSize  = typeof selection.tileSize === 'number' ? selection.tileSize : 1;
-  const center    = (Array.isArray(selection.tiles) && selection.tiles[0]) || { i: 0, j: 0 };
-  const ci = Number.isFinite(center.i) ? center.i : 0;
-  const cj = Number.isFinite(center.j) ? center.j : 0;
-
-  // 30×30 area “around” the center
-  const halfMinus = 15;
-  const halfPlus  = 14;
-  const minI = ci - halfMinus, maxI = ci + halfPlus;
-  const minJ = cj - halfMinus, maxJ = cj + halfPlus;
+  const tiles     = Array.isArray(selection.tiles) ? selection.tiles : [];
 
   // World grid 100×100 centered on origin  ⇒ i,j in [-50..49]
   const GRID = 100;
   const HALF = GRID / 2;
 
-  const group = new THREE.Group();
-  group.name = 'terrain_root';
+  // --- Derive rectangle bounds from the provided tiles (corners) ---
+  // Fallback: if not provided, default to a safe 10×10 around (0,0)
+  let minI, maxI, minJ, maxJ;
+  if (tiles.length >= 1) {
+    minI = Math.min(...tiles.map(t => +t.i));
+    maxI = Math.max(...tiles.map(t => +t.i));
+    minJ = Math.min(...tiles.map(t => +t.j));
+    maxJ = Math.max(...tiles.map(t => +t.j));
+  } else {
+    minI = -5; maxI = 4;
+    minJ = -5; maxJ = 4;
+  }
 
-  // Materials
-  const concreteMat = makeConcreteMaterial();        // level 0 (outside pit)
-  const metalMat    = makeProceduralMetalMaterial(); // pit floor + walls
-
-  // Common dims
-  const depth        = 15;                 // pit depth
-  const epsilon      = 0.02;               // small overlaps to hide seams
-  const groundThick  = 0.05;               // thin box as ground slab (no z-fight)
-  const floorThick   = 0.08;
+  // Clamp to world limits
+  minI = Math.max(minI, -HALF);
+  maxI = Math.min(maxI,  HALF - 1);
+  minJ = Math.max(minJ, -HALF);
+  maxJ = Math.min(maxJ,  HALF - 1);
 
   // Span in world units for the pit
-  const pitSpanX = (maxI - minI + 1) * tileSize;
-  const pitSpanZ = (maxJ - minJ + 1) * tileSize;
+  const pitTilesX = (maxI - minI + 1);
+  const pitTilesZ = (maxJ - minJ + 1);
+  const pitSpanX  = pitTilesX * tileSize;
+  const pitSpanZ  = pitTilesZ * tileSize;
 
   // World extents (full board)
   const worldSpanX = GRID * tileSize;
   const worldSpanZ = GRID * tileSize;
 
-  // Convert i,j to world center positions
+  // Convert i,j to world center positions (center of the rectangle)
   const pitCenterX = (minI + maxI + 1) * 0.5 * tileSize;
   const pitCenterZ = (minJ + maxJ + 1) * 0.5 * tileSize;
+
+  // Group root
+  const group = new THREE.Group();
+  group.name = 'terrain_root';
+
+  // Materials
+  const concreteMat = makeConcreteMaterial();        // outside pit
+  const metalMat    = makeProceduralMetalMaterial(); // pit floor + walls
+
+  // Common dims
+  const depth        = 15;      // pit depth (your requirement: -15m)
+  const epsilon      = 0.02;    // small overlaps to hide seams
+  const groundThick  = 0.05;    // thin slab to avoid z-fighting
+  const floorThick   = 0.08;
 
   // ---------- Ground at level 0 (four frame slabs around the pit) ----------
   // Left strip
@@ -141,6 +155,17 @@ export function createTerrain(opts = {}) {
     ((maxI + 1) * tileSize) + (wallThickness * 0.5) - epsilon, wallYCenter - (floorThick * 0.5), pitCenterZ,
     metalMat, Math.PI / 2, 'pit_wall_right'
   ));
+
+  // ---------- Bookkeeping: list all tiles inside the pit (inclusive) ----------
+  // Helpful for debugging/exports; NOT used for rendering
+  const selectedTiles = [];
+  for (let i = minI; i <= maxI; i++) {
+    for (let j = minJ; j <= maxJ; j++) {
+      selectedTiles.push({ i, j });
+    }
+  }
+  group.userData.selectedTiles = selectedTiles;
+  group.userData.selectionBounds = { minI, maxI, minJ, maxJ, tileSize, depth };
 
   return group;
 }
