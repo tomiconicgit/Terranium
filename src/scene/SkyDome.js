@@ -2,7 +2,7 @@
 import * as THREE from 'three';
 
 export function createSkyDome() {
-  const geometry = new THREE.SphereGeometry(1400, 40, 20);
+  const geometry = new THREE.SphereGeometry(10000, 80, 40);
 
   const vertexShader = `
     varying vec3 vWorldPosition;
@@ -31,7 +31,7 @@ export function createSkyDome() {
   const uniforms = {
     topColor:    { value: new THREE.Color(0x4fa8ff) },
     bottomColor: { value: new THREE.Color(0xdfeaff) },
-    offset:      { value: 20.0 },
+    offset:      { value: 30.0 },
     exponent:    { value: 0.45 }
   };
 
@@ -39,10 +39,11 @@ export function createSkyDome() {
     vertexShader,
     fragmentShader,
     uniforms,
-    side: THREE.BackSide
+    side: THREE.BackSide,
+    depthWrite: false
   });
 
   const skyDome = new THREE.Mesh(geometry, material);
-  skyDome.name = 'SkyDome_Midday';
+  skyDome.name = 'SkyDome_10km';
   return skyDome;
 }
