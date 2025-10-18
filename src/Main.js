@@ -47,15 +47,23 @@ export class Main {
     this.instanced = null;
     this.rocketModel = null;
 
-    // Launch rig
-    this.launchGroup = null;          // parent of rocket + flames
-    this.originalTransform = null;    // world-space snapshot of launchGroup
+    // ---------- Launch rig ----------
+    this.launchGroup = null;          // parent that moves rocket + flames together
+    this.originalTransform = null;    // world-space snapshot for reset
     this.launchTimers = [];
     this.launchActive = false;
-    this.liftoffTime = 0;             // seconds (clock time when lift starts)
-    this.disappearAfter = 48.0;       // seconds after liftoff
-    this.ascentHeight = 2000;         // world units to climb before hiding
-    this.maxTiltDeg = 5.0;            // gentle pitch during ascent
+    this.liftoffTime = 0;
+
+    // Timing (seconds, per your instructions)
+    this.IGNITION_DELAY = 2.8;        // handled visually in InstancedFlames too
+    this.HOLD_AFTER_IGNITION = 5.0;   // wait this long, then start moving up
+    this.TILT_START = 20.0;           // seconds after liftoff tilt begins
+    this.DISAPPEAR_AT = 48.0;         // seconds after liftoff hide rocket/flames
+
+    // Motion tuning
+    this.ascentHeight = 2000;         // world units climbed by 48s
+    this.maxTiltDeg = 5.0;            // gentle pitch
+    this.tiltRampSeconds = 8.0;       // how long to ramp in tilt after TILT_START
 
     this.clock = new THREE.Clock(); this.frameCount = 0;
 
@@ -78,7 +86,7 @@ export class Main {
     this.importModelUI = new ImportModelUI(this.scene,(m)=>{ this.modelSliders.setActiveModel(m); },this.debugger);
     this.modelSliders = new ModelSlidersUI(this.debugger);
 
-    // Wrap ignition so we can arm/cancel the launch sequence reliably
+    // Wrap ignition to arm/cancel launch with your exact schedule
     this.enginePanel = new EnginePanelUI({
       get: () => (this.instanced ? { ...this.instanced.params } : cloneDefaults()),
       set: (patch) => { if (this.instanced) this.instanced.setParams(patch); },
@@ -94,27 +102,24 @@ export class Main {
     this.debugger?.log(`Loading ${worldObjects.length} static models from Mapping.js...`);
     worldObjects.forEach(obj=>{
       loadModel(obj.path,(model)=>{
-        // Add a dedicated launch group that will be moved/tilted.
+        // Launch group to move stack
         if (!this.launchGroup) {
           this.launchGroup = new THREE.Group();
           this.launchGroup.name = 'LaunchGroup';
           this.scene.add(this.launchGroup);
         }
-        // Place model in scene first
+        // Place model then preserve world transform while reparenting
         model.position.set(obj.position.x,obj.position.y,obj.position.z);
         model.scale.set(obj.scale.x,obj.scale.y,obj.scale.z);
         model.rotation.set(obj.rotation.x,obj.rotation.y,obj.rotation.z);
         this.scene.add(model);
-
-        // Reparent into launchGroup while preserving world transform
-        this.launchGroup.attach(model);
-
+        this.launchGroup.attach(model); // keeps world pose
         this.debugger?.log(`Loaded static model: ${obj.name}`);
 
         if (obj.name === 'SuperHeavy') {
           this.rocketModel = model;
 
-          // Instanced flames attach to (rocketRoot.parent || rocketRoot) -> our launchGroup
+          // Instanced flames attach to same parent as rocket (our launchGroup)
           this.instanced = new InstancedFlames(
             this.rocketModel,
             bakedFlameOffsets,
@@ -125,7 +130,7 @@ export class Main {
           this.instanced.setIgnition(false);
           this.effects.push(this.instanced);
 
-          // Capture the group's original world transform (so reset is exact)
+          // Save base transform for reset
           this.originalTransform = this.captureWorld(this.launchGroup);
 
           this.enginePanel.setReady(true);
@@ -139,52 +144,63 @@ export class Main {
     if (!this.instanced) return;
     this.instanced.setIgnition(on);
 
-    // Clear any previous schedule
+    // Clear any pending sequence timers
     this.launchTimers.forEach(t=>clearTimeout(t)); this.launchTimers.length=0;
 
     if (on) {
-      // Ensure launch group visible & at base before re-arming
+      // Restore to ground before each new sequence
       if (this.originalTransform) this.applyWorld(this.launchGroup, this.originalTransform);
       this.launchGroup.visible = true;
 
-      // Arm sequence: after 2.8s flames appear; +5s = liftoff
-      const liftoffDelayMs = 2800 + 5000;
+      // Flames visually appear after ~2.8s; we start liftoff 5s later.
+      const liftoffDelayMs = (this.IGNITION_DELAY + this.HOLD_AFTER_IGNITION) * 1000;
       this.launchTimers.push(setTimeout(()=>{
         this.launchActive = true;
         this.liftoffTime = this.clock.getElapsedTime(); // seconds
       }, liftoffDelayMs));
     } else {
-      // Cancel in-flight motion
-      this.launchActive = false;
+      this.launchActive = false; // stop motion if user turns engines off
     }
   }
 
   updateLaunch(dt, nowSec){
     if (!this.launchActive || !this.launchGroup) return;
 
-    const t = Math.max(0, nowSec - this.liftoffTime);       // seconds since liftoff
-    const u = Math.min(1, t / this.disappearAfter);         // 0..1 over the ascent window
+    // Time since liftoff (not since ignition)
+    const t = Math.max(0, nowSec - this.liftoffTime);
 
-    // Ease-in height (cubic for gentle start)
-    const easeInCubic = (x)=> x*x*x;
-    const y = easeInCubic(u) * this.ascentHeight;
+    // Normalized progress of the whole ascent (0..1 over DISAPPEAR_AT)
+    const u = Math.min(1, t / this.DISAPPEAR_AT);
 
-    // Small tilt over first ~12s, then hold
-    const tiltU = Math.min(1, t / 12);
-    const easeInOut = (x)=> 0.5 - 0.5*Math.cos(Math.PI*x);
-    const tiltRad = THREE.MathUtils.degToRad(this.maxTiltDeg) * easeInOut(tiltU);
+    // Vertical motion: slow start then accelerating (ease-in cubic)
+    const easeInCubic = x => x * x * x;
+    const yOffset = easeInCubic(u) * this.ascentHeight;
 
-    // Apply to launchGroup
-    this.launchGroup.position.y = this.originalTransform ? this.originalTransform.pos.y + y : y;
-    // Pitch slightly forward (around X). Keep Y/Z from original.
-    this.launchGroup.rotation.set(
-      (this.originalTransform ? this.originalTransform.rot.x : 0) + tiltRad,
-      this.originalTransform ? this.originalTransform.rot.y : 0,
-      this.originalTransform ? this.originalTransform.rot.z : 0
-    );
+    // Tilt begins only after TILT_START; ramp in over tiltRampSeconds
+    const tiltPhase = Math.max(0, t - this.TILT_START);
+    const tiltRamp = Math.min(1, tiltPhase / Math.max(0.0001, this.tiltRampSeconds));
+    const easeInOut = x => 0.5 - 0.5 * Math.cos(Math.PI * x);
+    const tiltRad = THREE.MathUtils.degToRad(this.maxTiltDeg) * easeInOut(tiltRamp);
 
-    if (u >= 1) {
-      // Done: hide and cut engines
+    // Apply to launchGroup while preserving base yaw/roll
+    if (this.originalTransform) {
+      this.launchGroup.position.set(
+        this.originalTransform.pos.x,
+        this.originalTransform.pos.y + yOffset,
+        this.originalTransform.pos.z
+      );
+      this.launchGroup.rotation.set(
+        this.originalTransform.rot.x + tiltRad, // pitch forward
+        this.originalTransform.rot.y,
+        this.originalTransform.rot.z
+      );
+    } else {
+      this.launchGroup.position.y = yOffset;
+      this.launchGroup.rotation.x = tiltRad;
+    }
+
+    // Disappear exactly DISAPPEAR_AT seconds after liftoff
+    if (t >= this.DISAPPEAR_AT) {
       this.launchActive = false;
       this.launchGroup.visible = false;
       this.instanced.setIgnition(false);
@@ -218,24 +234,19 @@ export class Main {
 
   resetLaunch(){
     try{
-      // stop sequence + timers
       this.launchActive = false;
       this.launchTimers.forEach(t=>clearTimeout(t)); this.launchTimers.length=0;
-
-      // flames off and pending ignition canceled inside InstancedFlames
       this.instanced?.setIgnition(false);
 
-      // restore exact original transform to the whole launchGroup
       if (this.launchGroup && this.originalTransform) {
         this.applyWorld(this.launchGroup, this.originalTransform);
         this.launchGroup.visible = true;
       }
-
       this.debugger?.log('Launch reset complete.');
     }catch(e){ this.debugger?.handleError(e,'ResetLaunch'); }
   }
 
-  /* ---------------- Transform helpers (world-space safe) ---------------- */
+  /* ---------------- Transform helpers ---------------- */
   captureWorld(obj){
     const p = new THREE.Vector3(), q = new THREE.Quaternion(), s = new THREE.Vector3();
     obj.updateMatrixWorld(true);
@@ -243,7 +254,6 @@ export class Main {
     return { pos:p.clone(), rot:new THREE.Euler().setFromQuaternion(q), scl:s.clone() };
   }
   applyWorld(obj, tr){
-    // parent-aware application
     const parent = obj.parent;
     const parentInv = new THREE.Matrix4();
     if (parent) { parent.updateMatrixWorld(true); parentInv.copy(parent.matrixWorld).invert(); }
@@ -311,7 +321,7 @@ export class Main {
     const dt = this.clock.getDelta(), now = this.clock.getElapsedTime();
     if (dt>0) this.updatePlayer(dt);
 
-    // Launch motion
+    // Launch motion (uses liftoff-relative timeline)
     this.updateLaunch(dt, now);
 
     // FX updates
