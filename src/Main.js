@@ -11,10 +11,11 @@ import { EnginePanelUI }  from './ui/EnginePanel.js';
 import { HighlighterUI }  from './ui/Highlighter.js';
 import { worldObjects }   from './world/Mapping.js';
 import { loadModel }      from './ModelLoading.js';
-import { EngineFX }       from './effects/EngineFX.js';
-import { InstancedFlames } from './effects/InstancedFlames.js';
+
+// Instanced flames only
+import { InstancedFlames }   from './effects/InstancedFlames.js';
 import { bakedFlameOffsets } from './world/BakedFlames.js';
-import { cloneDefaults } from './effects/FlameDefaults.js';
+import { cloneDefaults }     from './effects/FlameDefaults.js';
 
 export class Main {
   constructor(debuggerInstance) {
@@ -39,16 +40,17 @@ export class Main {
     this.raycaster = new THREE.Raycaster(); this.rayDown = new THREE.Vector3(0, -1, 0);
 
     this.effects = [];
-    this.fx = null;
     this.instanced = null;
+
+    // Fixed flames system depended on EngineFX (editable) – leaving disabled
     this.fixedFX = []; this.activeFixedIndex = -1;
 
-    this.flameMoveMode = false;
+    this.flameMoveMode = false; // (moving cones feature was for EngineFX)
     this._dragActive = false;
     this._dragStart = { x: 0, y: 0 };
     this._dragBase  = { x: 0, z: 0 };
     this._dragTarget = null;
-    this._bindMoveHandlers();
+    // No bind move handlers since we removed EngineFX pick targets
 
     this.clock = new THREE.Clock(); this.frameCount = 0;
 
@@ -66,72 +68,25 @@ export class Main {
     this.modelSliders = new ModelSlidersUI(this.debugger);
 
     this.enginePanel = new EnginePanelUI({
-      get: () => (this.fx ? this.fx.getParams() : cloneDefaults()),
-      set: (patch) => {
-        if (this.fx) this.fx.setParams(patch);
-        if (this.instanced) this.instanced.setParams(patch);
-      },
-      setIgnition: (on) => {
-        if (this.fx) this.fx.setIgnition(on);
-        if (this.instanced) this.instanced.setIgnition(on);
-        for (const f of this.fixedFX) f.setIgnition(on);
-      },
-      getIgnition: () => (this.fx ? this.fx.getIgnition() : false),
+      // With only instanced flames, the panel proxies to it.
+      get: () => (this.instanced ? { ...this.instanced.params } : cloneDefaults()),
+      set: (patch) => { if (this.instanced) this.instanced.setParams(patch); },
+      setIgnition: (on) => { if (this.instanced) this.instanced.setIgnition(on); },
+      getIgnition: () => (this.instanced ? !!this.instanced.params.enginesOn : false),
+
       onPanelOpen: () => { this.controlsPaused = true; this.controls.setPaused(true); },
       onPanelClose: () => { this.controlsPaused = false; this.controls.setPaused(false); this.setMoveMode(false); },
-      placeFlame: () => this.placeFixedFlame(),
-      setMoveMode: (on) => this.setMoveMode(on),
-      selectFixed: (idx) => this.setActiveFixed(idx),
-      getFixedList: () => this.getFixedList(),
-      copyFixedJSON: () => JSON.stringify(this.getFixedList(), null, 2),
+
+      // Fixed flames / move were for EngineFX – keep no-ops so UI won’t break
+      placeFlame: () => -1,
+      setMoveMode: (_on) => {},
+      selectFixed: (_idx) => false,
+      getFixedList: () => [],
+      copyFixedJSON: () => '[]',
     }, this.debugger);
   }
 
-  placeFixedFlame(){
-    if (!this.fx || !this.rocketModel) return -1;
-    const p = this.fx.getParams();
-    const f = new EngineFX(this.rocketModel, this.scene, this.camera);
-    f.setParams(p); f.setIgnition(false);
-    this.fixedFX.push(f); this.effects.push(f);
-    this.activeFixedIndex = this.fixedFX.length - 1;
-    return this.activeFixedIndex;
-  }
-  
-  setActiveFixed(idx){ if (idx>=0 && idx<this.fixedFX.length){ this.activeFixedIndex=idx; return true; } this.activeFixedIndex=-1; return false; }
-  
-  getFixedList(){ return this.fixedFX.map((f,i)=>{ const p=f.getParams(); return { index:i,
-    groupOffsetX:+p.groupOffsetX.toFixed(3), groupOffsetY:+p.groupOffsetY.toFixed(3), groupOffsetZ:+p.groupOffsetZ.toFixed(3) }; }); }
-  
-  setMoveMode(on){ this.flameMoveMode=!!on; if (!on){ this._dragActive=false; this._dragTarget=null; } }
-
-  _clientToNDC(x,y){ const rect=this.canvas.getBoundingClientRect(); return { x:((x-rect.left)/rect.width)*2-1, y:-((y-rect.top)/rect.height)*2+1 }; }
-  
-  _pickFlameAt(x,y){
-    const targets = [];
-    if (this.fx) targets.push(...this.fx.getRaycastTargets());
-    for (const f of this.fixedFX) targets.push(...f.getRaycastTargets());
-    if (!targets.length) return null;
-    const ndc=this._clientToNDC(x,y); this.raycaster.setFromCamera(ndc,this.camera);
-    const hits=this.raycaster.intersectObjects(targets,true);
-    if (!hits.length) return null;
-    return hits[0].object.userData.__engineFX || null;
-  }
-  
-  _bindMoveHandlers(){
-    const start=(x,y)=>{ if(!this.flameMoveMode) return; const fx=this._pickFlameAt(x,y); if(!fx) return;
-      this._dragTarget=fx; this._dragActive=true; this._dragStart.x=x; this._dragStart.y=y;
-      const p=fx.getParams(); this._dragBase.x=p.groupOffsetX; this._dragBase.z=p.groupOffsetZ; };
-    const move=(x,y,e)=>{ if(!this._dragActive||!this._dragTarget) return; if(e) e.preventDefault();
-      const dx=x-this._dragStart.x, dy=y-this._dragStart.y, SCALE=0.03;
-      this._dragTarget.setParams({ groupOffsetX:this._dragBase.x+dx*SCALE, groupOffsetZ:this._dragBase.z+dy*SCALE }); };
-    const end=()=>{ this._dragActive=false; this._dragTarget=null; };
-    this.canvas.addEventListener('pointerdown',e=>start(e.clientX,e.clientY),{passive:true});
-    this.canvas.addEventListener('pointermove',e=>move(e.clientX,e.clientY,e),{passive:false});
-    window.addEventListener('pointerup',end,{passive:true});
-    this.canvas.addEventListener('touchstart',e=>{const t=e.changedTouches[0]; if(!t) return; start(t.clientX,t.clientY);},{passive:true});
-    this.canvas.addEventListener('touchmove',e=>{const t=e.changedTouches[0]; if(!t) return; move(t.clientX,t.clientY,e);},{passive:false});
-    window.addEventListener('touchend',end,{passive:true}); window.addEventListener('touchcancel',end,{passive:true});
-  }
+  setMoveMode(on){ this.flameMoveMode=!!on; this._dragActive=false; this._dragTarget=null; }
 
   loadStaticModels(){
     this.debugger?.log(`Loading ${worldObjects.length} static models from Mapping.js...`);
@@ -145,15 +100,13 @@ export class Main {
 
         if (obj.name === 'SuperHeavy') {
           this.rocketModel = model;
-          
-          // Editable flame from centralized defaults
-          this.fx = new EngineFX(this.rocketModel, this.scene, this.camera);
-          this.fx.setParams(cloneDefaults());
-          this.fx.setIgnition(false);
-          this.effects.push(this.fx);
 
-          // Instanced flames mirror the same design
-          this.instanced = new InstancedFlames(this.rocketModel, bakedFlameOffsets, this.fx.getParams());
+          // Instanced flames only – seeded with centralized defaults
+          this.instanced = new InstancedFlames(
+            this.rocketModel,
+            bakedFlameOffsets,
+            cloneDefaults()
+          );
           this.instanced.setIgnition(false);
           this.effects.push(this.instanced);
 
@@ -177,11 +130,16 @@ export class Main {
   updatePlayer(deltaTime){
     if (this.controlsPaused) return;
     const moveSpeed = 5.0*deltaTime, mv=this.controls.moveVector, lv=this.controls.lookVector;
-    if (lv.length()>0){ this.camera.rotation.y -= lv.x*this.lookSpeed; this.camera.rotation.x -= lv.y*this.lookSpeed;
+    if (lv.length()>0){
+      this.camera.rotation.y -= lv.x*this.lookSpeed;
+      this.camera.rotation.x -= lv.y*this.lookSpeed;
       this.camera.rotation.x = Math.max(-Math.PI/2, Math.min(Math.PI/2, this.camera.rotation.x));
-      this.controls.lookVector.set(0,0); }
+      this.controls.lookVector.set(0,0);
+    }
     this.playerVelocity.z = mv.y*moveSpeed; this.playerVelocity.x = mv.x*moveSpeed;
     this.camera.translateX(this.playerVelocity.x); this.camera.translateZ(this.playerVelocity.z);
+
+    // Keep camera on terrain
     const rayOrigin = new THREE.Vector3(this.camera.position.x,80,this.camera.position.z);
     this.raycaster.set(rayOrigin,this.rayDown);
     const terrainMeshes=[]; this.terrain.traverse(o=>{ if (o.isMesh) terrainMeshes.push(o); });
@@ -189,6 +147,17 @@ export class Main {
     if (hits.length>0) this.camera.position.y = hits[0].point.y + this.playerHeight;
   }
 
-  onWindowResize(){ this.camera.aspect = window.innerWidth/window.innerHeight; this.camera.updateProjectionMatrix(); this.renderer.setSize(window.innerWidth,window.innerHeight); }
-  initPerformanceMonitor(){ setInterval(()=>{ if (this.frameCount>0 && this.frameCount<30) this.debugger?.warn(`Low framerate detected: ${this.frameCount} FPS`,'Performance'); this.frameCount=0; },1000); }
+  onWindowResize(){
+    this.camera.aspect = window.innerWidth/window.innerHeight;
+    this.camera.updateProjectionMatrix();
+    this.renderer.setSize(window.innerWidth,window.innerHeight);
+  }
+
+  initPerformanceMonitor(){
+    setInterval(()=>{
+      if (this.frameCount>0 && this.frameCount<30)
+        this.debugger?.warn(`Low framerate detected: ${this.frameCount} FPS`,'Performance');
+      this.frameCount=0;
+    },1000);
+  }
 }
