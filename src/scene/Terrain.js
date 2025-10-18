@@ -2,16 +2,9 @@
 import * as THREE from 'three';
 
 /**
- * Usage:
- *  createTerrain({
- *    selection: {
- *      tileSize: 1,
- *      tiles: [{ i: 15, j: -1, y: 0 }] // the REFERENCE tile
- *    }
- *  })
- *
- * This will make a 40×40 tile area centered on (15,-1) a metal pit at -15m.
- * Everything outside that area is flat concrete at y=0.
+ * Builds terrain with a 40×40 metal pit (floor at -15) centered on a reference tile.
+ * New: optional edge-snap – if an edge is at i=20, move that edge to i=40 (shift entire pit).
+ * You can also force it via selection.snapEdgeI = { from: 20, to: 40 }.
  */
 export function createTerrain(opts = {}) {
   const selection = opts.selection || (typeof window !== 'undefined' ? window.EXCAVATION_SELECTION : null) || {};
@@ -27,23 +20,48 @@ export function createTerrain(opts = {}) {
   const GRID = 100;
   const HALF = GRID / 2;
 
-  // === CONFIG: size of the metal area (in tiles) ===
+  // === CONFIG: pit size in tiles ===
   const PIT_TILES_X = 40;
   const PIT_TILES_Z = 40;
 
-  // For even sizes, “centered on a tile” means offsets are asymmetric by 1:
-  // we take 19 tiles to the negative side and 20 tiles to the positive side
-  // (19 + 1 + 20 = 40).
+  // For even sizes (40), make the pit centered on the reference tile:
+  // 19 tiles to the negative side, 20 to the positive side (19 + 1 + 20 = 40).
   const NEG_X = Math.floor((PIT_TILES_X - 1) / 2); // 19
   const POS_X = PIT_TILES_X - 1 - NEG_X;           // 20
   const NEG_Z = Math.floor((PIT_TILES_Z - 1) / 2); // 19
   const POS_Z = PIT_TILES_Z - 1 - NEG_Z;           // 20
 
-  // Inclusive bounds in tile coords
+  // Inclusive bounds in tile coords (centered)
   let minI = ci - NEG_X;
   let maxI = ci + POS_X;
   let minJ = cj - NEG_Z;
   let maxJ = cj + POS_Z;
+
+  // --- Edge-snap: move the pit horizontally so the edge at i=20 snaps to i=40 ---
+  // Auto mode: only if an edge is exactly 20
+  let appliedSnap = null;
+  const wantSnap = selection.snapEdgeI || null; // optional override { from: 20, to: 40 }
+
+  const trySnap = (fromI, toI) => {
+    if (!Number.isFinite(fromI) || !Number.isFinite(toI)) return false;
+    let doShift = false;
+    if (minI === fromI || maxI === fromI) doShift = true;
+    if (wantSnap) doShift = true; // explicit override forces a shift
+    if (!doShift) return false;
+    const di = toI - fromI;
+    minI += di; maxI += di;
+    appliedSnap = { fromI, toI, di };
+    return true;
+  };
+
+  if (wantSnap) {
+    trySnap(+wantSnap.from, +wantSnap.to);
+  } else {
+    // automatic: only if an edge is exactly 20
+    if (!(trySnap(20, 40))) {
+      // no-op if neither edge is exactly 20
+    }
+  }
 
   // Clamp to world bounds
   minI = Math.max(minI, -HALF);
@@ -132,7 +150,7 @@ export function createTerrain(opts = {}) {
     group.add(m);
   }
 
-  // ---------- Metal perimeter walls (outline of the 40×40) ----------
+  // ---------- Metal perimeter walls (outline of the rectangle) ----------
   const wallHeight    = depth + groundThick + epsilon; // slightly pokes into ground slab
   const wallThickness = Math.max(0.2 * tileSize, 0.1);
   const wallYCenter   = -depth * 0.5;                  // roughly centred between 0 and -15
@@ -144,7 +162,6 @@ export function createTerrain(opts = {}) {
     (minJ * tileSize) - (wallThickness * 0.5) + epsilon,
     metalMat, 0, 'pit_wall_front'
   ));
-
   // +Z edge (back)
   group.add(makeWall(
     pitSpanX + wallThickness, wallHeight, wallThickness,
@@ -152,7 +169,6 @@ export function createTerrain(opts = {}) {
     ((maxJ + 1) * tileSize) + (wallThickness * 0.5) - epsilon,
     metalMat, 0, 'pit_wall_back'
   ));
-
   // -X edge (left)
   group.add(makeWall(
     pitSpanZ + wallThickness, wallHeight, wallThickness,
@@ -161,7 +177,6 @@ export function createTerrain(opts = {}) {
     pitCenterZ,
     metalMat, Math.PI / 2, 'pit_wall_left'
   ));
-
   // +X edge (right)
   group.add(makeWall(
     pitSpanZ + wallThickness, wallHeight, wallThickness,
@@ -185,6 +200,7 @@ export function createTerrain(opts = {}) {
     widthTiles: pitTilesX,
     heightTiles: pitTilesZ,
     bounds: { minI, maxI, minJ, maxJ },
+    appliedSnap, // {fromI,toI,di} if a snap/shift was applied
     interiorTiles
   };
 
@@ -235,7 +251,7 @@ function makeConcreteMaterial() {
       float b = hash(i + vec2(1.0, 0.0));
       float c = hash(i + vec2(0.0, 1.0));
       float d = hash(i + vec2(1.0, 1.0));
-      vec2 u = f * f * (3.0 - 2.0 * f);
+      vec2 u = f * f * (3.0 - 2.0 f);
       return mix(a, b, u.x) + (c - a) * u.y * (1.0 - u.x) + (d - b) * u.x * u.y;
     }
 
@@ -244,8 +260,8 @@ function makeConcreteMaterial() {
       float n2 = noise(vUv * 8.0);
       float speck = step(0.97, fract(n2 * 7.0 + n));
       vec3 base = mix(uColorA, uColorB, n);
-      base *= (1.0 - 0.05 * speck);                 // tiny dark speckles
-      base *= 0.95 + 0.05 * noise(vUv * 0.5);       // subtle AO-ish
+      base *= (1.0 - 0.05 * speck);
+      base *= 0.95 + 0.05 * noise(vUv * 0.5);
       gl_FragColor = vec4(base, 1.0);
     }
   `;
@@ -256,7 +272,7 @@ function makeConcreteMaterial() {
     fragmentShader: fragment,
     lights: false
   });
-  mat.polygonOffset = true; // fight z-fighting on rim
+  mat.polygonOffset = true;
   mat.polygonOffsetFactor = 1;
   mat.polygonOffsetUnits = 1;
   return mat;
@@ -281,11 +297,9 @@ function makeMetalCanvasTexture(size = 256) {
   canvas.width = canvas.height = size;
   const ctx = canvas.getContext('2d');
 
-  // Base steel tone
   ctx.fillStyle = '#b3b6bb';
   ctx.fillRect(0, 0, size, size);
 
-  // Brushed noise streaks
   for (let y = 0; y < size; y++) {
     const a = 0.06 + Math.random() * 0.08;
     ctx.fillStyle = `rgba(255,255,255,${a})`;
@@ -294,7 +308,6 @@ function makeMetalCanvasTexture(size = 256) {
     ctx.fillRect(x, y, len, 1);
   }
 
-  // Subtle plate seams
   ctx.strokeStyle = 'rgba(0,0,0,0.12)';
   ctx.lineWidth = 1;
   const cells = 8;
