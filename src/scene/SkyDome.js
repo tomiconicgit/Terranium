@@ -4,7 +4,7 @@ import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.163.0/build/three.m
 export function createSkyDome() {
   const geometry = new THREE.SphereGeometry(1400, 40, 20);
 
-  // Gradient sky with a warm horizon band and deep blue top
+  // Simple gradient sky (midday): bright top-blue, pale horizon
   const vertexShader = `
     varying vec3 vWorldPosition;
     void main(){
@@ -16,7 +16,6 @@ export function createSkyDome() {
 
   const fragmentShader = `
     uniform vec3 topColor;
-    uniform vec3 midColor;
     uniform vec3 bottomColor;
     uniform float offset;
     uniform float exponent;
@@ -25,32 +24,33 @@ export function createSkyDome() {
     void main(){
       // height factor
       float h = normalize(vWorldPosition + vec3(0.0, offset, 0.0)).y; // [-1..1]
+      // slightly steeper falloff for punchy noon gradient
       float t = clamp(pow(max(h, 0.0), exponent), 0.0, 1.0);
-
-      // three-stop gradient: bottom -> mid -> top
-      vec3 low  = mix(bottomColor, midColor, smoothstep(0.0, 0.35, t));
-      vec3 high = mix(midColor,     topColor, smoothstep(0.35, 1.0, t));
-      vec3 col  = mix(low, high, smoothstep(0.15, 0.85, t));
-
+      vec3 col = mix(bottomColor, topColor, t);
       gl_FragColor = vec4(col, 1.0);
     }
   `;
 
-  // DUSK palette (tuned to your photo)
+  // Midday palette
   const uniforms = {
-    topColor:    { value: new THREE.Color(0x0e203a) }, // deep navy
-    midColor:    { value: new THREE.Color(0x314a7a) }, // desaturated blue
-    bottomColor: { value: new THREE.Color(0xf2a15a) }, // warm orange horizon
-    offset:      { value: 6.0 },                       // brings the glow lower
-    exponent:    { value: 0.45 }                       // broader gradient
+    // Top sky: saturated blue (not too dark)
+    topColor:    { value: new THREE.Color(0x4fa8ff) }, // #4FA8FF
+    // Horizon: pale blue/white
+    bottomColor: { value: new THREE.Color(0xdfeaff) }, // #DFEAFF
+    // Higher offset lifts the bright band
+    offset:      { value: 20.0 },
+    // Lower exponent = stronger blend to top color for midday
+    exponent:    { value: 0.45 }
   };
 
   const material = new THREE.ShaderMaterial({
-    vertexShader, fragmentShader, uniforms,
+    vertexShader,
+    fragmentShader,
+    uniforms,
     side: THREE.BackSide
   });
 
   const skyDome = new THREE.Mesh(geometry, material);
-  skyDome.name = 'SkyDome_Dusk';
+  skyDome.name = 'SkyDome_Midday';
   return skyDome;
 }
