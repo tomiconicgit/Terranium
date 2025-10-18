@@ -1,10 +1,9 @@
 // src/scene/SkyDome.js
-import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.163.0/build/three.module.js';
+import * as THREE from 'three';
 
 export function createSkyDome() {
   const geometry = new THREE.SphereGeometry(1400, 40, 20);
 
-  // Simple gradient sky (midday): bright top-blue, pale horizon
   const vertexShader = `
     varying vec3 vWorldPosition;
     void main(){
@@ -22,24 +21,17 @@ export function createSkyDome() {
     varying vec3 vWorldPosition;
 
     void main(){
-      // height factor
-      float h = normalize(vWorldPosition + vec3(0.0, offset, 0.0)).y; // [-1..1]
-      // slightly steeper falloff for punchy noon gradient
+      float h = normalize(vWorldPosition + vec3(0.0, offset, 0.0)).y;
       float t = clamp(pow(max(h, 0.0), exponent), 0.0, 1.0);
       vec3 col = mix(bottomColor, topColor, t);
       gl_FragColor = vec4(col, 1.0);
     }
   `;
 
-  // Midday palette
   const uniforms = {
-    // Top sky: saturated blue (not too dark)
-    topColor:    { value: new THREE.Color(0x4fa8ff) }, // #4FA8FF
-    // Horizon: pale blue/white
-    bottomColor: { value: new THREE.Color(0xdfeaff) }, // #DFEAFF
-    // Higher offset lifts the bright band
+    topColor:    { value: new THREE.Color(0x4fa8ff) },
+    bottomColor: { value: new THREE.Color(0xdfeaff) },
     offset:      { value: 20.0 },
-    // Lower exponent = stronger blend to top color for midday
     exponent:    { value: 0.45 }
   };
 
