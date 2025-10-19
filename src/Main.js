@@ -47,31 +47,28 @@ export class Main {
     this.instanced = null;
     this.rocketModel = null;
 
-    // ---------- Timeline (ABSOLUTE seconds from Ignite/sound start) ----------
-    this.S_FLAME_ON  = 10.5;                 // flames + jolt + vibration start
-    this.S_LIFTOFF   = this.S_FLAME_ON + 3;  // quicker liftoff (13.5s)
-    this.S_TILT_ABS  = 45.0;                 // tilt begins at 45s (abs)
-    this.S_DISAPPEAR = 80.0;                 // rocket disappears at 80s (abs)
-
-    // ---------- Motion tuning ----------
-    this.ascentHeight = 8000;   // higher apogee before disappearing
-    this.maxTiltDeg   = 5.0;    // gentle pitch
-    this.tiltRampSeconds = 10.0;
-
-    // ---------- State for sequencing ----------
-    this.launchGroup = null;        // parent for rocket + flames
-    this.originalTransform = null;  // world-space snapshot for reset
+    // ---------- Launch rig & timings ----------
+    this.launchGroup = null;          // parent that moves rocket + flames together
+    this.originalTransform = null;    // world-space snapshot for reset
     this.launchTimers = [];
     this.launchActive = false;
 
-    // absolute time the sound/timeline started (set on Ignite)
-    this.soundStartTime = null;
+    // Absolute times (seconds) relative to "press Ignite" (sound start)
+    this.S_FLAME_ON   = 10.5;     // flames *visible* + jolt + vibration start
+    this.S_LIFTOFF    = 13.5;     // liftoff a bit quicker after flames
+    this.S_TILT_ABS   = 45.0;     // start tilt later
+    this.S_DISAPPEAR  = 80.0;     // rocket disappears 1m20s after sound start
 
-    // ---------- Camera shake ----------
-    this.shakeActive   = false;
-    this.shakeEndAbs   = Infinity;
+    // Motion tuning
+    this.ascentHeight = 6000;     // higher climb before disappear
+    this.maxTiltDeg   = 5.0;      // gentle pitch
+    this.tiltRampSeconds = 10.0;  // ramp tilt in over 10s once it begins
+
+    // Camera shake state
+    this.shakeActive = false;
     this.shakeJoltDone = false;
-    this.shakeSeed     = Math.random() * 1000;
+    this.shakeEndAbs = 0;         // absolute seconds when shake ends
+    this.soundStartTime = null;   // absolute clock reference (press Ignite)
 
     this.clock = new THREE.Clock(); this.frameCount = 0;
 
@@ -84,6 +81,7 @@ export class Main {
       });
     } catch(e){ this.debugger?.handleError(e,'HighlighterInit'); }
 
+    // Optional: small reset button (kept)
     this.makeResetButton();
 
     window.addEventListener('resize', () => this.onWindowResize(), false);
@@ -94,7 +92,7 @@ export class Main {
     this.importModelUI = new ImportModelUI(this.scene,(m)=>{ this.modelSliders.setActiveModel(m); },this.debugger);
     this.modelSliders = new ModelSlidersUI(this.debugger);
 
-    // Wrap ignition to arm the absolute timeline
+    // Wrap ignition to orchestrate full sequence
     this.enginePanel = new EnginePanelUI({
       get: () => (this.instanced ? { ...this.instanced.params } : cloneDefaults()),
       set: (patch) => { if (this.instanced) this.instanced.setParams(patch); },
@@ -116,23 +114,24 @@ export class Main {
           this.launchGroup.name = 'LaunchGroup';
           this.scene.add(this.launchGroup);
         }
+        // Place model then preserve world transform while reparenting
         model.position.set(obj.position.x,obj.position.y,obj.position.z);
         model.scale.set(obj.scale.x,obj.scale.y,obj.scale.z);
         model.rotation.set(obj.rotation.x,obj.rotation.y,obj.rotation.z);
         this.scene.add(model);
-        this.launchGroup.attach(model); // keep world pose
+        this.launchGroup.attach(model); // keeps world pose
         this.debugger?.log(`Loaded static model: ${obj.name}`);
 
         if (obj.name === 'SuperHeavy') {
           this.rocketModel = model;
 
-          // Flames attach under the same moving parent
+          // Instanced flames attach to same parent as rocket (our launchGroup)
           this.instanced = new InstancedFlames(
             this.rocketModel,
             bakedFlameOffsets,
             cloneDefaults(),
             this.camera,
-            { ignite: 'src/assets/RocketIgnition.wav' } // your upgraded audio goes here
+            { ignite: 'src/assets/RocketIgnition.wav' }
           );
           this.instanced.setIgnition(false);
           this.effects.push(this.instanced);
@@ -146,48 +145,56 @@ export class Main {
     });
   }
 
-  /* ---------------- Ignite / Timeline ---------------- */
+  /* ---------------- Launch Sequencer ---------------- */
   onIgnitionToggle(on){
     if (!this.instanced) return;
 
-    // stop previous sequence
+    // Clear any pending sequence timers
     this.launchTimers.forEach(t=>clearTimeout(t)); this.launchTimers.length=0;
     this.launchActive = false;
     this.shakeActive = false;
     this.shakeJoltDone = false;
 
     if (on) {
-      // Start absolute clock from "now"
+      // Start absolute clock from NOW (sound must start immediately)
       this.soundStartTime = this.clock.getElapsedTime();
 
-      // Reset to ground state & show
+      // >>> Play the audio immediately <<<
+      this.instanced.playIgnitionSound?.();
+
+      // Restore to ground before each new sequence
       if (this.originalTransform) this.applyWorld(this.launchGroup, this.originalTransform);
       this.launchGroup.visible = true;
 
-      // Schedule flames to appear exactly at S_FLAME_ON (respecting the 2.8s shader delay)
-      const flameLead = 2.8; // internal InstancedFlames delay
-      const tFlameCall = Math.max(0, this.S_FLAME_ON - flameLead);
-      this.launchTimers.push(setTimeout(()=> this.instanced.setIgnition(true), tFlameCall*1000));
+      // Schedule flames to APPEAR at 10.5s absolute
+      // InstancedFlames shows visuals ~2.8s AFTER setIgnition(true)
+      const internalDelay = 2.8;
+      const tCall = Math.max(0, this.S_FLAME_ON - internalDelay); // 10.5 - 2.8 = 7.7s
+      this.launchTimers.push(setTimeout(()=>{
+        this.instanced.setIgnition(true);
+      }, tCall*1000));
 
-      // Camera shake: jolt + vib start exactly at S_FLAME_ON; stop 20s into flight
-      const vibStopAtAbs = this.S_LIFTOFF + 20.0;
+      // Camera shake (starts exactly at 10.5s, ends 20s into flight => 33.5s absolute)
+      const vibStopAbs = this.S_LIFTOFF + 20.0;
       this.launchTimers.push(setTimeout(()=>{
         this.shakeActive   = true;
-        this.shakeJoltDone = false; // one-shot handled in updateCameraShake
-        this.shakeEndAbs   = vibStopAtAbs;
+        this.shakeJoltDone = false; // do one jolt on first frames
+        this.shakeEndAbs   = vibStopAbs;
       }, this.S_FLAME_ON*1000));
 
-      // Begin liftoff at S_LIFTOFF (quicker)
+      // Liftoff at 13.5s absolute
       this.launchTimers.push(setTimeout(()=>{
         this.launchActive = true;
+        this.liftoffStartAbs = this.S_LIFTOFF;
       }, this.S_LIFTOFF*1000));
 
-      // Auto-hide stack at S_DISAPPEAR (and cut flames)
+      // Disappear at 80s absolute
       this.launchTimers.push(setTimeout(()=>{
         this.launchActive = false;
         if (this.launchGroup) this.launchGroup.visible = false;
         this.instanced.setIgnition(false);
       }, this.S_DISAPPEAR*1000));
+
     } else {
       // Hard cutoff
       this.instanced.setIgnition(false);
@@ -197,50 +204,28 @@ export class Main {
     }
   }
 
-  /* ---------------- Per-frame updates ---------------- */
-  start(){ this.animate(); }
-  animate(){
-    requestAnimationFrame(()=>this.animate());
-    const dt  = this.clock.getDelta();
-    const now = this.clock.getElapsedTime();
+  updateLaunch(dt, nowSec){
+    if (!this.launchActive || !this.launchGroup) return;
 
-    if (dt>0) this.updatePlayer(dt);
+    // t since liftoff (absolute)
+    const tAbs = nowSec - (this.soundStartTime ?? 0);
+    const tSinceLiftoff = Math.max(0, tAbs - this.S_LIFTOFF);
 
-    // Camera vibration (if armed)
-    this.updateCameraShake(dt, now);
+    // Duration available for climb (liftoff -> disappear)
+    const climbDuration = Math.max(0.0001, this.S_DISAPPEAR - this.S_LIFTOFF);
+    const u = Math.min(1, tSinceLiftoff / climbDuration);
 
-    // Launch motion
-    this.updateLaunch(now);
+    // Vertical motion: faster ease and a little extra punch early-on
+    const easeOutExpo = x => (x === 1) ? 1 : 1 - Math.pow(2, -10 * x);
+    const yOffset = easeOutExpo(u) * this.ascentHeight;
 
-    // FX
-    for (const fx of this.effects) fx.update?.(dt, now, this.camera);
+    // Tilt begins at S_TILT_ABS; ramp in over tiltRampSeconds
+    const tSinceTiltStart = Math.max(0, tAbs - this.S_TILT_ABS);
+    const tiltRamp = Math.min(1, tSinceTiltStart / Math.max(0.0001, this.tiltRampSeconds));
+    const easeInOut = x => 0.5 - 0.5 * Math.cos(Math.PI * x);
+    const tiltRad = THREE.MathUtils.degToRad(this.maxTiltDeg) * easeInOut(tiltRamp);
 
-    if (this.highlighter?.update) this.highlighter.update(dt);
-    this.renderer.render(this.scene,this.camera);
-    this.frameCount++;
-  }
-
-  updateLaunch(nowSec){
-    if (!this.launchActive || !this.launchGroup || this.soundStartTime === null) return;
-
-    // Absolute timeline positions
-    const abs = nowSec - this.soundStartTime;
-
-    // Normalized ascent progress from liftoff to disappear
-    const denom = Math.max(0.001, this.S_DISAPPEAR - this.S_LIFTOFF);
-    const u = THREE.MathUtils.clamp((abs - this.S_LIFTOFF) / denom, 0, 1);
-
-    // Faster early acceleration
-    const easeFast = (x)=> Math.pow(x, 2.2); // quicker than cubic at start
-    const yOffset = easeFast(u) * this.ascentHeight;
-
-    // Tilt begins at absolute S_TILT_ABS, ramps over tiltRampSeconds
-    const tiltPhase = Math.max(0, abs - this.S_TILT_ABS);
-    const tiltRamp  = THREE.MathUtils.clamp(tiltPhase / Math.max(0.0001, this.tiltRampSeconds), 0, 1);
-    const easeInOut = (x)=> 0.5 - 0.5 * Math.cos(Math.PI * x);
-    const tiltRad   = THREE.MathUtils.degToRad(this.maxTiltDeg) * easeInOut(tiltRamp);
-
-    // Apply transform relative to original
+    // Apply to launchGroup while preserving base yaw/roll
     if (this.originalTransform) {
       this.launchGroup.position.set(
         this.originalTransform.pos.x,
@@ -248,7 +233,7 @@ export class Main {
         this.originalTransform.pos.z
       );
       this.launchGroup.rotation.set(
-        this.originalTransform.rot.x + tiltRad,
+        this.originalTransform.rot.x + tiltRad, // pitch forward
         this.originalTransform.rot.y,
         this.originalTransform.rot.z
       );
@@ -258,55 +243,37 @@ export class Main {
     }
   }
 
-  /* ---------------- Camera shake ---------------- */
-  updateCameraShake(dt, now){
-    if (!this.shakeActive || this.soundStartTime === null) return;
+  /* ---------------- Camera Shake ---------------- */
+  updateCameraShake(dt, nowSec){
+    if (!this.shakeActive) return;
 
-    const abs = now - this.soundStartTime;
+    const abs = nowSec - (this.soundStartTime ?? 0);
 
-    // End condition
+    // Stop at scheduled absolute time
     if (abs >= this.shakeEndAbs) {
       this.shakeActive = false;
-      this.camera.position.sub(this._shakeOffset ?? new THREE.Vector3());
-      this._shakeOffset = new THREE.Vector3(0,0,0);
       return;
     }
 
-    // One-shot jolt exactly at flame instant
-    if (!this.shakeJoltDone && abs >= this.S_FLAME_ON) {
-      this._shakeOffset = this._shakeOffset || new THREE.Vector3();
-      this.camera.position.sub(this._shakeOffset);
-      this._shakeOffset.set(0,0,0);
-
-      // quick impulse
-      const dir = new THREE.Vector3(
-        (Math.random()*2-1), (Math.random()*2-1)*0.5, (Math.random()*2-1)
-      ).normalize().multiplyScalar(0.25);
-      this.camera.position.add(dir);
-      this._shakeOffset.copy(dir);
+    // First few frames after start: a single strong jolt
+    if (!this.shakeJoltDone) {
       this.shakeJoltDone = true;
+      this.camera.rotation.x += THREE.MathUtils.degToRad(0.6);
+      this.camera.rotation.y += THREE.MathUtils.degToRad(0.4);
+      this.camera.position.y -= 0.03;
       return;
     }
 
-    // Gentle ongoing vibration after jolt
-    const t = abs - this.S_FLAME_ON;
-    if (t <= 0) return;
+    // Minor continuous vibration
+    const f = 35; // Hz-ish wiggle speed
+    const aRot = 0.0035;     // radians
+    const aPos = 0.015;      // meters
+    const s = Math.sin(abs * f), c = Math.cos(abs * (f * 1.37));
 
-    // remove previous frame's offset
-    this._shakeOffset = this._shakeOffset || new THREE.Vector3();
-    this.camera.position.sub(this._shakeOffset);
-
-    // low-amplitude noise
-    const amp = 0.05;               // gentle
-    const f1  = 7.0, f2 = 11.0;     // two frequencies for richness
-    const n1 = Math.sin((this.shakeSeed + t) * f1);
-    const n2 = Math.cos((this.shakeSeed*1.37 + t) * f2);
-    const xo = n1 * amp * 0.6;
-    const yo = n2 * amp * 0.4;
-    const zo = (n1+n2) * amp * 0.3;
-
-    this._shakeOffset.set(xo, yo, zo);
-    this.camera.position.add(this._shakeOffset);
+    this.camera.rotation.x += s * aRot * dt;
+    this.camera.rotation.y += c * aRot * dt;
+    this.camera.position.x += s * aPos * dt;
+    this.camera.position.y += c * aPos * dt;
   }
 
   /* ---------------- Reset ---------------- */
@@ -337,22 +304,15 @@ export class Main {
   resetLaunch(){
     try{
       this.launchActive = false;
-      this.launchTimers.forEach(t=>clearTimeout(t)); this.launchTimers.length=0;
-
-      // stop camera shake + remove any residual offset
-      if (this._shakeOffset) { this.camera.position.sub(this._shakeOffset); }
-      this._shakeOffset = new THREE.Vector3(0,0,0);
       this.shakeActive = false;
       this.shakeJoltDone = false;
-
-      // stop flames and restore base transform
+      this.launchTimers.forEach(t=>clearTimeout(t)); this.launchTimers.length=0;
       this.instanced?.setIgnition(false);
+
       if (this.launchGroup && this.originalTransform) {
         this.applyWorld(this.launchGroup, this.originalTransform);
         this.launchGroup.visible = true;
       }
-      this.soundStartTime = null;
-
       this.debugger?.log('Launch reset complete.');
     }catch(e){ this.debugger?.handleError(e,'ResetLaunch'); }
   }
@@ -381,7 +341,69 @@ export class Main {
     obj.updateMatrixWorld(true);
   }
 
-  /* ---------------- Player move/look ---------------- */
+  /* ---------------- Presets (kept) ---------------- */
+  applyDayPreset() {
+    this.ambientLight.color.setHex(0xffffff);
+    this.ambientLight.intensity = 0.45;
+    this.sunLight.color.setHex(0xffffff);
+    this.sunLight.intensity = 1.4;
+
+    const az = THREE.MathUtils.degToRad(45);
+    const el = THREE.MathUtils.degToRad(65);
+    const R  = 600;
+    this.sunLight.position.set(
+      Math.sin(az)*Math.cos(el)*R, Math.sin(el)*R, Math.cos(az)*Math.cos(el)*R
+    );
+
+    const mat = this.sky.material;
+    if (mat?.uniforms) {
+      mat.uniforms.topColor.value.set(0x4fa8ff);
+      mat.uniforms.bottomColor.value.set(0xdfeaff);
+      mat.uniforms.offset.value = 20.0;
+      mat.uniforms.exponent.value = 0.45;
+    }
+  }
+  applyDuskPreset() {
+    this.ambientLight.color.setHex(0x243760);
+    this.ambientLight.intensity = 0.28;
+    this.sunLight.color.setHex(0xffb07a);
+    this.sunLight.intensity = 0.95;
+
+    const az = THREE.MathUtils.degToRad(80);
+    const el = THREE.MathUtils.degToRad(6);
+    const R  = 600;
+    this.sunLight.position.set(
+      Math.sin(az)*Math.cos(el)*R, Math.sin(el)*R, Math.cos(az)*Math.cos(el)*R
+    );
+
+    const mat = this.sky.material;
+    if (mat?.uniforms) {
+      mat.uniforms.topColor.value.set(0x0e203a);
+      mat.uniforms.bottomColor.value.set(0xf2a15a);
+      mat.uniforms.offset.value = 6.0;
+      mat.uniforms.exponent.value = 0.45;
+    }
+  }
+
+  /* ---------------- Main loop ---------------- */
+  start(){ this.animate(); }
+  animate(){
+    requestAnimationFrame(()=>this.animate());
+    const dt = this.clock.getDelta(), now = this.clock.getElapsedTime();
+    if (dt>0) this.updatePlayer(dt);
+
+    // Launch motion & camera shake
+    this.updateLaunch(dt, now);
+    this.updateCameraShake(dt, now);
+
+    // FX updates
+    for (const fx of this.effects) fx.update?.(dt, now, this.camera);
+
+    if (this.highlighter?.update) this.highlighter.update(dt);
+    this.renderer.render(this.scene,this.camera);
+    this.frameCount++;
+  }
+
   updatePlayer(deltaTime){
     if (this.controlsPaused) return;
     const moveSpeed = 5.0*deltaTime, mv=this.controls.moveVector, lv=this.controls.lookVector;
