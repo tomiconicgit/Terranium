@@ -5,7 +5,7 @@ import { DEFAULT_FLAME_PARAMS, cloneDefaults, applyParamsToUniforms } from './Fl
 
 function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
 function mix(a, b, t) { return a * (1.0 - t) + b * t; }
-function smoothstep(e0, e1, x) { x = clamp((x - e0) / (e1 - e1 + (e1===e0?1e-6:e1-e0)), 0.0, 1.0); return x * x * (3.0 - 2.0 * x); }
+function smoothstep(e0, e1, x) { x = clamp((x - e0) / (e1 - e0), 0.0, 1.0); return x * x * (3.0 - 2.0 * x); }
 function fract(x) { return x - Math.floor(x); }
 function n2(v) { return fract(Math.sin(v.dot(new THREE.Vector2(127.1, 311.7))) * 43758.5453); }
 function fbm(v) {
@@ -28,17 +28,13 @@ export class InstancedFlames {
     this.params = Object.assign(cloneDefaults(), paramsBaseline || {});
     this.flameWidthBase = 3.5; this.flameHeightBase = 40.0; this.segments = 32;
 
-    // We will let Main decide exact timing; keep this at 0 by default.
-    this.ignitionDelayMs = 0;
-    this.ignitionTimer = null; this.ignitionPending = false;
+    this.ignitionDelayMs = 2800; this.ignitionTimer = null; this.ignitionPending = false;
 
     // Optional audio
     this.listener = null; this.igniteAudio = null; this.cutoffAudio = null;
     this._igniteLoaded = false; this._cutoffLoaded = false;
+    this._pendingIgnitePlay = false; // <-- NEW: queue play until buffer loads
     if (camera && audioUrls) this._setupAudio(camera, audioUrls);
-
-    // NEW: allow Main to decouple sound from visual ignition
-    this.playSoundOnIgnition = true;
 
     this.geometry = new THREE.CylinderGeometry(0.001, 0.001, this.flameHeightBase, this.segments, 20, true);
     this.geometry.translate(0, -this.flameHeightBase / 2, 0);
@@ -75,7 +71,12 @@ export class InstancedFlames {
         this.igniteAudio.setVolume(0.9);
         new THREE.AudioLoader().load(
           ignite,
-          (buffer) => { this.igniteAudio.setBuffer(buffer); this._igniteLoaded = true; }
+          (buffer) => {
+            this.igniteAudio.setBuffer(buffer);
+            this._igniteLoaded = true;
+            // If the user already clicked Ignite, play ASAP now that it's loaded.
+            if (this._pendingIgnitePlay) { this._pendingIgnitePlay = false; this._playIgnite(); }
+          }
         );
       }
 
@@ -91,12 +92,25 @@ export class InstancedFlames {
     } catch {}
   }
 
+  // Public: trigger the sound immediately on the Ignite button click.
+  // If the buffer isn't ready yet, it will auto-play as soon as it loads.
+  async playIgnitionSound() {
+    this._pendingIgnitePlay = true;
+    try {
+      if (this.listener?.context?.state !== 'running') { await this.listener.context.resume(); }
+    } catch {}
+    if (this._igniteLoaded) {
+      this._pendingIgnitePlay = false;
+      this._playIgnite();
+    }
+  }
+
   async _playIgnite() {
     try {
       if (!this.igniteAudio || !this._igniteLoaded) return;
-      if (this.listener?.context?.state !== 'running') await this.listener.context.resume();
       if (this.igniteAudio.isPlaying) this.igniteAudio.stop();
-      this.igniteAudio.offset = 0; this.igniteAudio.play();
+      this.igniteAudio.offset = 0;
+      this.igniteAudio.play();
     } catch {}
   }
   async _playCutoff() {
@@ -111,10 +125,6 @@ export class InstancedFlames {
     try { if (this.igniteAudio?.isPlaying) this.igniteAudio.stop(); } catch {}
     try { if (this.cutoffAudio?.isPlaying) this.cutoffAudio.stop(); } catch {}
   }
-
-  // ---- NEW public helpers so Main can orchestrate timeline ----
-  setPlaySoundOnIgnition(flag){ this.playSoundOnIgnition = !!flag; }
-  async playIgniteSfxNow(){ await this._playIgnite(); }
 
   /* --------------- PUBLIC API --------------- */
   setOffsets(offsets = []) {
@@ -134,13 +144,11 @@ export class InstancedFlames {
   setIgnition(on) {
     if (on) {
       if (this.params.enginesOn || this.ignitionPending) return;
-
-      if (this.playSoundOnIgnition) this._playIgnite();
-
+      // SOUND IS NOT TRIGGERED HERE — it’s triggered externally via playIgnitionSound() on click.
       this.ignitionPending = true; clearTimeout(this.ignitionTimer);
       this.ignitionTimer = setTimeout(() => {
         this.params.enginesOn = true; this.ignitionPending = false; this._applyVisibility();
-      }, Math.max(0, this.ignitionDelayMs|0));
+      }, this.ignitionDelayMs);
     } else {
       clearTimeout(this.ignitionTimer);
       this.ignitionPending = false;
@@ -168,7 +176,7 @@ export class InstancedFlames {
   }
 
   /* --------------- INTERNALS --------------- */
-  _reapplyMatricesWithSameOffsets() { /* no-op; caller can re-send offsets if needed */ }
+  _reapplyMatricesWithSameOffsets() { /* no-op */ }
 
   _updateFlameGeometry(t) {
     const g = this.geometry, pos = g.attributes.position;
@@ -255,7 +263,7 @@ export class InstancedFlames {
         uTailFeather:      { value: DEFAULT_FLAME_PARAMS.tailFeather },
         uTailNoise:        { value: DEFAULT_FLAME_PARAMS.tailNoise },
         uBottomDepth:      { value: DEFAULT_FLAME_PARAMS.bottomFadeDepth },
-        uBottomFeather:    { value: DEFAULT_FLAME_PARAMS.bottomFeather },
+        uBottomFeather:    { value: DEFAULT_FLAME_PARAMS.bottomFadeFeather },
         uOrangeShift:      { value: DEFAULT_FLAME_PARAMS.orangeShift }
       },
       vertexShader: `
