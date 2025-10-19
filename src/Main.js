@@ -59,7 +59,7 @@ export class Main {
     // t=11 -> flames ON + jolt + vibration start
     // t=16 -> liftoff (5s after flames)
     // t=80 -> rocket disappears (relative to sound start)
-    this.S_FLAME_ON           = 11.0;
+    this.S_FLAME_ON           = 10.0;
     this.S_AFTER_FLAME_TO_LIFTOFF = 5.0;
     this.S_DISAPPEAR_AFTER_SOUND  = 80.0;
 
