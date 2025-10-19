@@ -1,498 +1,380 @@
-// src/Main.js
+// src/craft/Craft.js
 import * as THREE from 'three';
-import { createTerrain }  from './scene/Terrain.js';
-import { createSkyDome }  from './scene/SkyDome.js';
-import { createLighting } from './scene/Lighting.js';
-import { createCamera }   from './scene/Camera.js';
-import { TouchPad }       from './controls/TouchPad.js';
-import { ImportModelUI }  from './ui/ImportModel.js';
-import { ModelSlidersUI } from './ui/ModelSliders.js';
-import { EnginePanelUI }  from './ui/EnginePanel.js';
-import { HighlighterUI }  from './ui/Highlighter.js';
-import { worldObjects }   from './world/Mapping.js';
-import { loadModel }      from './ModelLoading.js';
 
-import { InstancedFlames }   from './effects/InstancedFlames.js';
-import { bakedFlameOffsets } from './world/BakedFlames.js';
-import { cloneDefaults }     from './effects/FlameDefaults.js';
-
-// Builder
-import { CraftSystem } from './craft/Craft.js';
-import { BuilderController } from './controls/BuilderController.js';
-
-export class Main {
-  constructor(debuggerInstance) {
+/**
+ * CraftSystem (instanced voxels + DDA picking)
+ * - Very light on draw calls: 1 InstancedMesh per block type, count grows as you build.
+ * - Place/remove/dig; yaw/pitch 45° steps; hotbar; preview ghost.
+ * - Bounds: x,z in [-200,200], y in [-30,3000].
+ */
+export class CraftSystem {
+  constructor({ scene, camera, renderer, debuggerInstance }) {
+    this.scene   = scene;
+    this.camera  = camera;
+    this.renderer= renderer;
     this.debugger = debuggerInstance;
 
-    this.canvas   = document.getElementById('game-canvas');
-    this.renderer = new THREE.WebGLRenderer({ canvas: this.canvas, antialias: true });
-    this.renderer.setSize(window.innerWidth, window.innerHeight);
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    this.renderer.shadowMap.enabled = true;
+    // World limits
+    this.tile = 1.0;
+    this.minY = -30;
+    this.maxY = 3000;
+    this.maxXZ = 200;
 
-    this.scene = new THREE.Scene();
-    this.camera = createCamera(); this.camera.rotation.order = 'YXZ';
-    this.scene.add(this.camera);
+    // DDA limit
+    this.maxDDASteps = 6000;
 
-    const lights = createLighting();
-    this.ambientLight = lights.ambientLight;
-    this.sunLight     = lights.sunLight;
-    this.scene.add(this.ambientLight, this.sunLight, this.sunLight.target);
+    // Rotation state (45° steps)
+    this.yawSteps   = 0;
+    this.pitchSteps = 0;
 
-    this.sky = createSkyDome();
-    this.terrain = createTerrain();               // simple sand plane (kept)
-    this.scene.add(this.terrain, this.sky);
+    // Materials & block types
+    this.materials = this._makeMaterials();
+    this.types = [
+      { id:'metal',    label:'Metal',    mat:this.materials.metal    },
+      { id:'concrete', label:'Concrete', mat:this.materials.concrete },
+      { id:'tarmac',   label:'Tarmac',   mat:this.materials.tarmac   },
+      { id:'glass',    label:'Glass',    mat:this.materials.glass    },
+    ];
 
-    // Controls
-    this.controls = new TouchPad(); this.controlsPaused = false;
-    this.playerVelocity = new THREE.Vector3(); this.lookSpeed = 0.004; this.playerHeight = 2.0;
-    this.raycaster = new THREE.Raycaster(); this.rayDown = new THREE.Vector3(0, -1, 0);
+    // Instancing setup
+    this.capacity = 10000; // per-type; bump later if needed
+    this.meshes       = {};   // id -> InstancedMesh
+    this.nextIndex    = {};   // id -> next fresh index
+    this.free         = {};   // id -> stack<int>
+    this.occupied     = {};   // id -> boolean[]
+    this.lastActiveIx = {};   // id -> highest active+1
+    this._initInstancing();
 
-    // Rocket systems
-    this.effects = [];
-    this.instanced = null;
-    this.rocketModel = null;
+    // Sparse voxel map: "x,y,z" -> { typeId, index }
+    this.vox = new Map();
 
-    // ---------- Launch rig & timings (absolute, from "press Ignite") ----------
-    this.launchGroup = null;
-    this.originalTransform = null;
-    this.launchTimers = [];
-    this.launchActive = false;
+    // Preview ghost cube
+    this.preview = this._makePreview();
 
-    // Absolute schedule (sec) relative to sound start
-    this.S_FLAME_ON   = 10.5; // flames visible + jolt + start minor vibration
-    this.S_LIFTOFF    = 13.5; // quicker liftoff after flames
-    this.S_TILT_ABS   = 45.0; // tilt begins
-    this.S_DISAPPEAR  = 80.0; // disappear (1m20s)
+    // Hotbar UI
+    this.selected = 0;
+    this._buildHotbar();
 
-    // Motion tuning
-    this.ascentHeight = 6500;    // climbs higher within 80s window
-    this.maxTiltDeg   = 5.0;
-    this.tiltRampSeconds = 10.0;
+    // Pick targets: only terrain (instances picked via DDA)
+    this._terrainTargets = [];
+    this._rebuildTerrainTargets();
 
-    // Camera shake (same feel as the version you liked)
-    this.shake = {
-      joltActive: false,
-      joltStart: 0,
-      joltDuration: 0.6,
-      joltAmpPos: 0.28,
-      joltAmpRot: THREE.MathUtils.degToRad(0.55),
+    window.addEventListener('resize', ()=>this._layoutHotbar(), false);
+  }
 
-      minorActive: false,
-      minorSeed: Math.random() * 1000,
-      minorAmpPos: 0.022,
-      minorAmpRot: THREE.MathUtils.degToRad(0.08),
-      minorFreq: 23.0,
-      stopAfterLiftoffSec: 20.0 // stops 20s into flight
-    };
-    this._camSavedPos = new THREE.Vector3();
-    this._camSavedRot = new THREE.Euler(0,0,0,'YXZ');
-    this._pendingShake = null;
+  /* ---------------- Public API (controller binds) ---------------- */
+  selectNext(){ this.selected = (this.selected + 1) % this.types.length; this._updateHotbar(); }
+  selectPrev(){ this.selected = (this.selected - 1 + this.types.length) % this.types.length; this._updateHotbar(); }
+  yawStep(){   this.yawSteps   = (this.yawSteps + 1) & 7; }
+  pitchStep(){ this.pitchSteps = (this.pitchSteps + 1) & 7; }
 
-    this.soundStartTime = null;     // absolute ref when you press Ignite
-    this.liftoffStartAbs = null;    // absolute liftoff time
+  fly(deltaY){
+    this.camera.position.y = THREE.MathUtils.clamp(this.camera.position.y + deltaY, this.minY - 2, this.maxY + 10);
+  }
 
-    // ---------- Builder (chunk meshing) ----------
-    this.craft = new CraftSystem({
-      scene: this.scene, camera: this.camera, renderer: this.renderer, debuggerInstance: this.debugger
+  place() {
+    const target = this._computePlacement();
+    if (!target) return;
+    const { gx, gy, gz } = target.placeGrid;
+    if (!this._inBounds(gx, gy, gz)) return;
+
+    const key = this._key(gx, gy, gz);
+    if (this.vox.has(key)) return; // occupied
+
+    const type = this.types[this.selected].id;
+    const idx = this._allocIndex(type);
+    const mesh = this.meshes[type];
+
+    const yaw   = this.yawSteps   * (Math.PI / 4);
+    const pitch = this.pitchSteps * (Math.PI / 4);
+
+    const p = new THREE.Vector3(
+      gx*this.tile + 0.5*this.tile,
+      gy*this.tile + 0.5*this.tile,
+      gz*this.tile + 0.5*this.tile
+    );
+    const q = new THREE.Quaternion().setFromEuler(new THREE.Euler(pitch, yaw, 0, 'YXZ'));
+    const m = new THREE.Matrix4().compose(p, q, new THREE.Vector3(1,1,1));
+
+    mesh.setMatrixAt(idx, m);
+    mesh.instanceMatrix.needsUpdate = true;
+    this._enableIndex(type, idx);
+
+    this.vox.set(key, { typeId:type, index:idx });
+  }
+
+  removeOrDig() {
+    const hit = this._ddaPick();
+    if (hit && hit.block) {
+      const { x, y, z } = hit.block;
+      const info = this.vox.get(this._key(x,y,z));
+      if (!info) return;
+      this._freeIndex(info.typeId, info.index);
+      this.vox.delete(this._key(x,y,z));
+      return;
+    }
+    const cell = this._currentPreviewCell();
+    if (!cell) return;
+    const info = this.vox.get(this._key(cell.x, cell.y, cell.z));
+    if (!info) return;
+    this._freeIndex(info.typeId, info.index);
+    this.vox.delete(this._key(cell.x, cell.y, cell.z));
+  }
+
+  update(dt) {
+    this._updatePreview();
+  }
+
+  /* ---------------- Internals ---------------- */
+  _makeMaterials() {
+    const metal = new THREE.MeshStandardMaterial({ color: 0xb8c2cc, metalness: 0.9, roughness: 0.35 });
+    const concrete = new THREE.MeshStandardMaterial({ color: 0xcfcfcf, metalness: 0.0, roughness: 0.9 });
+    const tarmac = new THREE.MeshStandardMaterial({ color: 0x404040, metalness: 0.1, roughness: 0.95 });
+    const glass = new THREE.MeshStandardMaterial({
+      color: 0x99c7ff, metalness: 0.05, roughness: 0.05, transparent: true, opacity: 0.35, envMapIntensity: 0.4
     });
-    this.builder = new BuilderController({ camera:this.camera, craft:this.craft });
-
-    this.clock = new THREE.Clock(); this.frameCount = 0;
-
-    this.initModelSystems();
-    this.loadStaticModels(); // keep rocket
-
-    try {
-      this.highlighter = new HighlighterUI({
-        scene: this.scene, camera: this.camera, terrainGroup: this.terrain, debugger: this.debugger
-      });
-    } catch(e){ this.debugger?.handleError(e,'HighlighterInit'); }
-
-    this.makeResetButton();
-
-    window.addEventListener('resize', () => this.onWindowResize(), false);
-    this.initPerformanceMonitor(); this.start();
+    return { metal, concrete, tarmac, glass };
   }
 
-  /* ---------------- UI + Systems ---------------- */
-  initModelSystems() {
-    this.importModelUI = new ImportModelUI(this.scene,(m)=>{ this.modelSliders.setActiveModel(m); },this.debugger);
-    this.modelSliders = new ModelSlidersUI(this.debugger);
-
-    // Engine panel orchestrates the full rocket sequence
-    this.enginePanel = new EnginePanelUI({
-      get: () => (this.instanced ? { ...this.instanced.params } : cloneDefaults()),
-      set: (patch) => { if (this.instanced) this.instanced.setParams(patch); },
-      setIgnition: (on) => this.onIgnitionToggle(on),
-      getIgnition: () => (this.instanced ? !!this.instanced.params.enginesOn : false),
-      onPanelOpen: () => { this.controlsPaused = true; this.controls.setPaused(true); },
-      onPanelClose: () => { this.controlsPaused = false; this.controls.setPaused(false); },
-      placeFlame: () => -1, setMoveMode: (_on) => {}, selectFixed: (_idx) => false, getFixedList: () => [], copyFixedJSON: () => '[]',
-    }, this.debugger);
+  _initInstancing() {
+    const geo = new THREE.BoxGeometry(1,1,1);
+    for (const t of this.types) {
+      const imesh = new THREE.InstancedMesh(geo, t.mat, this.capacity);
+      imesh.name = `vox_${t.id}`;
+      imesh.castShadow = true; imesh.receiveShadow = true;
+      imesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+      imesh.count = 0; // start drawing nothing
+      this.scene.add(imesh);
+      this.meshes[t.id] = imesh;
+      this.nextIndex[t.id]    = 0;
+      this.free[t.id]         = [];
+      this.occupied[t.id]     = new Array(this.capacity).fill(false);
+      this.lastActiveIx[t.id] = 0;
+    }
   }
 
-  loadStaticModels(){
-    this.debugger?.log(`Loading ${worldObjects.length} static models from Mapping.js...`);
-    worldObjects.forEach(obj=>{
-      loadModel(obj.path,(model)=>{
-        if (!this.launchGroup) {
-          this.launchGroup = new THREE.Group();
-          this.launchGroup.name = 'LaunchGroup';
-          this.scene.add(this.launchGroup);
-        }
-        model.position.set(obj.position.x,obj.position.y,obj.position.z);
-        model.scale.set(obj.scale.x,obj.scale.y,obj.scale.z);
-        model.rotation.set(obj.rotation.x,obj.rotation.y,obj.rotation.z);
-        this.scene.add(model);
-        this.launchGroup.attach(model);
-        this.debugger?.log(`Loaded static model: ${obj.name}`);
+  _makePreview() {
+    const geo = new THREE.BoxGeometry(1,1,1);
+    const mat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent:true, opacity:0.25, depthWrite:false });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.visible = true;
+    mesh.renderOrder = 9999;
+    this.scene.add(mesh);
+    return mesh;
+  }
 
-        if (obj.name === 'SuperHeavy') {
-          this.rocketModel = model;
-          this.instanced = new InstancedFlames(
-            this.rocketModel,
-            bakedFlameOffsets,
-            cloneDefaults(),
-            this.camera,
-            { ignite: 'src/assets/RocketIgnition.wav' } // we also trigger sound in Main at press
-          );
-          this.instanced.setIgnition(false);
-          this.effects.push(this.instanced);
-
-          this.originalTransform = this.captureWorld(this.launchGroup);
-          this.enginePanel.setReady(true);
-        }
-      },(error)=>{ this.debugger?.handleError(error, `StaticModel: ${obj.name}`); });
+  _rebuildTerrainTargets() {
+    this._terrainTargets.length = 0;
+    this.scene.traverse(o => {
+      if (o?.userData?.__isTerrain) this._terrainTargets.push(o);
     });
   }
 
-  /* ---------------- Launch Sequencer ---------------- */
-  onIgnitionToggle(on){
-    if (!this.instanced) return;
-
-    // Clear pending
-    this.launchTimers.forEach(t=>clearTimeout(t)); this.launchTimers.length=0;
-    this.launchActive = false;
-    this.stopAllShake();
-
-    if (on) {
-      // Start absolute clock NOW. Sound must start immediately.
-      this.soundStartTime = this.clock.getElapsedTime();
-
-      // Play ignition audio right now (call InstancedFlames internal if exposed)
-      if (typeof this.instanced._playIgnite === 'function') {
-        this.instanced._playIgnite(); // immediate SFX
-      }
-
-      // Restore to ground
-      if (this.originalTransform) this.applyWorld(this.launchGroup, this.originalTransform);
-      this.launchGroup.visible = true;
-
-      // Schedule flames to appear exactly at 10.5s absolute.
-      // InstancedFlames shows visuals ~2.8s after setIgnition(true)
-      const internalDelay = 2.8;
-      const tCall = Math.max(0, this.S_FLAME_ON - internalDelay); // 7.7s
-      this.launchTimers.push(setTimeout(()=>{
-        this.instanced.setIgnition(true);
-      }, tCall*1000));
-
-      // Start jolt + minor vibration right at 10.5s
-      this.launchTimers.push(setTimeout(()=>{
-        this.startIgnitionShake();
-      }, this.S_FLAME_ON*1000));
-
-      // Liftoff at 13.5s absolute
-      this.launchTimers.push(setTimeout(()=>{
-        this.launchActive = true;
-        this.liftoffStartAbs = this.S_LIFTOFF;
-      }, this.S_LIFTOFF*1000));
-
-      // Disappear at 80s absolute
-      this.launchTimers.push(setTimeout(()=>{
-        this.launchActive = false;
-        if (this.launchGroup) this.launchGroup.visible = false;
-        this.instanced.setIgnition(false);
-        this.stopAllShake();
-      }, this.S_DISAPPEAR*1000));
-
-    } else {
-      // Cutoff everything
-      this.instanced.setIgnition(false);
-      this.soundStartTime = null;
-      this.launchActive = false;
-      this.stopAllShake();
-    }
+  _layoutHotbar() {
+    const bar = document.getElementById('craft-hotbar');
+    if (!bar) return;
+    bar.style.left = '50%';
+    bar.style.transform = 'translateX(-50%)';
+    bar.style.width = Math.min(560, window.innerWidth - 40) + 'px';
   }
 
-  updateLaunch(dt, nowSec){
-    if (!this.launchActive || !this.launchGroup) return;
-
-    // Absolute seconds since "press Ignite"
-    const tAbs = nowSec - (this.soundStartTime ?? 0);
-    const tSinceLiftoff = Math.max(0, tAbs - this.S_LIFTOFF);
-
-    // Total climb window (liftoff -> disappear)
-    const climbDuration = Math.max(0.0001, this.S_DISAPPEAR - this.S_LIFTOFF);
-    const u = Math.min(1, tSinceLiftoff / climbDuration);
-
-    // Faster lift and acceleration (ease-out expo)
-    const easeOutExpo = x => (x === 1) ? 1 : 1 - Math.pow(2, -10 * x);
-    const yOffset = easeOutExpo(u) * this.ascentHeight;
-
-    // Tilt begins at S_TILT_ABS; ramp over tiltRampSeconds
-    const tSinceTiltStart = Math.max(0, tAbs - this.S_TILT_ABS);
-    const tiltRamp = Math.min(1, tSinceTiltStart / Math.max(0.0001, this.tiltRampSeconds));
-    const easeInOut = x => 0.5 - 0.5 * Math.cos(Math.PI * x);
-    const tiltRad = THREE.MathUtils.degToRad(this.maxTiltDeg) * easeInOut(tiltRamp);
-
-    if (this.originalTransform) {
-      this.launchGroup.position.set(
-        this.originalTransform.pos.x,
-        this.originalTransform.pos.y + yOffset,
-        this.originalTransform.pos.z
-      );
-      this.launchGroup.rotation.set(
-        this.originalTransform.rot.x + tiltRad,
-        this.originalTransform.rot.y,
-        this.originalTransform.rot.z
-      );
-    } else {
-      this.launchGroup.position.y = yOffset;
-      this.launchGroup.rotation.x = tiltRad;
-    }
-
-    // Stop minor vibration 20s into flight
-    if (tSinceLiftoff >= this.shake.stopAfterLiftoffSec) this.shake.minorActive = false;
-  }
-
-  /* ---------------- Camera shake (same feel you liked) ---------------- */
-  startIgnitionShake(){
-    const now = this.clock.getElapsedTime();
-    this.shake.joltActive  = true;
-    this.shake.joltStart   = now;
-    this.shake.minorActive = true;
-    this.shake.minorSeed   = Math.random() * 1000;
-  }
-  stopAllShake(){
-    this.shake.joltActive  = false;
-    this.shake.minorActive = false;
-  }
-  updateShake(now){
-    if (!this.shake.joltActive && !this.shake.minorActive) { this._pendingShake = null; return; }
-
-    // Save current transform
-    this._camSavedPos.copy(this.camera.position);
-    this._camSavedRot.copy(this.camera.rotation);
-
-    // Jolt (decays quickly)
-    let jPosX=0, jPosY=0, jPosZ=0, jRotX=0, jRotY=0, jRotZ=0;
-    if (this.shake.joltActive) {
-      const t = now - this.shake.joltStart;
-      if (t >= this.shake.joltDuration) {
-        this.shake.joltActive = false;
-      } else {
-        const q = 1.0 - (t / this.shake.joltDuration);
-        const ampPos = this.shake.joltAmpPos * q * q;
-        const ampRot = this.shake.joltAmpRot * q * q;
-        jPosX = ampPos * (Math.sin(61*now) + 0.5*Math.sin(89*now));
-        jPosY = ampPos * (Math.sin(73*now) + 0.5*Math.sin(97*now));
-        jPosZ = ampPos * (Math.sin(67*now) + 0.5*Math.sin(83*now));
-        jRotX = ampRot * (Math.sin(71*now));
-        jRotY = ampRot * (Math.sin(79*now));
-        jRotZ = ampRot * (Math.sin(101*now));
-      }
-    }
-
-    // Minor rumble
-    let mPosX=0, mPosY=0, mPosZ=0, mRotX=0, mRotY=0, mRotZ=0;
-    if (this.shake.minorActive) {
-      const t = now + this.shake.minorSeed;
-      const f = this.shake.minorFreq;
-      const f2 = f * 0.37;
-      const f3 = f * 0.61;
-      const ampPos = this.shake.minorAmpPos;
-      const ampRot = this.shake.minorAmpRot;
-      mPosX = ampPos * (Math.sin(f*t)   * 0.6 + Math.sin(f2*t) * 0.4);
-      mPosY = ampPos * (Math.sin(f2*t)  * 0.7 + Math.sin(f3*t) * 0.3);
-      mPosZ = ampPos * (Math.sin(f3*t)  * 0.5 + Math.sin(f*t)  * 0.5);
-      mRotX = ampRot * Math.sin(f2*t);
-      mRotY = ampRot * Math.sin(f3*t);
-      mRotZ = ampRot * Math.sin(f*t);
-    }
-
-    this._pendingShake = {
-      pos: new THREE.Vector3(jPosX + mPosX, jPosY + mPosY, jPosZ + mPosZ),
-      rot: new THREE.Euler(
-        this._camSavedRot.x + jRotX + mRotX,
-        this._camSavedRot.y + jRotY + mRotY,
-        this._camSavedRot.z + jRotZ + mRotZ,
-        'YXZ'
-      )
-    };
-  }
-  applyPendingShakeAndRender(){
-    if (this._pendingShake) {
-      const p = this._pendingShake.pos, r = this._pendingShake.rot;
-      this.camera.position.add(p);
-      this.camera.rotation.set(r.x, r.y, r.z, 'YXZ');
-    }
-    this.renderer.render(this.scene, this.camera);
-    if (this._pendingShake) {
-      this.camera.position.copy(this._camSavedPos);
-      this.camera.rotation.copy(this._camSavedRot);
-      this._pendingShake = null;
-    }
-  }
-
-  /* ---------------- Reset ---------------- */
-  makeResetButton(){
-    const btn = document.createElement('button');
-    btn.id = 'reset-launch-btn';
-    btn.textContent = 'Reset Launch';
-    btn.style.cssText = `
-      position:fixed; z-index:11; padding:8px 12px;
-      border-radius:8px; border:1px solid rgba(255,255,255,0.25);
-      background:rgba(30,30,36,0.9); color:#fff; cursor:pointer; top:20px; left:20px;
+  _buildHotbar() {
+    const bar = document.createElement('div');
+    bar.id = 'craft-hotbar';
+    bar.style.cssText = `
+      position:fixed; z-index:12; bottom:18px;
+      height:68px; display:flex; gap:8px; padding:8px 10px;
+      background:rgba(20,20,24,0.6); border:1px solid rgba(255,255,255,0.15);
+      border-radius:10px; backdrop-filter: blur(6px);
     `;
-    document.body.appendChild(btn);
-    btn.onclick = () => this.resetLaunch();
+
+    this.hotSlots = [];
+    for (let i=0;i<this.types.length;i++){
+      const t = this.types[i];
+      const slot = document.createElement('div');
+      slot.style.cssText = `
+        flex:1; min-width:80px; height:52px; border-radius:8px;
+        border:2px solid rgba(255,255,255,0.15); display:flex; align-items:center; justify-content:center;
+        color:#fff; font-weight:600; user-select:none; font-family: system-ui, sans-serif;
+      `;
+      slot.textContent = t.label;
+      slot.dataset.type = t.id;
+      bar.appendChild(slot);
+      this.hotSlots.push(slot);
+    }
+    document.body.appendChild(bar);
+    this._layoutHotbar();
+    this._updateHotbar();
   }
-  resetLaunch(){
-    try{
-      this.launchActive = false;
-      this.launchTimers.forEach(t=>clearTimeout(t)); this.launchTimers.length=0;
-      this.instanced?.setIgnition(false);
-      this.stopAllShake();
-      if (this.launchGroup && this.originalTransform) {
-        this.applyWorld(this.launchGroup, this.originalTransform);
-        this.launchGroup.visible = true;
+
+  _updateHotbar(){
+    for (let i=0;i<this.hotSlots.length;i++){
+      const el = this.hotSlots[i];
+      if (i === this.selected) {
+        el.style.borderColor = 'rgba(255,255,255,0.85)';
+        el.style.boxShadow = '0 0 0 2px rgba(255,255,255,0.25) inset';
+      } else {
+        el.style.borderColor = 'rgba(255,255,255,0.15)';
+        el.style.boxShadow = 'none';
       }
-      this.soundStartTime = null;
-      this.liftoffStartAbs = null;
-      this.debugger?.log('Launch reset complete.');
-    }catch(e){ this.debugger?.handleError(e,'ResetLaunch'); }
-  }
-
-  /* ---------------- Transform helpers ---------------- */
-  captureWorld(obj){
-    const p = new THREE.Vector3(), q = new THREE.Quaternion(), s = new THREE.Vector3();
-    obj.updateMatrixWorld(true);
-    obj.matrixWorld.decompose(p,q,s);
-    return { pos:p.clone(), rot:new THREE.Euler().setFromQuaternion(q, 'YXZ'), scl:s.clone() };
-  }
-  applyWorld(obj, tr){
-    const parent = obj.parent;
-    const parentInv = new THREE.Matrix4();
-    if (parent) { parent.updateMatrixWorld(true); parentInv.copy(parent.matrixWorld).invert(); }
-    else parentInv.identity();
-    const mw = new THREE.Matrix4().compose(
-      tr.pos, new THREE.Quaternion().setFromEuler(tr.rot), tr.scl
-    );
-    const mLocal = new THREE.Matrix4().multiplyMatrices(parentInv, mw);
-    const p = new THREE.Vector3(), q = new THREE.Quaternion(), s = new THREE.Vector3();
-    mLocal.decompose(p,q,s);
-    obj.position.copy(p); obj.quaternion.copy(q); obj.scale.copy(s);
-    obj.updateMatrixWorld(true);
-  }
-
-  /* ---------------- Presets (kept) ---------------- */
-  applyDayPreset() {
-    this.ambientLight.color.setHex(0xffffff);
-    this.ambientLight.intensity = 0.45;
-    this.sunLight.color.setHex(0xffffff);
-    this.sunLight.intensity = 1.4;
-    const az = THREE.MathUtils.degToRad(45);
-    const el = THREE.MathUtils.degToRad(65);
-    const R  = 600;
-    this.sunLight.position.set(
-      Math.sin(az)*Math.cos(el)*R, Math.sin(el)*R, Math.cos(az)*Math.cos(el)*R
-    );
-    const mat = this.sky.material;
-    if (mat?.uniforms) {
-      mat.uniforms.topColor.value.set(0x4fa8ff);
-      mat.uniforms.bottomColor.value.set(0xdfeaff);
-      mat.uniforms.offset.value = 20.0;
-      mat.uniforms.exponent.value = 0.45;
-    }
-  }
-  applyDuskPreset() {
-    this.ambientLight.color.setHex(0x243760);
-    this.ambientLight.intensity = 0.28;
-    this.sunLight.color.setHex(0xffb07a);
-    this.sunLight.intensity = 0.95;
-    const az = THREE.MathUtils.degToRad(80);
-    const el = THREE.MathUtils.degToRad(6);
-    const R  = 600;
-    this.sunLight.position.set(
-      Math.sin(az)*Math.cos(el)*R, Math.sin(el)*R, Math.cos(az)*Math.cos(el)*R
-    );
-    const mat = this.sky.material;
-    if (mat?.uniforms) {
-      mat.uniforms.topColor.value.set(0x0e203a);
-      mat.uniforms.bottomColor.value.set(0xf2a15a);
-      mat.uniforms.offset.value = 6.0;
-      mat.uniforms.exponent.value = 0.45;
     }
   }
 
-  /* ---------------- Main loop ---------------- */
-  start(){ this.animate(); }
-  animate(){
-    requestAnimationFrame(()=>this.animate());
-    const dt = this.clock.getDelta(), now = this.clock.getElapsedTime();
+  _key(x,y,z){ return `${x},${y},${z}`; }
 
-    if (!this.controlsPaused) this.updatePlayer(dt);
-
-    // Builder input + meshing maintenance
-    this.builder.update(dt);
-    this.craft.update(dt);
-
-    // Rocket motion + shake
-    this.updateLaunch(dt, now);
-    this.updateShake(now);
-
-    // FX updates (flames)
-    for (const fx of this.effects) fx.update?.(dt, now, this.camera);
-
-    if (this.highlighter?.update) this.highlighter.update(dt);
-
-    // Render with temporary shake applied then restored
-    this.applyPendingShakeAndRender();
-
-    this.frameCount++;
-  }
-
-  updatePlayer(deltaTime){
-    const moveSpeed = 5.0*deltaTime, mv=this.controls.moveVector, lv=this.controls.lookVector;
-    if (lv.length()>0){
-      this.camera.rotation.y -= lv.x*this.lookSpeed;
-      this.camera.rotation.x -= lv.y*this.lookSpeed;
-      this.camera.rotation.x = Math.max(-Math.PI/2, Math.min(Math.PI/2, this.camera.rotation.x));
-      this.controls.lookVector.set(0,0);
+  _allocIndex(type){
+    const free = this.free[type];
+    if (free.length > 0) return free.pop();
+    const idx = this.nextIndex[type]++;
+    if (idx >= this.capacity) {
+      this.debugger?.warn?.(`Instancing capacity reached for ${type} (${this.capacity}). Consider raising capacity.`, 'Craft');
+      return this.capacity - 1; // clamp
     }
-    this.playerVelocity.z = mv.y*moveSpeed; this.playerVelocity.x = mv.x*moveSpeed;
-    this.camera.translateX(this.playerVelocity.x); this.camera.translateZ(this.playerVelocity.z);
-
-    // Keep camera above ground
-    const rayOrigin = new THREE.Vector3(this.camera.position.x,80,this.camera.position.z);
-    this.raycaster.set(rayOrigin,this.rayDown);
-    const terrainMeshes=[]; this.terrain.traverse(o=>{ if (o.isMesh) terrainMeshes.push(o); });
-    const hits = this.raycaster.intersectObjects(terrainMeshes,true);
-    if (hits.length>0) this.camera.position.y = Math.max(this.camera.position.y, hits[0].point.y + this.playerHeight);
+    return idx;
   }
 
-  onWindowResize(){
-    this.camera.aspect = window.innerWidth/window.innerHeight;
-    this.camera.updateProjectionMatrix();
-    this.renderer.setSize(window.innerWidth,window.innerHeight);
+  _enableIndex(type, idx){
+    const im = this.meshes[type];
+    this.occupied[type][idx] = true;
+    if (idx + 1 > im.count) im.count = idx + 1;
+    this.lastActiveIx[type] = Math.max(this.lastActiveIx[type], idx + 1);
   }
 
-  initPerformanceMonitor(){
-    setInterval(()=>{
-      if (this.frameCount>0 && this.frameCount<30)
-        this.debugger?.warn(`Low framerate detected: ${this.frameCount} FPS`,'Performance');
-      this.frameCount=0;
-    },1000);
+  _freeIndex(type, idx){
+    // Hide instance by moving/scaling away
+    const m = new THREE.Matrix4();
+    const p = new THREE.Vector3(0, -9999, 0);
+    const q = new THREE.Quaternion();
+    m.compose(p, q.identity(), new THREE.Vector3(0,0,0));
+    const im = this.meshes[type];
+    im.setMatrixAt(idx, m);
+    im.instanceMatrix.needsUpdate = true;
+
+    // Mark free
+    this.occupied[type][idx] = false;
+    this.free[type].push(idx);
+
+    // Shrink count if we removed the last drawn index
+    if (idx === im.count - 1) {
+      let newCount = im.count - 1;
+      const occ = this.occupied[type];
+      while (newCount > 0 && !occ[newCount - 1]) newCount--;
+      im.count = newCount;
+      this.lastActiveIx[type] = newCount;
+    }
+  }
+
+  _inBounds(x,y,z){
+    return (
+      x >= -this.maxXZ && x <= this.maxXZ &&
+      z >= -this.maxXZ && z <= this.maxXZ &&
+      y >= this.minY   && y <= this.maxY
+    );
+  }
+
+  /* ===== Voxel DDA picking ===== */
+  _ddaPick() {
+    // Ray from viewport center
+    const ndc = new THREE.Vector2(0, 0);
+    const raycaster = _tmp.raycaster;
+    raycaster.setFromCamera(ndc, this.camera);
+    const ro = raycaster.ray.origin.clone();
+    const rd = raycaster.ray.direction.clone();
+
+    // First, intersect terrain once to clamp far distance
+    let maxT = 10000;
+    const hitT = raycaster.intersectObjects(this._terrainTargets, true)[0];
+    if (hitT) {
+      const d = hitT.distance;
+      maxT = Math.max(1, d + 3000);
+    }
+
+    // Convert to voxel coords
+    let x = Math.floor(ro.x / this.tile);
+    let y = Math.floor(ro.y / this.tile);
+    let z = Math.floor(ro.z / this.tile);
+
+    const stepX = rd.x > 0 ? 1 : (rd.x < 0 ? -1 : 0);
+    const stepY = rd.y > 0 ? 1 : (rd.y < 0 ? -1 : 0);
+    const stepZ = rd.z > 0 ? 1 : (rd.z < 0 ? -1 : 0);
+
+    const txDelta = stepX !== 0 ? Math.abs(1 / rd.x) : Infinity;
+    const tyDelta = stepY !== 0 ? Math.abs(1 / rd.y) : Infinity;
+    const tzDelta = stepZ !== 0 ? Math.abs(1 / rd.z) : Infinity;
+
+    const vx = x + (stepX > 0 ? 1 : 0);
+    const vy = y + (stepY > 0 ? 1 : 0);
+    const vz = z + (stepZ > 0 ? 1 : 0);
+
+    let txMax = stepX !== 0 ? ((vx * this.tile - ro.x) / rd.x) : Infinity;
+    let tyMax = stepY !== 0 ? ((vy * this.tile - ro.y) / rd.y) : Infinity;
+    let tzMax = stepZ !== 0 ? ((vz * this.tile - ro.z) / rd.z) : Infinity;
+
+    let lastEmpty = { x, y, z };
+    for (let i=0; i<this.maxDDASteps; i++) {
+      if (this._inBounds(x,y,z)) {
+        const key = this._key(x,y,z);
+        if (this.vox.has(key)) {
+          return { block:{x,y,z}, lastEmpty };
+        }
+      }
+
+      // Step to next voxel boundary
+      if (txMax < tyMax) {
+        if (txMax < tzMax) { x += stepX; lastEmpty = { x, y, z }; if (txMax > maxT) break; txMax += txDelta; }
+        else               { z += stepZ; lastEmpty = { x, y, z }; if (tzMax > maxT) break; tzMax += tzDelta; }
+      } else {
+        if (tyMax < tzMax) { y += stepY; lastEmpty = { x, y, z }; if (tyMax > maxT) break; tyMax += tyDelta; }
+        else               { z += stepZ; lastEmpty = { x, y, z }; if (tzMax > maxT) break; tzMax += tzDelta; }
+      }
+
+      if (!this._inBounds(x,y,z) && (Math.abs(x)>this.maxXZ+2 || Math.abs(z)>this.maxXZ+2 || y<this.minY-2 || y>this.maxY+2)) break;
+    }
+    return null;
+  }
+
+  _computePlacement(){
+    const res = this._ddaPick();
+    if (res && res.block) {
+      const { lastEmpty } = res;
+      return { placeGrid: { gx:lastEmpty.x, gy:lastEmpty.y, gz:lastEmpty.z } };
+    }
+    const rc = _tmp.raycaster;
+    rc.setFromCamera(new THREE.Vector2(0,0), this.camera);
+    const hit = rc.intersectObjects(this._terrainTargets, true)[0];
+    if (!hit) return null;
+    const gx = Math.floor(hit.point.x / this.tile);
+    const gy = Math.floor(hit.point.y / this.tile) + 1;
+    const gz = Math.floor(hit.point.z / this.tile);
+    return { placeGrid: { gx, gy, gz } };
+  }
+
+  _currentPreviewCell(){
+    const res = this._ddaPick();
+    if (res && res.block) return res.lastEmpty;
+    const rc = _tmp.raycaster;
+    rc.setFromCamera(new THREE.Vector2(0,0), this.camera);
+    const hit = rc.intersectObjects(this._terrainTargets, true)[0];
+    if (!hit) return null;
+    const gx = Math.floor(hit.point.x / this.tile);
+    const gy = Math.floor(hit.point.y / this.tile) + 1;
+    const gz = Math.floor(hit.point.z / this.tile);
+    return { x:gx, y:gy, z:gz };
+  }
+
+  _updatePreview(){
+    const cell = this._currentPreviewCell();
+    if (!cell || !this._inBounds(cell.x, cell.y, cell.z)) { this.preview.visible = false; return; }
+    this.preview.visible = true;
+    const yaw   = this.yawSteps   * (Math.PI / 4);
+    const pitch = this.pitchSteps * (Math.PI / 4);
+    this.preview.position.set(
+      cell.x * this.tile + 0.5*this.tile,
+      cell.y * this.tile + 0.5*this.tile,
+      cell.z * this.tile + 0.5*this.tile
+    );
+    this.preview.rotation.set(pitch, yaw, 0, 'YXZ');
   }
 }
+
+const _tmp = { raycaster: new THREE.Raycaster() };
