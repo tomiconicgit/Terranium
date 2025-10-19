@@ -2,13 +2,11 @@
 import * as THREE from 'three';
 
 /**
- * CraftSystem
- * - Hotbar UI (bottom)
- * - 4 block types: smooth metal, smooth concrete, tarmac, glass
- * - Instanced per block type (fast). Sparse voxel map with free-list.
- * - Place / remove / dig via center-screen ray.
- * - Rotations: yaw & pitch in 45° steps.
- * - Bounds: |x|,|z| <= 200; y in [-30, 3000]
+ * CraftSystem (optimized)
+ * - Instanced meshes start with count=0 (no hidden cost).
+ * - When you place: we grow .count to include that index.
+ * - When you remove: if it was the topmost instance, we shrink .count; otherwise we keep a hole (OK).
+ * - Picking uses a fast voxel DDA (no raycast against instances).
  */
 export class CraftSystem {
   constructor({ scene, camera, renderer, debuggerInstance }) {
@@ -23,64 +21,68 @@ export class CraftSystem {
     this.maxY = 3000;
     this.maxXZ = 200; // |x|,|z| <= 200
 
-    // Raycast helpers
-    this.raycaster = new THREE.Raycaster();
-    this.rayDir = new THREE.Vector3();
-    this.rayFrom = new THREE.Vector3();
+    // DDA params
+    this.maxDDASteps = 6000; // plenty for tall world
 
-    // Block rotation state (45° steps)
-    this.yawSteps   = 0; // multiples of 45° (0..7)
-    this.pitchSteps = 0; // multiples of 45° (0..7)
+    // Rotation state (45° steps)
+    this.yawSteps   = 0;
+    this.pitchSteps = 0;
 
     // Materials
     this.materials = this._makeMaterials();
 
-    // Instanced meshes per type
+    // Block types
     this.types = [
       { id:'metal',    label:'Metal',    mat:this.materials.metal,    color:'#b8c2cc' },
       { id:'concrete', label:'Concrete', mat:this.materials.concrete, color:'#cfcfcf' },
       { id:'tarmac',   label:'Tarmac',   mat:this.materials.tarmac,   color:'#404040' },
       { id:'glass',    label:'Glass',    mat:this.materials.glass,    color:'#99c7ff' },
     ];
-    this.meshes = {};  // id -> InstancedMesh
-    this.capacity = 20000; // per type (adjustable)
+
+    this.capacity = 10000; // per type; you can raise this later
+
+    // Instanced meshes + bookkeeping
+    this.meshes       = {};   // id -> InstancedMesh
+    this.nextIndex    = {};   // id -> next fresh index when free list empty
+    this.free         = {};   // id -> stack<int>
+    this.occupied     = {};   // id -> boolean[]
+    this.lastActiveIx = {};   // id -> highest occupied index+1 (for shrinking count)
     this._initInstancing();
 
     // Sparse voxel map: key "x,y,z" -> { typeId, index }
     this.vox = new Map();
-    this.free = { metal:[], concrete:[], tarmac:[], glass:[] };
-    this.nextIndex = { metal:0, concrete:0, tarmac:0, glass:0 };
 
     // Preview ghost
     this.preview = this._makePreview();
 
     // Hotbar UI
-    this.selected = 0; // index into this.types
+    this.selected = 0;
     this._buildHotbar();
 
-    // Work list for ray targets (terrain + block meshes)
-    this._rayTargets = [];
-    this._rebuildRayTargets();
+    // Ray targets: only terrain; instances are picked via DDA
+    this._terrainTargets = [];
+    this._rebuildTerrainTargets();
 
+    // Re-layout hotbar on resize
     window.addEventListener('resize', ()=>this._layoutHotbar(), false);
   }
 
   /* ---------- Public API for controller ---------- */
   selectNext(){ this.selected = (this.selected + 1) % this.types.length; this._updateHotbar(); }
   selectPrev(){ this.selected = (this.selected - 1 + this.types.length) % this.types.length; this._updateHotbar(); }
-  yawStep(){   this.yawSteps   = (this.yawSteps + 1)   & 7; }
+  yawStep(){   this.yawSteps   = (this.yawSteps + 1) & 7; }
   pitchStep(){ this.pitchSteps = (this.pitchSteps + 1) & 7; }
 
-  fly(deltaY){ // small camera lift/drop for A/B
+  fly(deltaY){
     this.camera.position.y = THREE.MathUtils.clamp(this.camera.position.y + deltaY, this.minY - 2, this.maxY + 10);
   }
 
   place() {
     const target = this._computePlacement();
     if (!target) return;
-
     const { gx, gy, gz } = target.placeGrid;
     if (!this._inBounds(gx, gy, gz)) return;
+
     const key = this._key(gx, gy, gz);
     if (this.vox.has(key)) return; // occupied
 
@@ -91,45 +93,44 @@ export class CraftSystem {
     const yaw   = this.yawSteps   * (Math.PI / 4);
     const pitch = this.pitchSteps * (Math.PI / 4);
 
-    const m = new THREE.Matrix4();
+    const p = new THREE.Vector3(
+      gx*this.tile + 0.5*this.tile,
+      gy*this.tile + 0.5*this.tile,
+      gz*this.tile + 0.5*this.tile
+    );
     const q = new THREE.Quaternion().setFromEuler(new THREE.Euler(pitch, yaw, 0, 'YXZ'));
-    const s = new THREE.Vector3(1,1,1);
-    const p = new THREE.Vector3(gx*this.tile + 0.5*this.tile, gy*this.tile + 0.5*this.tile, gz*this.tile + 0.5*this.tile);
+    const m = new THREE.Matrix4().compose(p, q, new THREE.Vector3(1,1,1));
 
-    m.compose(p, q, s);
     mesh.setMatrixAt(idx, m);
     mesh.instanceMatrix.needsUpdate = true;
+
+    // Ensure we actually draw this instance
+    this._enableIndex(type, idx);
 
     this.vox.set(key, { typeId:type, index:idx });
   }
 
   removeOrDig() {
-    // If aiming at a block: remove it.
-    // Else (aiming at terrain): dig means remove block directly under preview cell if any.
-    const hit = this._raycast();
-    if (hit && hit.object && hit.instanceId !== undefined) {
-      // We hit an instanced block; figure voxel & free it.
-      const { grid } = this._hitToGrid(hit);
-      const key = this._key(grid.x, grid.y, grid.z);
-      const info = this.vox.get(key);
+    const hit = this._ddaPick(); // voxel-first pick
+    if (hit && hit.block) {
+      // Remove the aimed block
+      const { x, y, z } = hit.block;
+      const info = this.vox.get(this._key(x,y,z));
       if (!info) return;
       this._freeIndex(info.typeId, info.index);
-      this.vox.delete(key);
+      this.vox.delete(this._key(x,y,z));
       return;
     }
-
-    // DIG under preview cell
+    // If no block hit, try remove the preview cell
     const cell = this._currentPreviewCell();
     if (!cell) return;
-    const key = this._key(cell.x, cell.y, cell.z);
-    const info = this.vox.get(key);
+    const info = this.vox.get(this._key(cell.x, cell.y, cell.z));
     if (!info) return;
     this._freeIndex(info.typeId, info.index);
-    this.vox.delete(key);
+    this.vox.delete(this._key(cell.x, cell.y, cell.z));
   }
 
   update(dt) {
-    // Update preview position each frame
     this._updatePreview();
   }
 
@@ -146,17 +147,24 @@ export class CraftSystem {
   }
 
   _initInstancing() {
-    // Unit cube geometry (centered), scaled via matrix translate by +0.5 for grid cell alignment
     const geo = new THREE.BoxGeometry(1,1,1);
-    geo.translate(0,0,0); // we'll position per-instance
 
     for (const t of this.types) {
       const imesh = new THREE.InstancedMesh(geo, t.mat, this.capacity);
       imesh.name = `vox_${t.id}`;
       imesh.castShadow = true; imesh.receiveShadow = true;
       imesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+
+      // CRUCIAL: start with 0 drawn instances
+      imesh.count = 0;
+
       this.scene.add(imesh);
       this.meshes[t.id] = imesh;
+
+      this.nextIndex[t.id]    = 0;
+      this.free[t.id]         = [];
+      this.occupied[t.id]     = new Array(this.capacity).fill(false);
+      this.lastActiveIx[t.id] = 0;
     }
   }
 
@@ -170,14 +178,11 @@ export class CraftSystem {
     return mesh;
   }
 
-  _rebuildRayTargets() {
-    this._rayTargets.length = 0;
-    // terrain meshes
+  _rebuildTerrainTargets() {
+    this._terrainTargets.length = 0;
     this.scene.traverse(o => {
-      if (o?.userData?.__isTerrain) this._rayTargets.push(o);
+      if (o?.userData?.__isTerrain) this._terrainTargets.push(o);
     });
-    // instanced containers (so we can hit blocks)
-    for (const t of this.types) this._rayTargets.push(this.meshes[t.id]);
   }
 
   _layoutHotbar() {
@@ -238,20 +243,42 @@ export class CraftSystem {
     const idx = this.nextIndex[type]++;
     if (idx >= this.capacity) {
       this.debugger?.warn?.(`Instancing capacity reached for ${type} (${this.capacity}). Consider raising capacity.`, 'Craft');
-      return this.capacity - 1; // clamp; will overwrite last
+      return this.capacity - 1; // clamp
     }
     return idx;
   }
 
+  _enableIndex(type, idx){
+    const im = this.meshes[type];
+    this.occupied[type][idx] = true;
+    if (idx + 1 > im.count) {
+      im.count = idx + 1; // draw up to this
+    }
+    this.lastActiveIx[type] = Math.max(this.lastActiveIx[type], idx + 1);
+  }
+
   _freeIndex(type, idx){
-    // Hide instance by scaling to zero
+    // Hide instance by moving/scaling away
     const m = new THREE.Matrix4();
+    const p = new THREE.Vector3(0, -9999, 0);
     const q = new THREE.Quaternion();
-    const p = new THREE.Vector3(0, -9999, 0); // drop far below
     m.compose(p, q.identity(), new THREE.Vector3(0,0,0));
-    this.meshes[type].setMatrixAt(idx, m);
-    this.meshes[type].instanceMatrix.needsUpdate = true;
+    const im = this.meshes[type];
+    im.setMatrixAt(idx, m);
+    im.instanceMatrix.needsUpdate = true;
+
+    // Mark free
+    this.occupied[type][idx] = false;
     this.free[type].push(idx);
+
+    // If we removed the "topmost" drawn index, shrink count
+    if (idx === im.count - 1) {
+      let newCount = im.count - 1;
+      const occ = this.occupied[type];
+      while (newCount > 0 && !occ[newCount - 1]) newCount--;
+      im.count = newCount;
+      this.lastActiveIx[type] = newCount;
+    }
   }
 
   _inBounds(x,y,z){
@@ -262,63 +289,114 @@ export class CraftSystem {
     );
   }
 
-  _raycast(){
-    const cx = this.renderer.domElement.clientWidth  * 0.5;
-    const cy = this.renderer.domElement.clientHeight * 0.5;
-    const ndc = new THREE.Vector2(
-      (cx / this.renderer.domElement.clientWidth)  * 2 - 1,
-      -(cy / this.renderer.domElement.clientHeight) * 2 + 1
-    );
-    this.raycaster.setFromCamera(ndc, this.camera);
-    return this.raycaster.intersectObjects(this._rayTargets, true)[0];
-  }
+  /* ===== Fast voxel DDA picking ===== */
+  _ddaPick() {
+    // Ray from viewport center
+    const w = this.renderer.domElement.clientWidth;
+    const h = this.renderer.domElement.clientHeight;
+    const ndc = new THREE.Vector2(0, 0); // center
+    const raycaster = _tmp.raycaster;
+    raycaster.setFromCamera(ndc, this.camera);
+    const ro = raycaster.ray.origin.clone();
+    const rd = raycaster.ray.direction.clone();
 
-  _hitToGrid(hit){
-    // Convert hit.point to grid coords
-    const p = hit.point;
-    // If we hit an instanced block face, we want the adjacent cell for placement
-    let normal = hit.face?.normal?.clone() || new THREE.Vector3(0,1,0);
-    // Transform normal by object matrix if needed
-    if (hit.object.isInstancedMesh || hit.object.isMesh) {
-      hit.object.updateMatrixWorld(true);
-      normal.transformDirection(hit.object.matrixWorld);
+    // First, intersect terrain once to clamp far distance
+    let maxT = 10000; // fallback
+    const hitT = raycaster.intersectObjects(this._terrainTargets, true)[0];
+    if (hitT) {
+      const d = hitT.distance;
+      maxT = Math.max(1, d + 3000); // allow building above ground
     }
-    normal.round(); // axis-aligned
 
-    const grid = {
-      x: Math.floor(p.x / this.tile),
-      y: Math.floor(p.y / this.tile),
-      z: Math.floor(p.z / this.tile),
-    };
-    return { grid, normal };
+    // Voxel DDA
+    // Convert to voxel coords
+    let x = Math.floor(ro.x / this.tile);
+    let y = Math.floor(ro.y / this.tile);
+    let z = Math.floor(ro.z / this.tile);
+
+    const stepX = rd.x > 0 ? 1 : (rd.x < 0 ? -1 : 0);
+    const stepY = rd.y > 0 ? 1 : (rd.y < 0 ? -1 : 0);
+    const stepZ = rd.z > 0 ? 1 : (rd.z < 0 ? -1 : 0);
+
+    const txDelta = stepX !== 0 ? Math.abs(1 / rd.x) : Infinity;
+    const tyDelta = stepY !== 0 ? Math.abs(1 / rd.y) : Infinity;
+    const tzDelta = stepZ !== 0 ? Math.abs(1 / rd.z) : Infinity;
+
+    const vx = x + (stepX > 0 ? 1 : 0);
+    const vy = y + (stepY > 0 ? 1 : 0);
+    const vz = z + (stepZ > 0 ? 1 : 0);
+
+    let txMax = stepX !== 0 ? ((vx * this.tile - ro.x) / rd.x) : Infinity;
+    let tyMax = stepY !== 0 ? ((vy * this.tile - ro.y) / rd.y) : Infinity;
+    let tzMax = stepZ !== 0 ? ((vz * this.tile - ro.z) / rd.z) : Infinity;
+
+    let lastEmpty = { x, y, z };
+    for (let i=0; i<this.maxDDASteps; i++) {
+      if (this._inBounds(x,y,z)) {
+        const key = this._key(x,y,z);
+        if (this.vox.has(key)) {
+          // We hit a block; report it and the last empty cell before it.
+          return { block:{x,y,z}, lastEmpty };
+        }
+      }
+
+      // Step to next voxel boundary
+      if (txMax < tyMax) {
+        if (txMax < tzMax) {
+          x += stepX; lastEmpty = { x, y, z }; if (txMax > maxT) break; txMax += txDelta;
+        } else {
+          z += stepZ; lastEmpty = { x, y, z }; if (tzMax > maxT) break; tzMax += tzDelta;
+        }
+      } else {
+        if (tyMax < tzMax) {
+          y += stepY; lastEmpty = { x, y, z }; if (tyMax > maxT) break; tyMax += tyDelta;
+        } else {
+          z += stepZ; lastEmpty = { x, y, z }; if (tzMax > maxT) break; tzMax += tzDelta;
+        }
+      }
+      // Stop if we wander far away
+      if (!this._inBounds(x,y,z) && (Math.abs(x) > this.maxXZ+2 || Math.abs(z) > this.maxXZ+2 || y < this.minY-2 || y > this.maxY+2)) break;
+    }
+    // No block encountered
+    return null;
   }
 
   _computePlacement(){
-    const hit = this._raycast();
-    if (!hit) return null;
-
-    const { grid, normal } = this._hitToGrid(hit);
-
-    let place = { x:grid.x, y:grid.y, z:grid.z };
-    // If we aimed at a block, place adjacent in normal direction.
-    if (hit.object.isInstancedMesh) {
-      place = { x:grid.x + normal.x, y:grid.y + normal.y, z:grid.z + normal.z };
+    // Prefer placing adjacent to a hit block; else place at last empty along DDA just above terrain
+    const res = this._ddaPick();
+    if (res && res.block) {
+      const { x, y, z } = res.block;
+      // Place into the last empty cell before the block
+      const { lastEmpty } = res;
+      return { placeGrid: { gx:lastEmpty.x, gy:lastEmpty.y, gz:lastEmpty.z } };
     }
 
-    return {
-      placeGrid: { gx:place.x, gy:place.y, gz:place.z }
-    };
+    // Fallback: intersect terrain and snap to its cell
+    const rc = _tmp.raycaster;
+    rc.setFromCamera(new THREE.Vector2(0,0), this.camera);
+    const hit = rc.intersectObjects(this._terrainTargets, true)[0];
+    if (!hit) return null;
+
+    const gx = Math.floor(hit.point.x / this.tile);
+    const gy = Math.floor(hit.point.y / this.tile) + 1; // build on top
+    const gz = Math.floor(hit.point.z / this.tile);
+    return { placeGrid: { gx, gy, gz } };
   }
 
   _currentPreviewCell(){
-    const hit = this._raycast();
-    if (!hit) return null;
-    const { grid, normal } = this._hitToGrid(hit);
-    let cell = { x:grid.x, y:grid.y, z:grid.z };
-    if (hit.object.isInstancedMesh) {
-      cell = { x:grid.x + normal.x, y:grid.y + normal.y, z:grid.z + normal.z };
+    const res = this._ddaPick();
+    if (res && res.block) {
+      const { lastEmpty } = res;
+      return this._inBounds(lastEmpty.x, lastEmpty.y, lastEmpty.z) ? lastEmpty : null;
     }
-    return this._inBounds(cell.x, cell.y, cell.z) ? cell : null;
+    const rc = _tmp.raycaster;
+    rc.setFromCamera(new THREE.Vector2(0,0), this.camera);
+    const hit = rc.intersectObjects(this._terrainTargets, true)[0];
+    if (!hit) return null;
+    const gx = Math.floor(hit.point.x / this.tile);
+    const gy = Math.floor(hit.point.y / this.tile) + 1;
+    const gz = Math.floor(hit.point.z / this.tile);
+    return this._inBounds(gx, gy, gz) ? { x:gx, y:gy, z:gz } : null;
   }
 
   _updatePreview(){
@@ -336,3 +414,8 @@ export class CraftSystem {
     this.preview.rotation.set(pitch, yaw, 0, 'YXZ');
   }
 }
+
+/* ---------- small shared temp ---------- */
+const _tmp = {
+  raycaster: new THREE.Raycaster()
+};
