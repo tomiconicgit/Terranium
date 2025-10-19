@@ -54,15 +54,15 @@ export class Main {
     this.launchActive = false;
 
     // Absolute times (seconds) relative to "press Ignite" (sound start)
-    this.S_FLAME_ON   = 10.5;     // flames *visible* + jolt + vibration start
-    this.S_LIFTOFF    = 13.5;     // liftoff a bit quicker after flames
-    this.S_TILT_ABS   = 45.0;     // start tilt later
-    this.S_DISAPPEAR  = 80.0;     // rocket disappears 1m20s after sound start
+    this.S_FLAME_ON   = 10.5;   // flames *visible* + jolt + vibration start
+    this.S_LIFTOFF    = 13.5;   // liftoff shortly after flames
+    this.S_TILT_ABS   = 45.0;   // start tilt
+    this.S_DISAPPEAR  = 80.0;   // rocket disappears (1m20s after sound start)
 
     // Motion tuning
-    this.ascentHeight = 6000;     // higher climb before disappear
-    this.maxTiltDeg   = 5.0;      // gentle pitch
-    this.tiltRampSeconds = 10.0;  // ramp tilt in over 10s once it begins
+    this.ascentHeight = 6000;   // climb before disappear
+    this.maxTiltDeg   = 5.0;    // gentle pitch
+    this.tiltRampSeconds = 10.0; // ramp tilt in over 10s once it begins
 
     // Camera shake state
     this.shakeActive = false;
@@ -81,7 +81,7 @@ export class Main {
       });
     } catch(e){ this.debugger?.handleError(e,'HighlighterInit'); }
 
-    // Optional: small reset button (kept)
+    // Reset button
     this.makeResetButton();
 
     window.addEventListener('resize', () => this.onWindowResize(), false);
@@ -131,7 +131,7 @@ export class Main {
             bakedFlameOffsets,
             cloneDefaults(),
             this.camera,
-            { ignite: 'src/assets/RocketIgnition.wav' }
+            { ignite: 'src/assets/RocketIgnition.wav' } // plays on click via playIgnitionSound()
           );
           this.instanced.setIgnition(false);
           this.effects.push(this.instanced);
@@ -159,22 +159,23 @@ export class Main {
       // Start absolute clock from NOW (sound must start immediately)
       this.soundStartTime = this.clock.getElapsedTime();
 
-      // >>> Play the audio immediately <<<
+      // >>> Play the audio immediately on click (queues if buffer not yet loaded)
       this.instanced.playIgnitionSound?.();
 
       // Restore to ground before each new sequence
       if (this.originalTransform) this.applyWorld(this.launchGroup, this.originalTransform);
       this.launchGroup.visible = true;
 
-      // Schedule flames to APPEAR at 10.5s absolute
-      // InstancedFlames shows visuals ~2.8s AFTER setIgnition(true)
+      // Schedule flames to APPEAR at 10.5s absolute.
+      // InstancedFlames shows visuals ~2.8s AFTER setIgnition(true),
+      // so call setIgnition at (10.5 - 2.8) = 7.7s.
       const internalDelay = 2.8;
-      const tCall = Math.max(0, this.S_FLAME_ON - internalDelay); // 10.5 - 2.8 = 7.7s
+      const tCall = Math.max(0, this.S_FLAME_ON - internalDelay); // 7.7
       this.launchTimers.push(setTimeout(()=>{
         this.instanced.setIgnition(true);
       }, tCall*1000));
 
-      // Camera shake (starts exactly at 10.5s, ends 20s into flight => 33.5s absolute)
+      // Camera shake (starts exactly at 10.5s, ends 20s after liftoff => 33.5s absolute)
       const vibStopAbs = this.S_LIFTOFF + 20.0;
       this.launchTimers.push(setTimeout(()=>{
         this.shakeActive   = true;
@@ -215,7 +216,7 @@ export class Main {
     const climbDuration = Math.max(0.0001, this.S_DISAPPEAR - this.S_LIFTOFF);
     const u = Math.min(1, tSinceLiftoff / climbDuration);
 
-    // Vertical motion: faster ease and a little extra punch early-on
+    // Vertical motion: faster ease (ease-out expo)
     const easeOutExpo = x => (x === 1) ? 1 : 1 - Math.pow(2, -10 * x);
     const yOffset = easeOutExpo(u) * this.ascentHeight;
 
@@ -265,7 +266,7 @@ export class Main {
     }
 
     // Minor continuous vibration
-    const f = 35; // Hz-ish wiggle speed
+    const f = 35; // wiggle speed
     const aRot = 0.0035;     // radians
     const aPos = 0.015;      // meters
     const s = Math.sin(abs * f), c = Math.cos(abs * (f * 1.37));
