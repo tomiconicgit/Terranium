@@ -47,28 +47,44 @@ export class Main {
     this.instanced = null;
     this.rocketModel = null;
 
-    // ---------- Launch rig & timings ----------
+    // ---------- Launch rig & absolute timings (sec after press) ----------
     this.launchGroup = null;          // parent that moves rocket + flames together
     this.originalTransform = null;    // world-space snapshot for reset
     this.launchTimers = [];
     this.launchActive = false;
 
-    // Absolute times (seconds) relative to "press Ignite" (sound start)
-    this.S_FLAME_ON   = 10.5;   // flames *visible* + jolt + vibration start
-    this.S_LIFTOFF    = 13.5;   // liftoff shortly after flames
+    this.S_FLAME_ON   = 10.5;   // flames visible + jolt + vibration start
+    this.S_LIFTOFF    = 13.5;   // start moving
     this.S_TILT_ABS   = 45.0;   // start tilt
-    this.S_DISAPPEAR  = 80.0;   // rocket disappears (1m20s after sound start)
+    this.S_DISAPPEAR  = 80.0;   // vanish
 
     // Motion tuning
-    this.ascentHeight = 6000;   // climb before disappear
+    this.ascentHeight = 6000;   // higher climb
     this.maxTiltDeg   = 5.0;    // gentle pitch
-    this.tiltRampSeconds = 10.0; // ramp tilt in over 10s once it begins
+    this.tiltRampSeconds = 10.0;
 
-    // Camera shake state
-    this.shakeActive = false;
-    this.shakeJoltDone = false;
-    this.shakeEndAbs = 0;         // absolute seconds when shake ends
-    this.soundStartTime = null;   // absolute clock reference (press Ignite)
+    // Camera shake (old behaviour brought back)
+    this.shake = {
+      joltActive: false,
+      joltStart: 0,
+      joltDuration: 0.6,                          // strong kick, fast decay
+      joltAmpPos: 0.28,                           // meters
+      joltAmpRot: THREE.MathUtils.degToRad(0.55), // radians (~0.55°)
+
+      minorActive: false,     // subtle rumble ignition → 20s after liftoff
+      minorSeed: Math.random() * 1000,
+      minorAmpPos: 0.022,                              // meters
+      minorAmpRot: THREE.MathUtils.degToRad(0.08),     // radians (~0.08°)
+      minorFreq: 23.0,
+      stopAfterLiftoffSec: 20.0
+    };
+    this._camSavedPos = new THREE.Vector3();
+    this._camSavedRot = new THREE.Euler(0,0,0,'YXZ');
+    this._pendingShake = null;
+
+    // absolute reference (press time)
+    this.soundStartTime = null;
+    this.liftoffStartAbs = null;
 
     this.clock = new THREE.Clock(); this.frameCount = 0;
 
@@ -81,13 +97,13 @@ export class Main {
       });
     } catch(e){ this.debugger?.handleError(e,'HighlighterInit'); }
 
-    // Reset button
     this.makeResetButton();
 
     window.addEventListener('resize', () => this.onWindowResize(), false);
     this.initPerformanceMonitor(); this.start();
   }
 
+  /* ---------------- UI + Systems ---------------- */
   initModelSystems() {
     this.importModelUI = new ImportModelUI(this.scene,(m)=>{ this.modelSliders.setActiveModel(m); },this.debugger);
     this.modelSliders = new ModelSlidersUI(this.debugger);
@@ -131,7 +147,7 @@ export class Main {
             bakedFlameOffsets,
             cloneDefaults(),
             this.camera,
-            { ignite: 'src/assets/RocketIgnition.wav' } // plays on click via playIgnitionSound()
+            { ignite: 'src/assets/RocketIgnition.wav' } // audio file
           );
           this.instanced.setIgnition(false);
           this.effects.push(this.instanced);
@@ -152,35 +168,30 @@ export class Main {
     // Clear any pending sequence timers
     this.launchTimers.forEach(t=>clearTimeout(t)); this.launchTimers.length=0;
     this.launchActive = false;
-    this.shakeActive = false;
-    this.shakeJoltDone = false;
+    this.shake.joltActive = false;
+    this.shake.minorActive = false;
 
     if (on) {
-      // Start absolute clock from NOW (sound must start immediately)
+      // Absolute "press time"
       this.soundStartTime = this.clock.getElapsedTime();
 
-      // >>> Play the audio immediately on click (queues if buffer not yet loaded)
+      // Start audio immediately on press
       this.instanced.playIgnitionSound?.();
 
       // Restore to ground before each new sequence
       if (this.originalTransform) this.applyWorld(this.launchGroup, this.originalTransform);
       this.launchGroup.visible = true;
 
-      // Schedule flames to APPEAR at 10.5s absolute.
-      // InstancedFlames shows visuals ~2.8s AFTER setIgnition(true),
-      // so call setIgnition at (10.5 - 2.8) = 7.7s.
+      // Flames visible at 10.5s → call setIgnition(true) at 10.5 - 2.8 = 7.7s
       const internalDelay = 2.8;
-      const tCall = Math.max(0, this.S_FLAME_ON - internalDelay); // 7.7
+      const tCall = Math.max(0, this.S_FLAME_ON - internalDelay);
       this.launchTimers.push(setTimeout(()=>{
         this.instanced.setIgnition(true);
       }, tCall*1000));
 
-      // Camera shake (starts exactly at 10.5s, ends 20s after liftoff => 33.5s absolute)
-      const vibStopAbs = this.S_LIFTOFF + 20.0;
+      // Start jolt + minor rumble exactly when flames appear
       this.launchTimers.push(setTimeout(()=>{
-        this.shakeActive   = true;
-        this.shakeJoltDone = false; // do one jolt on first frames
-        this.shakeEndAbs   = vibStopAbs;
+        this.startIgnitionShake();
       }, this.S_FLAME_ON*1000));
 
       // Liftoff at 13.5s absolute
@@ -194,6 +205,7 @@ export class Main {
         this.launchActive = false;
         if (this.launchGroup) this.launchGroup.visible = false;
         this.instanced.setIgnition(false);
+        this.stopAllShake();
       }, this.S_DISAPPEAR*1000));
 
     } else {
@@ -201,27 +213,48 @@ export class Main {
       this.instanced.setIgnition(false);
       this.soundStartTime = null;
       this.launchActive = false;
-      this.shakeActive = false;
+      this.stopAllShake();
     }
   }
 
+  /* -------------- Shake (old behaviour) --------------- */
+  startIgnitionShake(){
+    const now = this.clock.getElapsedTime();
+    this.shake.joltActive  = true;
+    this.shake.joltStart   = now;
+
+    this.shake.minorActive = true;
+    this.shake.minorSeed   = Math.random() * 1000;
+  }
+
+  stopAllShake(){
+    this.shake.joltActive  = false;
+    this.shake.minorActive = false;
+  }
+
+  /* ---------------- Launch motion ---------------- */
   updateLaunch(dt, nowSec){
+    // keep shake running pre-liftoff too
+    this.updateShake(nowSec);
+
     if (!this.launchActive || !this.launchGroup) return;
 
-    // t since liftoff (absolute)
-    const tAbs = nowSec - (this.soundStartTime ?? 0);
-    const tSinceLiftoff = Math.max(0, tAbs - this.S_LIFTOFF);
+    // absolute seconds since press
+    const abs = nowSec - (this.soundStartTime ?? 0);
 
-    // Duration available for climb (liftoff -> disappear)
+    // seconds since liftoff
+    const tSinceLiftoff = Math.max(0, abs - this.S_LIFTOFF);
+
+    // total climb time (liftoff → disappear)
     const climbDuration = Math.max(0.0001, this.S_DISAPPEAR - this.S_LIFTOFF);
     const u = Math.min(1, tSinceLiftoff / climbDuration);
 
-    // Vertical motion: faster ease (ease-out expo)
-    const easeOutExpo = x => (x === 1) ? 1 : 1 - Math.pow(2, -10 * x);
-    const yOffset = easeOutExpo(u) * this.ascentHeight;
+    // old feel: ease-in cubic — slow start, accelerate smoothly
+    const easeInCubic = x => x * x * x;
+    const yOffset = easeInCubic(u) * this.ascentHeight;
 
-    // Tilt begins at S_TILT_ABS; ramp in over tiltRampSeconds
-    const tSinceTiltStart = Math.max(0, tAbs - this.S_TILT_ABS);
+    // Tilt starts at absolute 45s and ramps in over tiltRampSeconds
+    const tSinceTiltStart = Math.max(0, abs - this.S_TILT_ABS);
     const tiltRamp = Math.min(1, tSinceTiltStart / Math.max(0.0001, this.tiltRampSeconds));
     const easeInOut = x => 0.5 - 0.5 * Math.cos(Math.PI * x);
     const tiltRad = THREE.MathUtils.degToRad(this.maxTiltDeg) * easeInOut(tiltRamp);
@@ -242,39 +275,90 @@ export class Main {
       this.launchGroup.position.y = yOffset;
       this.launchGroup.rotation.x = tiltRad;
     }
+
+    // Stop minor vibration 20s into flight
+    if (this.shake.minorActive && abs >= (this.S_LIFTOFF + this.shake.stopAfterLiftoffSec)) {
+      this.shake.minorActive = false;
+    }
   }
 
-  /* ---------------- Camera Shake ---------------- */
-  updateCameraShake(dt, nowSec){
-    if (!this.shakeActive) return;
+  /* ---------------- Camera shake core ---------------- */
+  updateShake(now){
+    if (!this.shake.joltActive && !this.shake.minorActive) return;
 
-    const abs = nowSec - (this.soundStartTime ?? 0);
+    // Save camera to restore after render
+    this._camSavedPos.copy(this.camera.position);
+    this._camSavedRot.copy(this.camera.rotation);
 
-    // Stop at scheduled absolute time
-    if (abs >= this.shakeEndAbs) {
-      this.shakeActive = false;
-      return;
+    // Jolt (quick decay)
+    let jPosX=0, jPosY=0, jPosZ=0, jRotX=0, jRotY=0, jRotZ=0;
+    if (this.shake.joltActive) {
+      const t = now - this.shake.joltStart;
+      if (t >= this.shake.joltDuration) {
+        this.shake.joltActive = false;
+      } else {
+        const q = 1.0 - (t / this.shake.joltDuration);
+        const ampPos = this.shake.joltAmpPos * q * q; // fast falloff
+        const ampRot = this.shake.joltAmpRot * q * q;
+
+        // snappy mix of frequencies for the kick
+        jPosX = ampPos * (Math.sin(61*now) + 0.5*Math.sin(89*now));
+        jPosY = ampPos * (Math.sin(73*now) + 0.5*Math.sin(97*now));
+        jPosZ = ampPos * (Math.sin(67*now) + 0.5*Math.sin(83*now));
+
+        jRotX = ampRot * (Math.sin(71*now));
+        jRotY = ampRot * (Math.sin(79*now));
+        jRotZ = ampRot * (Math.sin(101*now));
+      }
     }
 
-    // First few frames after start: a single strong jolt
-    if (!this.shakeJoltDone) {
-      this.shakeJoltDone = true;
-      this.camera.rotation.x += THREE.MathUtils.degToRad(0.6);
-      this.camera.rotation.y += THREE.MathUtils.degToRad(0.4);
-      this.camera.position.y -= 0.03;
-      return;
+    // Minor rumble (very subtle, continuous until 20s after liftoff)
+    let mPosX=0, mPosY=0, mPosZ=0, mRotX=0, mRotY=0, mRotZ=0;
+    if (this.shake.minorActive) {
+      const t = now + this.shake.minorSeed;
+      const f = this.shake.minorFreq;
+      const f2 = f * 0.37;
+      const f3 = f * 0.61;
+      const ampPos = this.shake.minorAmpPos;
+      const ampRot = this.shake.minorAmpRot;
+
+      mPosX = ampPos * (Math.sin(f*t)   * 0.6 + Math.sin(f2*t) * 0.4);
+      mPosY = ampPos * (Math.sin(f2*t)  * 0.7 + Math.sin(f3*t) * 0.3);
+      mPosZ = ampPos * (Math.sin(f3*t)  * 0.5 + Math.sin(f*t)  * 0.5);
+
+      mRotX = ampRot * Math.sin(f2*t);
+      mRotY = ampRot * Math.sin(f3*t);
+      mRotZ = ampRot * Math.sin(f*t);
     }
 
-    // Minor continuous vibration
-    const f = 35; // wiggle speed
-    const aRot = 0.0035;     // radians
-    const aPos = 0.015;      // meters
-    const s = Math.sin(abs * f), c = Math.cos(abs * (f * 1.37));
+    // Stage offsets for this frame
+    this._pendingShake = {
+      pos: new THREE.Vector3(jPosX + mPosX, jPosY + mPosY, jPosZ + mPosZ),
+      rot: new THREE.Euler(
+        this._camSavedRot.x + jRotX + mRotX,
+        this._camSavedRot.y + jRotY + mRotY,
+        this._camSavedRot.z + jRotZ + mRotZ,
+        'YXZ'
+      )
+    };
+  }
 
-    this.camera.rotation.x += s * aRot * dt;
-    this.camera.rotation.y += c * aRot * dt;
-    this.camera.position.x += s * aPos * dt;
-    this.camera.position.y += c * aPos * dt;
+  applyPendingShakeAndRender(){
+    // Apply if we have shake offsets staged
+    if (this._pendingShake) {
+      const p = this._pendingShake.pos, r = this._pendingShake.rot;
+      this.camera.position.add(p);
+      this.camera.rotation.set(r.x, r.y, r.z, 'YXZ');
+    }
+
+    this.renderer.render(this.scene, this.camera);
+
+    // Restore the camera to its exact pre-shake transform
+    if (this._pendingShake) {
+      this.camera.position.copy(this._camSavedPos);
+      this.camera.rotation.copy(this._camSavedRot);
+      this._pendingShake = null;
+    }
   }
 
   /* ---------------- Reset ---------------- */
@@ -305,10 +389,9 @@ export class Main {
   resetLaunch(){
     try{
       this.launchActive = false;
-      this.shakeActive = false;
-      this.shakeJoltDone = false;
       this.launchTimers.forEach(t=>clearTimeout(t)); this.launchTimers.length=0;
       this.instanced?.setIgnition(false);
+      this.stopAllShake();
 
       if (this.launchGroup && this.originalTransform) {
         this.applyWorld(this.launchGroup, this.originalTransform);
@@ -323,7 +406,7 @@ export class Main {
     const p = new THREE.Vector3(), q = new THREE.Quaternion(), s = new THREE.Vector3();
     obj.updateMatrixWorld(true);
     obj.matrixWorld.decompose(p,q,s);
-    return { pos:p.clone(), rot:new THREE.Euler().setFromQuaternion(q), scl:s.clone() };
+    return { pos:p.clone(), rot:new THREE.Euler().setFromQuaternion(q, 'YXZ'), scl:s.clone() };
   }
   applyWorld(obj, tr){
     const parent = obj.parent;
@@ -393,15 +476,16 @@ export class Main {
     const dt = this.clock.getDelta(), now = this.clock.getElapsedTime();
     if (dt>0) this.updatePlayer(dt);
 
-    // Launch motion & camera shake
+    // Motion + shake update
     this.updateLaunch(dt, now);
-    this.updateCameraShake(dt, now);
 
     // FX updates
     for (const fx of this.effects) fx.update?.(dt, now, this.camera);
 
+    // Render with temporary camera shake, then restore
     if (this.highlighter?.update) this.highlighter.update(dt);
-    this.renderer.render(this.scene,this.camera);
+    this.applyPendingShakeAndRender();
+
     this.frameCount++;
   }
 
