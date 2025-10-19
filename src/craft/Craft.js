@@ -3,9 +3,10 @@ import * as THREE from 'three';
 
 /**
  * CraftSystem (instanced voxels + DDA picking)
- * - Very light on draw calls: 1 InstancedMesh per block type, count grows as you build.
- * - Place/remove/dig; yaw/pitch 45° steps; hotbar; preview ghost.
- * - Bounds: x,z in [-200,200], y in [-30,3000].
+ * Fixes included:
+ *  - Instanced meshes set frustumCulled=false (prevents “blocks vanish as I move”).
+ *  - Preview depthTest=false so the ghost is always visible.
+ *  - Remove/dig works on aimed blocks; stacking works (place hits lastEmpty cell).
  */
 export class CraftSystem {
   constructor({ scene, camera, renderer, debuggerInstance }) {
@@ -79,7 +80,7 @@ export class CraftSystem {
     if (!this._inBounds(gx, gy, gz)) return;
 
     const key = this._key(gx, gy, gz);
-    if (this.vox.has(key)) return; // occupied
+    if (this.vox.has(key)) return; // already occupied
 
     const type = this.types[this.selected].id;
     const idx = this._allocIndex(type);
@@ -104,6 +105,7 @@ export class CraftSystem {
   }
 
   removeOrDig() {
+    // Aim at blocks via DDA
     const hit = this._ddaPick();
     if (hit && hit.block) {
       const { x, y, z } = hit.block;
@@ -113,6 +115,7 @@ export class CraftSystem {
       this.vox.delete(this._key(x,y,z));
       return;
     }
+    // If no block hit, remove at the preview cell if something exists there
     const cell = this._currentPreviewCell();
     if (!cell) return;
     const info = this.vox.get(this._key(cell.x, cell.y, cell.z));
@@ -143,7 +146,8 @@ export class CraftSystem {
       imesh.name = `vox_${t.id}`;
       imesh.castShadow = true; imesh.receiveShadow = true;
       imesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-      imesh.count = 0; // start drawing nothing
+      imesh.count = 0;                  // draw nothing initially
+      imesh.frustumCulled = false;      // <<< IMPORTANT: prevent disappearing as you move
       this.scene.add(imesh);
       this.meshes[t.id] = imesh;
       this.nextIndex[t.id]    = 0;
@@ -155,7 +159,7 @@ export class CraftSystem {
 
   _makePreview() {
     const geo = new THREE.BoxGeometry(1,1,1);
-    const mat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent:true, opacity:0.25, depthWrite:false });
+    const mat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent:true, opacity:0.25, depthWrite:false, depthTest:false });
     const mesh = new THREE.Mesh(geo, mat);
     mesh.visible = true;
     mesh.renderOrder = 9999;
@@ -339,6 +343,7 @@ export class CraftSystem {
       const { lastEmpty } = res;
       return { placeGrid: { gx:lastEmpty.x, gy:lastEmpty.y, gz:lastEmpty.z } };
     }
+    // Fallback: intersect terrain and snap to on-top cell
     const rc = _tmp.raycaster;
     rc.setFromCamera(new THREE.Vector2(0,0), this.camera);
     const hit = rc.intersectObjects(this._terrainTargets, true)[0];
