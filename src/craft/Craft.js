@@ -2,12 +2,20 @@
 import * as THREE from 'three';
 
 /**
- * CraftSystem (instanced voxels + DDA picking)
- * Fixes included:
- *  - Instanced meshes set frustumCulled=false (prevents “blocks vanish as I move”).
- *  - Preview depthTest=false so the ghost is always visible.
- *  - Remove/dig works on aimed blocks; stacking works (place hits lastEmpty cell).
+ * Voxel Craft System with CHUNK MESHING
+ * -------------------------------------
+ * - World voxels exist on a 1m grid.
+ * - Terrain is procedural "sand" from y=-30..h(x,z) with a subtle noise surface.
+ * - User can dig (carve) or place blocks (metal, concrete, tarmac, glass).
+ * - Rendering uses per-chunk meshes with face culling (1 draw per material per chunk).
+ * - DDA picking runs against the voxel field (placed ∪ (terrain − carved)).
+ * - On-screen build controls: Y/X rotate buttons + center tap pad (single=place, double=dig).
+ *
+ * World bounds:
+ *   x,z ∈ [-200,200]  (matches your original)
+ *   y   ∈ [-30, 3000] (terrain fills up to around 0; above is empty until you place)
  */
+
 export class CraftSystem {
   constructor({ scene, camera, renderer, debuggerInstance }) {
     this.scene   = scene;
@@ -15,57 +23,77 @@ export class CraftSystem {
     this.renderer= renderer;
     this.debugger = debuggerInstance;
 
-    // World limits
-    this.tile = 1.0;
+    // ====== VOXEL WORLD PARAMS ======
+    this.tile = 1;                // 1m cubes
     this.minY = -30;
     this.maxY = 3000;
     this.maxXZ = 200;
 
-    // DDA limit
-    this.maxDDASteps = 6000;
+    // Chunk size (x,z are 16, y is 32 → keeps rebuilds cheap)
+    this.CX = 16;
+    this.CY = 32;
+    this.CZ = 16;
+
+    // Terrain noise (kept subtle, surface near y≈0)
+    this.NOISE_FREQ = 0.05;
+    this.NOISE_AMP  = 1.6;
+
+    // DDA params
+    this.maxDDASteps = 8000;
 
     // Rotation state (45° steps)
-    this.yawSteps   = 0;
-    this.pitchSteps = 0;
+    this.yawSteps   = 0; // around Y (horizontal)
+    this.pitchSteps = 0; // around X (vertical)
 
     // Materials & block types
     this.materials = this._makeMaterials();
     this.types = [
-      { id:'metal',    label:'Metal',    mat:this.materials.metal    },
-      { id:'concrete', label:'Concrete', mat:this.materials.concrete },
-      { id:'tarmac',   label:'Tarmac',   mat:this.materials.tarmac   },
-      { id:'glass',    label:'Glass',    mat:this.materials.glass    },
+      { id:'sand',     label:'Sand',     mat:this.materials.sand,     isTerrain:true },
+      { id:'metal',    label:'Metal',    mat:this.materials.metal,    isTerrain:false },
+      { id:'concrete', label:'Concrete', mat:this.materials.concrete, isTerrain:false },
+      { id:'tarmac',   label:'Tarmac',   mat:this.materials.tarmac,   isTerrain:false },
+      { id:'glass',    label:'Glass',    mat:this.materials.glass,    isTerrain:false },
     ];
 
-    // Instancing setup
-    this.capacity = 10000; // per-type; bump later if needed
-    this.meshes       = {};   // id -> InstancedMesh
-    this.nextIndex    = {};   // id -> next fresh index
-    this.free         = {};   // id -> stack<int>
-    this.occupied     = {};   // id -> boolean[]
-    this.lastActiveIx = {};   // id -> highest active+1
-    this._initInstancing();
+    // Sparse data:
+    // placed: Map<"x,y,z", typeId>  (non-terrain blocks the user placed)
+    // carved: Set<"x,y,z">          (terrain voxels removed by digging)
+    this.placed = new Map();
+    this.carved = new Set();
 
-    // Sparse voxel map: "x,y,z" -> { typeId, index }
-    this.vox = new Map();
+    // CHUNKS: Map<"cx,cy,cz", { group, meshesByType, dirty }>
+    this.chunks = new Map();
 
-    // Preview ghost cube
+    // Preview ghost
     this.preview = this._makePreview();
 
-    // Hotbar UI
-    this.selected = 0;
+    // UI (hotbar at bottom)
+    this.selected = 1; // default to first buildable type (metal)
     this._buildHotbar();
 
-    // Pick targets: only terrain (instances picked via DDA)
-    this._terrainTargets = [];
-    this._rebuildTerrainTargets();
+    // On-screen build buttons (Y/X rotate + tap pad)
+    this._buildOnscreenControls();
 
+    // Hide old CPU terrain; we now render voxel sand
+    this._hideLegacyTerrain();
+
+    // Mesh maintenance queue
+    this._dirtyQueue = new Set();
+
+    // Rebuild visible ring around camera on first update
+    this._initialized = false;
+
+    // Hook resize for hotbar layout
     window.addEventListener('resize', ()=>this._layoutHotbar(), false);
   }
 
-  /* ---------------- Public API (controller binds) ---------------- */
-  selectNext(){ this.selected = (this.selected + 1) % this.types.length; this._updateHotbar(); }
-  selectPrev(){ this.selected = (this.selected - 1 + this.types.length) % this.types.length; this._updateHotbar(); }
+  /* ===================== PUBLIC API (controller bindings) ===================== */
+  selectNext(){ this.selected = (this.selected + 1) % this.types.length; if (this.types[this.selected].isTerrain) this.selected = (this.selected + 1) % this.types.length; this._updateHotbar(); }
+  selectPrev(){
+    this.selected = (this.selected - 1 + this.types.length) % this.types.length;
+    if (this.types[this.selected].isTerrain) this.selected = (this.selected - 1 + this.types.length) % this.types.length;
+    this._updateHotbar();
+  }
   yawStep(){   this.yawSteps   = (this.yawSteps + 1) & 7; }
   pitchStep(){ this.pitchSteps = (this.pitchSteps + 1) & 7; }
 
@@ -80,291 +108,134 @@ export class CraftSystem {
     if (!this._inBounds(gx, gy, gz)) return;
 
     const key = this._key(gx, gy, gz);
-    if (this.vox.has(key)) return; // already occupied
+    // prevent placing inside solid (unless it's terrain; then we "place over" by replacing terrain)
+    if (this._solidAt(gx,gy,gz)) return;
 
     const type = this.types[this.selected].id;
-    const idx = this._allocIndex(type);
-    const mesh = this.meshes[type];
-
-    const yaw   = this.yawSteps   * (Math.PI / 4);
-    const pitch = this.pitchSteps * (Math.PI / 4);
-
-    const p = new THREE.Vector3(
-      gx*this.tile + 0.5*this.tile,
-      gy*this.tile + 0.5*this.tile,
-      gz*this.tile + 0.5*this.tile
-    );
-    const q = new THREE.Quaternion().setFromEuler(new THREE.Euler(pitch, yaw, 0, 'YXZ'));
-    const m = new THREE.Matrix4().compose(p, q, new THREE.Vector3(1,1,1));
-
-    mesh.setMatrixAt(idx, m);
-    mesh.instanceMatrix.needsUpdate = true;
-    this._enableIndex(type, idx);
-
-    this.vox.set(key, { typeId:type, index:idx });
+    this.placed.set(key, type);
+    this._markVoxelAndNeighborsDirty(gx,gy,gz);
   }
 
   removeOrDig() {
-    // Aim at blocks via DDA
     const hit = this._ddaPick();
-    if (hit && hit.block) {
-      const { x, y, z } = hit.block;
-      const info = this.vox.get(this._key(x,y,z));
-      if (!info) return;
-      this._freeIndex(info.typeId, info.index);
-      this.vox.delete(this._key(x,y,z));
+    if (!hit) return;
+
+    const { x, y, z } = hit.block;
+
+    const k = this._key(x,y,z);
+    if (this.placed.has(k)) {
+      // remove placed block
+      this.placed.delete(k);
+      this._markVoxelAndNeighborsDirty(x,y,z);
       return;
     }
-    // If no block hit, remove at the preview cell if something exists there
-    const cell = this._currentPreviewCell();
-    if (!cell) return;
-    const info = this.vox.get(this._key(cell.x, cell.y, cell.z));
-    if (!info) return;
-    this._freeIndex(info.typeId, info.index);
-    this.vox.delete(this._key(cell.x, cell.y, cell.z));
+
+    // If it's terrain, carve it
+    if (this._terrainSolid(x,y,z)) {
+      this.carved.add(k);
+      this._markVoxelAndNeighborsDirty(x,y,z);
+    }
   }
 
   update(dt) {
+    // First-time: build initial chunk ring around camera (lazy terrain)
+    if (!this._initialized) {
+      this._initialized = true;
+      this._primeInitialChunks();
+    }
+
+    // Rebuild any dirty chunks (bounded work per frame)
+    this._processDirtyQueue(2); // max 2 chunk rebuilds per frame to stay smooth
+
+    // Update preview ghost
     this._updatePreview();
   }
 
-  /* ---------------- Internals ---------------- */
+  /* ===================== ONSCREEN CONTROLS ===================== */
+  _buildOnscreenControls() {
+    // Right-side Y/X rotate buttons
+    const wrap = document.createElement('div');
+    wrap.className = 'no-look';
+    wrap.style.cssText = `
+      position:fixed; right:18px; bottom:18px; z-index:14; display:flex; flex-direction:column; gap:10px;
+    `;
+
+    const mkBtn = (txt) => {
+      const b = document.createElement('button');
+      b.className = 'no-look';
+      b.textContent = txt;
+      b.style.cssText = `
+        width:64px; height:64px; border-radius:50%; border:1px solid rgba(255,255,255,.3);
+        background:rgba(20,20,24,.6); color:#fff; font-weight:700; font-size:18px;
+        backdrop-filter: blur(6px); cursor:pointer;
+      `;
+      return b;
+    };
+
+    const btnY = mkBtn('Y');
+    const btnX = mkBtn('X');
+    btnY.title = 'Rotate yaw +45°';
+    btnX.title = 'Rotate pitch +45°';
+
+    btnY.addEventListener('click', (e)=>{ e.stopPropagation(); this.yawStep(); }, { passive:true });
+    btnX.addEventListener('click', (e)=>{ e.stopPropagation(); this.pitchStep(); }, { passive:true });
+
+    wrap.appendChild(btnY);
+    wrap.appendChild(btnX);
+    document.body.appendChild(wrap);
+
+    // Center tap pad (single = place, double = dig)
+    const pad = document.createElement('div');
+    pad.id = 'place-pad';
+    pad.className = 'no-look';
+    pad.style.cssText = `
+      position:fixed; left:50%; top:50%; transform:translate(-50%,-50%);
+      width:120px; height:120px; z-index:13; border-radius:12px;
+      border:1px dashed rgba(255,255,255,.25);
+      background:rgba(20,20,24,.15);
+      touch-action: manipulation;
+    `;
+    document.body.appendChild(pad);
+
+    let lastTap = 0;
+    const DOUBLE_MS = 280;
+
+    const handler = () => {
+      const now = performance.now();
+      if (now - lastTap < DOUBLE_MS) {
+        this.removeOrDig();
+        lastTap = 0;
+      } else {
+        this.place();
+        lastTap = now;
+      }
+    };
+
+    pad.addEventListener('touchend', (e)=>{ e.preventDefault(); handler(); }, { passive:false });
+    pad.addEventListener('click',      (e)=>{ e.preventDefault(); handler(); });
+  }
+
+  /* ===================== MATERIALS ===================== */
   _makeMaterials() {
+    const common = { metalness: 0.0, roughness: 1.0 };
+    const sand = new THREE.MeshStandardMaterial({ color: 0xE1D7B9, metalness:0.0, roughness:0.95 });
     const metal = new THREE.MeshStandardMaterial({ color: 0xb8c2cc, metalness: 0.9, roughness: 0.35 });
-    const concrete = new THREE.MeshStandardMaterial({ color: 0xcfcfcf, metalness: 0.0, roughness: 0.9 });
+    const concrete = new THREE.MeshStandardMaterial({ color: 0xcfcfcf, metalness: 0.05, roughness: 0.9 });
     const tarmac = new THREE.MeshStandardMaterial({ color: 0x404040, metalness: 0.1, roughness: 0.95 });
     const glass = new THREE.MeshStandardMaterial({
       color: 0x99c7ff, metalness: 0.05, roughness: 0.05, transparent: true, opacity: 0.35, envMapIntensity: 0.4
     });
-    return { metal, concrete, tarmac, glass };
+    return { ...common, sand, metal, concrete, tarmac, glass };
   }
 
-  _initInstancing() {
-    const geo = new THREE.BoxGeometry(1,1,1);
-    for (const t of this.types) {
-      const imesh = new THREE.InstancedMesh(geo, t.mat, this.capacity);
-      imesh.name = `vox_${t.id}`;
-      imesh.castShadow = true; imesh.receiveShadow = true;
-      imesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-      imesh.count = 0;                  // draw nothing initially
-      imesh.frustumCulled = false;      // <<< IMPORTANT: prevent disappearing as you move
-      this.scene.add(imesh);
-      this.meshes[t.id] = imesh;
-      this.nextIndex[t.id]    = 0;
-      this.free[t.id]         = [];
-      this.occupied[t.id]     = new Array(this.capacity).fill(false);
-      this.lastActiveIx[t.id] = 0;
-    }
-  }
-
+  /* ===================== PREVIEW ===================== */
   _makePreview() {
     const geo = new THREE.BoxGeometry(1,1,1);
     const mat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent:true, opacity:0.25, depthWrite:false, depthTest:false });
     const mesh = new THREE.Mesh(geo, mat);
-    mesh.visible = true;
     mesh.renderOrder = 9999;
     this.scene.add(mesh);
     return mesh;
-  }
-
-  _rebuildTerrainTargets() {
-    this._terrainTargets.length = 0;
-    this.scene.traverse(o => {
-      if (o?.userData?.__isTerrain) this._terrainTargets.push(o);
-    });
-  }
-
-  _layoutHotbar() {
-    const bar = document.getElementById('craft-hotbar');
-    if (!bar) return;
-    bar.style.left = '50%';
-    bar.style.transform = 'translateX(-50%)';
-    bar.style.width = Math.min(560, window.innerWidth - 40) + 'px';
-  }
-
-  _buildHotbar() {
-    const bar = document.createElement('div');
-    bar.id = 'craft-hotbar';
-    bar.style.cssText = `
-      position:fixed; z-index:12; bottom:18px;
-      height:68px; display:flex; gap:8px; padding:8px 10px;
-      background:rgba(20,20,24,0.6); border:1px solid rgba(255,255,255,0.15);
-      border-radius:10px; backdrop-filter: blur(6px);
-    `;
-
-    this.hotSlots = [];
-    for (let i=0;i<this.types.length;i++){
-      const t = this.types[i];
-      const slot = document.createElement('div');
-      slot.style.cssText = `
-        flex:1; min-width:80px; height:52px; border-radius:8px;
-        border:2px solid rgba(255,255,255,0.15); display:flex; align-items:center; justify-content:center;
-        color:#fff; font-weight:600; user-select:none; font-family: system-ui, sans-serif;
-      `;
-      slot.textContent = t.label;
-      slot.dataset.type = t.id;
-      bar.appendChild(slot);
-      this.hotSlots.push(slot);
-    }
-    document.body.appendChild(bar);
-    this._layoutHotbar();
-    this._updateHotbar();
-  }
-
-  _updateHotbar(){
-    for (let i=0;i<this.hotSlots.length;i++){
-      const el = this.hotSlots[i];
-      if (i === this.selected) {
-        el.style.borderColor = 'rgba(255,255,255,0.85)';
-        el.style.boxShadow = '0 0 0 2px rgba(255,255,255,0.25) inset';
-      } else {
-        el.style.borderColor = 'rgba(255,255,255,0.15)';
-        el.style.boxShadow = 'none';
-      }
-    }
-  }
-
-  _key(x,y,z){ return `${x},${y},${z}`; }
-
-  _allocIndex(type){
-    const free = this.free[type];
-    if (free.length > 0) return free.pop();
-    const idx = this.nextIndex[type]++;
-    if (idx >= this.capacity) {
-      this.debugger?.warn?.(`Instancing capacity reached for ${type} (${this.capacity}). Consider raising capacity.`, 'Craft');
-      return this.capacity - 1; // clamp
-    }
-    return idx;
-  }
-
-  _enableIndex(type, idx){
-    const im = this.meshes[type];
-    this.occupied[type][idx] = true;
-    if (idx + 1 > im.count) im.count = idx + 1;
-    this.lastActiveIx[type] = Math.max(this.lastActiveIx[type], idx + 1);
-  }
-
-  _freeIndex(type, idx){
-    // Hide instance by moving/scaling away
-    const m = new THREE.Matrix4();
-    const p = new THREE.Vector3(0, -9999, 0);
-    const q = new THREE.Quaternion();
-    m.compose(p, q.identity(), new THREE.Vector3(0,0,0));
-    const im = this.meshes[type];
-    im.setMatrixAt(idx, m);
-    im.instanceMatrix.needsUpdate = true;
-
-    // Mark free
-    this.occupied[type][idx] = false;
-    this.free[type].push(idx);
-
-    // Shrink count if we removed the last drawn index
-    if (idx === im.count - 1) {
-      let newCount = im.count - 1;
-      const occ = this.occupied[type];
-      while (newCount > 0 && !occ[newCount - 1]) newCount--;
-      im.count = newCount;
-      this.lastActiveIx[type] = newCount;
-    }
-  }
-
-  _inBounds(x,y,z){
-    return (
-      x >= -this.maxXZ && x <= this.maxXZ &&
-      z >= -this.maxXZ && z <= this.maxXZ &&
-      y >= this.minY   && y <= this.maxY
-    );
-  }
-
-  /* ===== Voxel DDA picking ===== */
-  _ddaPick() {
-    // Ray from viewport center
-    const ndc = new THREE.Vector2(0, 0);
-    const raycaster = _tmp.raycaster;
-    raycaster.setFromCamera(ndc, this.camera);
-    const ro = raycaster.ray.origin.clone();
-    const rd = raycaster.ray.direction.clone();
-
-    // First, intersect terrain once to clamp far distance
-    let maxT = 10000;
-    const hitT = raycaster.intersectObjects(this._terrainTargets, true)[0];
-    if (hitT) {
-      const d = hitT.distance;
-      maxT = Math.max(1, d + 3000);
-    }
-
-    // Convert to voxel coords
-    let x = Math.floor(ro.x / this.tile);
-    let y = Math.floor(ro.y / this.tile);
-    let z = Math.floor(ro.z / this.tile);
-
-    const stepX = rd.x > 0 ? 1 : (rd.x < 0 ? -1 : 0);
-    const stepY = rd.y > 0 ? 1 : (rd.y < 0 ? -1 : 0);
-    const stepZ = rd.z > 0 ? 1 : (rd.z < 0 ? -1 : 0);
-
-    const txDelta = stepX !== 0 ? Math.abs(1 / rd.x) : Infinity;
-    const tyDelta = stepY !== 0 ? Math.abs(1 / rd.y) : Infinity;
-    const tzDelta = stepZ !== 0 ? Math.abs(1 / rd.z) : Infinity;
-
-    const vx = x + (stepX > 0 ? 1 : 0);
-    const vy = y + (stepY > 0 ? 1 : 0);
-    const vz = z + (stepZ > 0 ? 1 : 0);
-
-    let txMax = stepX !== 0 ? ((vx * this.tile - ro.x) / rd.x) : Infinity;
-    let tyMax = stepY !== 0 ? ((vy * this.tile - ro.y) / rd.y) : Infinity;
-    let tzMax = stepZ !== 0 ? ((vz * this.tile - ro.z) / rd.z) : Infinity;
-
-    let lastEmpty = { x, y, z };
-    for (let i=0; i<this.maxDDASteps; i++) {
-      if (this._inBounds(x,y,z)) {
-        const key = this._key(x,y,z);
-        if (this.vox.has(key)) {
-          return { block:{x,y,z}, lastEmpty };
-        }
-      }
-
-      // Step to next voxel boundary
-      if (txMax < tyMax) {
-        if (txMax < tzMax) { x += stepX; lastEmpty = { x, y, z }; if (txMax > maxT) break; txMax += txDelta; }
-        else               { z += stepZ; lastEmpty = { x, y, z }; if (tzMax > maxT) break; tzMax += tzDelta; }
-      } else {
-        if (tyMax < tzMax) { y += stepY; lastEmpty = { x, y, z }; if (tyMax > maxT) break; tyMax += tyDelta; }
-        else               { z += stepZ; lastEmpty = { x, y, z }; if (tzMax > maxT) break; tzMax += tzDelta; }
-      }
-
-      if (!this._inBounds(x,y,z) && (Math.abs(x)>this.maxXZ+2 || Math.abs(z)>this.maxXZ+2 || y<this.minY-2 || y>this.maxY+2)) break;
-    }
-    return null;
-  }
-
-  _computePlacement(){
-    const res = this._ddaPick();
-    if (res && res.block) {
-      const { lastEmpty } = res;
-      return { placeGrid: { gx:lastEmpty.x, gy:lastEmpty.y, gz:lastEmpty.z } };
-    }
-    // Fallback: intersect terrain and snap to on-top cell
-    const rc = _tmp.raycaster;
-    rc.setFromCamera(new THREE.Vector2(0,0), this.camera);
-    const hit = rc.intersectObjects(this._terrainTargets, true)[0];
-    if (!hit) return null;
-    const gx = Math.floor(hit.point.x / this.tile);
-    const gy = Math.floor(hit.point.y / this.tile) + 1;
-    const gz = Math.floor(hit.point.z / this.tile);
-    return { placeGrid: { gx, gy, gz } };
-  }
-
-  _currentPreviewCell(){
-    const res = this._ddaPick();
-    if (res && res.block) return res.lastEmpty;
-    const rc = _tmp.raycaster;
-    rc.setFromCamera(new THREE.Vector2(0,0), this.camera);
-    const hit = rc.intersectObjects(this._terrainTargets, true)[0];
-    if (!hit) return null;
-    const gx = Math.floor(hit.point.x / this.tile);
-    const gy = Math.floor(hit.point.y / this.tile) + 1;
-    const gz = Math.floor(hit.point.z / this.tile);
-    return { x:gx, y:gy, z:gz };
   }
 
   _updatePreview(){
@@ -380,6 +251,382 @@ export class CraftSystem {
     );
     this.preview.rotation.set(pitch, yaw, 0, 'YXZ');
   }
+
+  /* ===================== WORLD HELPERS ===================== */
+  _key(x,y,z){ return `${x},${y},${z}`; }
+  _ckey(cx,cy,cz){ return `${cx},${cy},${cz}`; }
+
+  _inBounds(x,y,z){
+    return (
+      x >= -this.maxXZ && x <= this.maxXZ &&
+      z >= -this.maxXZ && z <= this.maxXZ &&
+      y >= this.minY   && y <= this.maxY
+    );
+  }
+
+  _floorDiv(n, s){ return (n>=0) ? Math.floor(n/s) : Math.floor((n - (s-1))/s); }
+
+  _toChunkCoords(x,y,z){
+    const cx = this._floorDiv(x, this.CX);
+    const cy = this._floorDiv(y - this.minY, this.CY); // shift y so minY maps to 0
+    const cz = this._floorDiv(z, this.CZ);
+    return { cx, cy, cz };
+  }
+
+  _markVoxelAndNeighborsDirty(x,y,z){
+    const dirs = [[0,0,0],[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]];
+    for (const d of dirs){
+      const vx = x + d[0], vy = y + d[1], vz = z + d[2];
+      const { cx,cy,cz } = this._toChunkCoords(vx,vy,vz);
+      const key = this._ckey(cx,cy,cz);
+      this._dirtyQueue.add(key);
+    }
+  }
+
+  _primeInitialChunks(){
+    const cam = this.camera.position;
+    const cc = this._toChunkCoords(Math.floor(cam.x), Math.floor(cam.y), Math.floor(cam.z));
+    const R = 4; // radius in chunks (9x9 around you)
+    for (let dz=-R; dz<=R; dz++){
+      for (let dx=-R; dx<=R; dx++){
+        // cover ground cy that contains y≈0 and one above
+        for (let dy=-1; dy<=1; dy++){
+          const key = this._ckey(cc.cx+dx, Math.max(0,cc.cy+dy), cc.cz+dz);
+          this._dirtyQueue.add(key);
+        }
+      }
+    }
+  }
+
+  _processDirtyQueue(maxPerFrame=2){
+    let count = 0;
+    for (const key of this._dirtyQueue) {
+      if (count >= maxPerFrame) break;
+      this._dirtyQueue.delete(key);
+      const [cxS,cyS,czS] = key.split(','); 
+      this._buildChunk(parseInt(cxS), parseInt(cyS), parseInt(czS));
+      count++;
+    }
+  }
+
+  _hideLegacyTerrain(){
+    const toHide = [];
+    this.scene.traverse(o => { if (o?.userData?.__isTerrain) toHide.push(o); });
+    toHide.forEach(o => o.visible = false);
+  }
+
+  /* ===================== TERRAIN FIELD ===================== */
+  _noise(x, z) {
+    // simple hash-noise (deterministic, cheap)
+    const s = Math.sin(x * 127.1 + z * 311.7) * 43758.5453;
+    return (s - Math.floor(s)) * 2.0 - 1.0;
+  }
+  _heightAt(x, z) {
+    const n = this._noise(x * this.NOISE_FREQ, z * this.NOISE_FREQ);
+    return Math.round(n * this.NOISE_AMP); // integer surface
+  }
+
+  _terrainSolid(x,y,z){
+    if (y < this.minY) return false;
+    const h = this._heightAt(x, z); // around 0 ± ~2
+    return (y <= h);
+  }
+
+  _solidAt(x,y,z){
+    // placed overrides everything
+    const k = this._key(x,y,z);
+    if (this.placed.has(k)) return true;
+
+    // terrain minus carved
+    if (this.carved.has(k)) return false;
+    return this._terrainSolid(x,y,z);
+  }
+
+  _typeAt(x,y,z){
+    const k = this._key(x,y,z);
+    if (this.placed.has(k)) return this.placed.get(k);
+    if (this.carved.has(k)) return null;
+    return this._terrainSolid(x,y,z) ? 'sand' : null;
+  }
+
+  /* ===================== PICKING (DDA) ===================== */
+  _ddaPick() {
+    const rc = _tmp.raycaster;
+    rc.setFromCamera(new THREE.Vector2(0,0), this.camera);
+    const ro = rc.ray.origin.clone();
+    const rd = rc.ray.direction.clone();
+
+    // limit distance reasonably (world is 400×400)
+    const maxT = 1200;
+
+    // starting cell
+    let x = Math.floor(ro.x);
+    let y = Math.floor(ro.y);
+    let z = Math.floor(ro.z);
+
+    const stepX = rd.x > 0 ? 1 : (rd.x < 0 ? -1 : 0);
+    const stepY = rd.y > 0 ? 1 : (rd.y < 0 ? -1 : 0);
+    const stepZ = rd.z > 0 ? 1 : (rd.z < 0 ? -1 : 0);
+
+    const txDelta = stepX !== 0 ? Math.abs(1 / rd.x) : Infinity;
+    const tyDelta = stepY !== 0 ? Math.abs(1 / rd.y) : Infinity;
+    const tzDelta = stepZ !== 0 ? Math.abs(1 / rd.z) : Infinity;
+
+    const vx = x + (stepX > 0 ? 1 : 0);
+    const vy = y + (stepY > 0 ? 1 : 0);
+    const vz = z + (stepZ > 0 ? 1 : 0);
+
+    let txMax = stepX !== 0 ? ((vx - ro.x) / rd.x) : Infinity;
+    let tyMax = stepY !== 0 ? ((vy - ro.y) / rd.y) : Infinity;
+    let tzMax = stepZ !== 0 ? ((vz - ro.z) / rd.z) : Infinity;
+
+    let lastEmpty = { x, y, z };
+    let traveled = 0;
+
+    for (let i=0; i<this.maxDDASteps; i++) {
+      if (this._inBounds(x,y,z)) {
+        if (this._solidAt(x,y,z)) {
+          return { block:{x,y,z}, lastEmpty };
+        }
+      }
+
+      // step to next boundary
+      if (txMax < tyMax) {
+        if (txMax < tzMax) { x += stepX; traveled = txMax; txMax += txDelta; }
+        else               { z += stepZ; traveled = tzMax; tzMax += tzDelta; }
+      } else {
+        if (tyMax < tzMax) { y += stepY; traveled = tyMax; tyMax += tyDelta; }
+        else               { z += stepZ; traveled = tzMax; tzMax += tzDelta; }
+      }
+      lastEmpty = { x, y, z };
+      if (traveled > maxT) break;
+      if (!this._inBounds(x,y,z) && (Math.abs(x)>this.maxXZ+2 || Math.abs(z)>this.maxXZ+2 || y<this.minY-2 || y>this.maxY+2)) break;
+    }
+    return null;
+  }
+
+  _computePlacement(){
+    const res = this._ddaPick();
+    if (res && res.block) {
+      return { placeGrid: { gx:res.lastEmpty.x, gy:res.lastEmpty.y, gz:res.lastEmpty.z } };
+    }
+    // fallback: snap to surface at ray forward up to 1200m; place at nearest integer cell in front
+    const rc = _tmp.raycaster;
+    rc.setFromCamera(new THREE.Vector2(0,0), this.camera);
+    const p = this.camera.position.clone().add(rc.ray.direction.clone().multiplyScalar(5));
+    const gx = Math.round(p.x), gy = Math.round(p.y), gz = Math.round(p.z);
+    return { placeGrid: { gx, gy, gz } };
+  }
+
+  _currentPreviewCell(){
+    const res = this._ddaPick();
+    if (res && res.block) return res.lastEmpty;
+    const rc = _tmp.raycaster;
+    rc.setFromCamera(new THREE.Vector2(0,0), this.camera);
+    const p = this.camera.position.clone().add(rc.ray.direction.clone().multiplyScalar(5));
+    return { x:Math.round(p.x), y:Math.round(p.y), z:Math.round(p.z) };
+  }
+
+  /* ===================== CHUNK MESHING ===================== */
+  _buildChunk(cx,cy,cz){
+    // bounds in voxel coords
+    const x0 = cx * this.CX;
+    const y0 = this.minY + cy * this.CY;
+    const z0 = cz * this.CZ;
+
+    const x1 = x0 + this.CX;
+    const y1 = y0 + this.CY;
+    const z1 = z0 + this.CZ;
+
+    // bail if out of horizontal world
+    if (x0 > this.maxXZ || x1 < -this.maxXZ || z0 > this.maxXZ || z1 < -this.maxXZ) return;
+
+    // collect faces by material id
+    const buckets = new Map(); // typeId -> { positions, normals, uvs, indices }
+    const ensure = (tid) => {
+      if (!buckets.has(tid)) buckets.set(tid, { positions:[], normals:[], uvs:[], indices:[], vtx:0 });
+      return buckets.get(tid);
+    };
+
+    const addFace = (tid, ax, ay, az, bx, by, bz, cx2, cy2, cz2, dx, dy, dz, nx, ny, nz) => {
+      const b = ensure(tid);
+      const base = b.vtx;
+      b.positions.push(
+        ax,ay,az,  bx,by,bz,  cx2,cy2,cz2,  dx,dy,dz
+      );
+      b.normals.push(
+        nx,ny,nz,  nx,ny,nz,  nx,ny,nz,     nx,ny,nz
+      );
+      b.uvs.push(0,0, 1,0, 1,1, 0,1);
+      b.indices.push(base, base+1, base+2, base, base+2, base+3);
+      b.vtx += 4;
+    };
+
+    // Iterate cells; add faces where neighbor is empty
+    for (let z=z0; z<z1; z++){
+      for (let y=y0; y<y1; y++){
+        for (let x=x0; x<x1; x++){
+          const tid = this._typeAt(x,y,z);
+          if (!tid) continue;
+
+          // for each of 6 dirs, if neighbor not solid, emit a face
+          // left (-X)
+          if (!this._solidAt(x-1,y,z)) {
+            addFace(tid,
+              x,  y,  z+1,   x,  y+1, z+1,   x,  y+1, z,   x,  y,  z,
+              -1, 0,  0
+            );
+          }
+          // right (+X)
+          if (!this._solidAt(x+1,y,z)) {
+            addFace(tid,
+              x+1,y,  z,   x+1,y+1, z,   x+1,y+1, z+1,   x+1,y,  z+1,
+               1, 0,  0
+            );
+          }
+          // bottom (-Y)
+          if (!this._solidAt(x,y-1,z)) {
+            addFace(tid,
+              x,  y,  z,   x+1,y,  z,   x+1,y,  z+1,   x,  y,  z+1,
+               0,-1,  0
+            );
+          }
+          // top (+Y)
+          if (!this._solidAt(x,y+1,z)) {
+            addFace(tid,
+              x,  y+1,  z+1,   x+1,y+1,  z+1,   x+1,y+1,  z,   x,  y+1,  z,
+               0, 1,  0
+            );
+          }
+          // back (-Z)
+          if (!this._solidAt(x,y,z-1)) {
+            addFace(tid,
+              x+1, y, z,   x+1, y+1, z,   x, y+1, z,   x, y, z,
+               0, 0, -1
+            );
+          }
+          // front (+Z)
+          if (!this._solidAt(x,y,z+1)) {
+            addFace(tid,
+              x, y, z+1,   x, y+1, z+1,   x+1, y+1, z+1,   x+1, y, z+1,
+               0, 0, 1
+            );
+          }
+        }
+      }
+    }
+
+    // Create/replace chunk group
+    const ckey = this._ckey(cx,cy,cz);
+    let chunk = this.chunks.get(ckey);
+    if (!chunk) {
+      chunk = { group: new THREE.Group(), meshesByType: new Map(), cx,cy,cz };
+      chunk.group.name = `chunk_${ckey}`;
+      this.scene.add(chunk.group);
+      this.chunks.set(ckey, chunk);
+    }
+
+    // Clear existing meshes
+    for (const m of chunk.meshesByType.values()) {
+      chunk.group.remove(m);
+      m.geometry.dispose();
+    }
+    chunk.meshesByType.clear();
+
+    // Build meshes per material bucket
+    for (const [tid, data] of buckets.entries()) {
+      if (data.vtx === 0) continue;
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.Float32BufferAttribute(data.positions, 3));
+      g.setAttribute('normal',   new THREE.Float32BufferAttribute(data.normals,   3));
+      g.setAttribute('uv',       new THREE.Float32BufferAttribute(data.uvs,       2));
+      g.setIndex(data.indices);
+
+      const mat = this._materialForType(tid);
+      const mesh = new THREE.Mesh(g, mat);
+      mesh.castShadow = false;
+      mesh.receiveShadow = true;
+      mesh.frustumCulled = true; // ok for chunky meshes
+      chunk.group.add(mesh);
+      chunk.meshesByType.set(tid, mesh);
+    }
+  }
+
+  _materialForType(tid){
+    switch(tid){
+      case 'sand':     return this.materials.sand;
+      case 'metal':    return this.materials.metal;
+      case 'concrete': return this.materials.concrete;
+      case 'tarmac':   return this.materials.tarmac;
+      case 'glass':    return this.materials.glass;
+      default:         return this.materials.concrete;
+    }
+  }
+
+  /* ===================== HOTBAR UI ===================== */
+  _buildHotbar() {
+    const bar = document.createElement('div');
+    bar.id = 'craft-hotbar';
+    bar.style.cssText = `
+      position:fixed; z-index:12; bottom:18px; left:50%; transform:translateX(-50%);
+      height:68px; display:flex; gap:8px; padding:8px 10px;
+      background:rgba(20,20,24,0.6); border:1px solid rgba(255,255,255,0.15);
+      border-radius:10px; backdrop-filter: blur(6px);
+    `;
+
+    // show only buildable types (skip 'sand')
+    const buildables = this.types.filter(t=>!t.isTerrain);
+    this.hotSlots = [];
+    for (let i=0;i<buildables.length;i++){
+      const t = buildables[i];
+      const slot = document.createElement('div');
+      slot.style.cssText = `
+        flex:1; min-width:80px; height:52px; border-radius:8px;
+        border:2px solid rgba(255,255,255,0.15); display:flex; align-items:center; justify-content:center;
+        color:#fff; font-weight:600; user-select:none; font-family: system-ui, sans-serif;
+      `;
+      slot.textContent = t.label;
+      slot.dataset.type = t.id;
+      slot.onclick = () => {
+        this.selected = this.types.findIndex(tt=>tt.id===t.id);
+        this._updateHotbar();
+      };
+      bar.appendChild(slot);
+      this.hotSlots.push(slot);
+    }
+    document.body.appendChild(bar);
+    this._layoutHotbar();
+    this._updateHotbar();
+  }
+
+  _layoutHotbar() {
+    const bar = document.getElementById('craft-hotbar');
+    if (!bar) return;
+    bar.style.left = '50%';
+    bar.style.transform = 'translateX(-50%)';
+    bar.style.width = Math.min(560, window.innerWidth - 40) + 'px';
+  }
+
+  _updateHotbar(){
+    const buildables = this.types.filter(t=>!t.isTerrain);
+    const current = this.types[this.selected].id;
+    for (let i=0;i<this.hotSlots.length;i++){
+      const el = this.hotSlots[i];
+      const id = buildables[i].id;
+      if (id === current) {
+        el.style.borderColor = 'rgba(255,255,255,0.85)';
+        el.style.boxShadow = '0 0 0 2px rgba(255,255,255,0.25) inset';
+      } else {
+        el.style.borderColor = 'rgba(255,255,255,0.15)';
+        el.style.boxShadow = 'none';
+      }
+    }
+  }
+
+  /* ===================== INTERNAL TEMP ===================== */
 }
 
-const _tmp = { raycaster: new THREE.Raycaster() };
+/* ------- shared temp ------- */
+const _tmp = {
+  raycaster: new THREE.Raycaster()
+};
