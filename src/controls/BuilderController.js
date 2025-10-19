@@ -1,4 +1,6 @@
 // src/controls/BuilderController.js
+import * as THREE from 'three';
+
 // Backbone / standard gamepad polling + bindings for CraftSystem.
 export class BuilderController {
   constructor({ camera, craft, moveSpeed = 8, lookSpeed = 2.2 }) {
@@ -46,7 +48,6 @@ export class BuilderController {
 
     // Buttons
     const b = gp.buttons.map(btn => !!btn?.pressed);
-
     const press = (i) => b[i] && !this._prevButtons[i];
 
     // Mapping:
@@ -62,16 +63,16 @@ export class BuilderController {
     // L1 (4) = prev item
     if (press(4)) this.craft.selectPrev();
 
-    // Y (3) = yaw +45°
+    // Y (3) = spin block yaw +45°
     if (press(3)) this.craft.yawStep();
 
-    // X (2) = pitch +45°
+    // X (2) = spin block pitch +45°
     if (press(2)) this.craft.pitchStep();
 
-    // A (0) = fly up
+    // A (0) = Fly up (hold)
     if (b[0]) this.craft.fly(this.flyRate * dt);
 
-    // B (1) = fly down
+    // B (1) = Fly down (hold)
     if (b[1]) this.craft.fly(-this.flyRate * dt);
 
     // Save edges
