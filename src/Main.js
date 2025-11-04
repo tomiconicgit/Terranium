@@ -17,12 +17,9 @@ export class Main {
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.renderer.shadowMap.enabled = true;
-
-    // *** NEW: PBR/GLTF Configuration ***
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.0;
-    // ***********************************
 
     this.scene = new THREE.Scene();
     this.camera = createCamera();
@@ -31,18 +28,29 @@ export class Main {
 
     // --- lighting / sky / terrain ---
     const lights = createLighting();
-    this.ambientLight = lights.ambientLight;
+    // this.ambientLight = lights.ambientLight; // <-- Removed
     this.sunLight     = lights.sunLight;
-    this.scene.add(this.ambientLight, this.sunLight, this.sunLight.target);
+    
+    // *** NEW: HemisphereLight for "under lighting" / environment light ***
+    this.hemiLight = new THREE.HemisphereLight(
+      0x8ecaff, // Sky color
+      0x808080, // Ground color (from your concrete)
+      0.5       // Initial intensity
+    );
+    this.scene.add(this.hemiLight);
+    
+    // this.scene.add(this.ambientLight, this.sunLight, this.sunLight.target);
+    this.scene.add(this.sunLight, this.sunLight.target); // Add sun
 
     this.sky = createSkyDome();
     this.terrain = createTerrain(); // 100x100 flat base
     this.scene.add(this.terrain, this.sky);
 
-    // --- NEW: Store base sky colors for interpolation ---
+    // Store base sky colors for interpolation
     this.skyColors = {
-      nightTop: new THREE.Color(0x050a1f),
-      nightBottom: new THREE.Color(0x10152f),
+      // *** UPDATED: Darker night colors ***
+      nightTop: new THREE.Color(0x02030a),
+      nightBottom: new THREE.Color(0x0c101d),
       dayTop: new THREE.Color(0x4fa8ff),
       dayBottom: new THREE.Color(0xdfeaff)
     };
@@ -55,10 +63,10 @@ export class Main {
     this.lookSpeed = 0.004;
     this.playerHeight = 1.83; 
 
-    // --- NEW: Camera Bob ---
+    // Camera Bob
     this.bobTime = 0;
     this.bobSpeed = 10;
-    this.bobAmount = 0.08; // 8cm bob
+    this.bobAmount = 0.08; 
 
     this.raycaster = new THREE.Raycaster();
     this.rayDown = new THREE.Vector3(0, -1, 0);
@@ -83,11 +91,7 @@ export class Main {
     this.start();
   }
 
-  /**
-   * Loads the main hall model into the scene.
-   */
   loadHallModel() {
-    // Helper function to set material properties for shadows
     const setMaterialProperties = (mat) => {
       if (mat.transparent) {
         mat.alphaTest = 0.5;
@@ -97,7 +101,7 @@ export class Main {
     loadModel(
       'src/assets/ModernHall.glb',
       (model) => {
-        model.position.set(0, 0, 0); // Place at world center, ground level
+        model.position.set(0, 0, 0); 
         
         model.traverse(o => {
           if (o.isMesh) {
@@ -113,7 +117,7 @@ export class Main {
         });
         
         this.scene.add(model);
-        this.hallModel = model; // Save reference for collision
+        this.hallModel = model;
         this.debugger?.log('Loaded static model: ModernHall.glb');
       },
       (error) => {
@@ -122,11 +126,12 @@ export class Main {
     );
   }
 
-  // Function to update sun and sky based on slider
+  // *** UPDATED: Rewritten sun/sky logic ***
   updateSun(sliderValue) {
     const normalizedTime = sliderValue / 100; // 0.0 to 1.0
-    // Angle: -0.25 (sunrise) -> 0.0 (noon) -> 0.25 (sunset) -> 0.5 (midnight)
-    const angle = (normalizedTime - 0.25) * Math.PI * 2;
+    
+    // Angle: 0.0 (sunrise) -> PI/2 (noon) -> PI (sunset)
+    const angle = normalizedTime * Math.PI;
     
     const R = 600; // Sun distance
     
@@ -140,8 +145,9 @@ export class Main {
     const sunProgress = Math.max(0, Math.sin(angle));
 
     // Intensity
-    this.sunLight.intensity = sunProgress * 1.4 + 0.05; // Min 0.05, max 1.45
-    this.ambientLight.intensity = sunProgress * 0.4 + 0.1; // Min 0.1, max 0.5
+    // Stronger sun, and a much stronger base light for PBR reflections
+    this.sunLight.intensity = sunProgress * 2.5; // Max 2.5 at noon
+    this.hemiLight.intensity = sunProgress * 0.8 + 0.25; // Min 0.25 (night), Max 1.05 (day)
     
     // Sky Color
     this.sky.material.uniforms.topColor.value.lerpColors(
@@ -165,7 +171,6 @@ export class Main {
 
     if (!this.controlsPaused) this.updatePlayer(dt);
 
-    // Simple render
     this.renderer.render(this.scene, this.camera);
 
     this.frameCount++;
@@ -181,7 +186,6 @@ export class Main {
       this.controls.lookVector.set(0,0);
     }
 
-    // Check for movement
     const isMoving = mv.y !== 0 || mv.x !== 0;
     let bobOffset = 0;
     
@@ -189,7 +193,7 @@ export class Main {
       this.bobTime += deltaTime * this.bobSpeed;
       bobOffset = Math.sin(this.bobTime) * this.bobAmount;
     } else {
-      this.bobTime = 0; // Reset time if not moving
+      this.bobTime = 0;
     }
     
     this.playerVelocity.z = mv.y*moveSpeed; this.playerVelocity.x = mv.x*moveSpeed;
