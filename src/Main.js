@@ -18,6 +18,12 @@ export class Main {
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.renderer.shadowMap.enabled = true;
 
+    // *** NEW: PBR/GLTF Configuration ***
+    this.renderer.outputColorSpace = THREE.SRGBColorSpace;
+    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    this.renderer.toneMappingExposure = 1.0;
+    // ***********************************
+
     this.scene = new THREE.Scene();
     this.camera = createCamera();
     this.camera.rotation.order = 'YXZ';
@@ -47,7 +53,6 @@ export class Main {
 
     this.playerVelocity = new THREE.Vector3();
     this.lookSpeed = 0.004;
-    // *** UPDATED: Player height set to 1.83m (~6ft) ***
     this.playerHeight = 1.83; 
 
     // --- NEW: Camera Bob ---
@@ -67,7 +72,6 @@ export class Main {
     this.frameCount = 0;
 
     // --- UIs ---
-    // *** NEW: Sun slider listener ***
     this.sunSlider = document.getElementById('sun-slider');
     if (this.sunSlider) {
       this.sunSlider.addEventListener('input', (e) => this.updateSun(e.target.value));
@@ -118,7 +122,7 @@ export class Main {
     );
   }
 
-  // *** NEW: Function to update sun and sky based on slider ***
+  // Function to update sun and sky based on slider
   updateSun(sliderValue) {
     const normalizedTime = sliderValue / 100; // 0.0 to 1.0
     // Angle: -0.25 (sunrise) -> 0.0 (noon) -> 0.25 (sunset) -> 0.5 (midnight)
@@ -203,7 +207,6 @@ export class Main {
 
     const hits = this.raycaster.intersectObjects(collidableMeshes, true);
     if (hits.length > 0) {
-      // *** UPDATED: Set Y-pos + player height + bob offset ***
       this.camera.position.y = hits[0].point.y + this.playerHeight + bobOffset;
     }
   }
