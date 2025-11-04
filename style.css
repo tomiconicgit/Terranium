@@ -297,3 +297,33 @@ html, body {
     display: flex;
     gap: 10px;
 }
+
+/* *** NEW: Time of Day Slider *** */
+#time-of-day-slider {
+    position: fixed;
+    top: 20px;
+    left: 20px;
+    z-index: 11; /* Above joystick */
+    background: rgba(30, 30, 36, 0.85);
+    backdrop-filter: blur(8px);
+    border-radius: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    padding: 12px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+#time-of-day-slider label {
+    font-weight: 600;
+    font-size: 0.9em;
+    color: #eee;
+}
+#time-of-day-slider input[type="range"] {
+    width: 200px;
+    accent-color: #4f8ff7;
+}
+
+/* *** NEW: Class to prevent UI from moving camera *** */
+.no-look {
+    touch-action: none;
+}
