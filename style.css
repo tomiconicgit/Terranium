@@ -288,7 +288,7 @@ html, body {
     }
 }
 
-/* --- UI Container for top-left buttons --- */
+/* --- UI Container (empty placeholder) --- */
 #ui-container {
     position: fixed;
     top: 20px;
@@ -297,103 +297,3 @@ html, body {
     display: flex;
     gap: 10px;
 }
-
-#ui-container button {
-    padding: 10px 15px;
-    font-size: 1em;
-    font-weight: 500;
-    background-color: rgba(30, 30, 36, 0.8);
-    color: #fff;
-    border: 1px solid rgba(255, 255, 255, 0.2);
-    border-radius: 5px;
-    cursor: pointer;
-    backdrop-filter: blur(5px);
-    transition: background-color 0.2s;
-}
-
-#ui-container button:hover {
-    background-color: rgba(60, 60, 70, 0.9);
-}
-
-#ui-container button:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-}
-
-/* --- Transform Panel for Sliders --- */
-#transform-panel {
-    position: fixed;
-    top: 80px;
-    left: 20px;
-    z-index: 10;
-    background-color: rgba(30, 30, 36, 0.85);
-    backdrop-filter: blur(8px);
-    border-radius: 8px;
-    border: 1px solid rgba(255, 255, 255, 0.2);
-    padding: 20px;
-    width: 300px;
-    box-shadow: 0 5px 15px rgba(0,0,0,0.3);
-    transition: opacity 0.3s, transform 0.3s;
-}
-
-#transform-panel.hidden {
-    opacity: 0;
-    transform: translateX(-20px);
-    pointer-events: none;
-}
-
-#transform-panel h4 {
-    margin-top: 0;
-    margin-bottom: 20px;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-    padding-bottom: 10px;
-}
-
-/* Slider groups */
-.slider-group {
-    margin-bottom: 15px;
-    display: flex;
-    flex-direction: column;
-}
-
-.slider-group label {
-    display: flex;
-    justify-content: space-between;
-    margin-bottom: 8px;
-    font-size: 0.9em;
-    color: #ccc;
-}
-
-/* Sliders with smooth accent color + precise control */
-.slider-group input[type="range"] {
-    width: 100%;
-    accent-color: #4f8ff7;
-}
-
-/* Copy button */
-#copy-data-btn {
-    width: 100%;
-    padding: 10px;
-    margin-top: 10px;
-    background-color: #4f8ff7;
-    border: none;
-    border-radius: 5px;
-    color: #fff;
-    font-weight: 600;
-    cursor: pointer;
-    transition: background-color 0.3s ease;
-}
-
-#copy-data-btn:hover {
-    background-color: #6e4ff7;
-}
-
-/* ─────────────────────────────── */
-/* Touch fix so UI drags don’t move camera */
-#ui-container,
-#engine-panel,
-#transform-panel {
-    touch-action: none; /* blocks browser gestures; lets JS swallow events */
-}
-/* You can add class .no-look on any element to opt-in as “UI” */
-.no-look { touch-action: none; }
