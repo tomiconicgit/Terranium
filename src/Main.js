@@ -33,13 +33,27 @@ export class Main {
     this.terrain = createTerrain(); // 100x100 flat base
     this.scene.add(this.terrain, this.sky);
 
+    // --- NEW: Store base sky colors for interpolation ---
+    this.skyColors = {
+      nightTop: new THREE.Color(0x050a1f),
+      nightBottom: new THREE.Color(0x10152f),
+      dayTop: new THREE.Color(0x4fa8ff),
+      dayBottom: new THREE.Color(0xdfeaff)
+    };
+    
     // --- controls ---
     this.controls = new TouchPad();
     this.controlsPaused = false;
 
     this.playerVelocity = new THREE.Vector3();
     this.lookSpeed = 0.004;
-    this.playerHeight = 2.0;
+    // *** UPDATED: Player height set to 1.83m (~6ft) ***
+    this.playerHeight = 1.83; 
+
+    // --- NEW: Camera Bob ---
+    this.bobTime = 0;
+    this.bobSpeed = 10;
+    this.bobAmount = 0.08; // 8cm bob
 
     this.raycaster = new THREE.Raycaster();
     this.rayDown = new THREE.Vector3(0, -1, 0);
@@ -53,7 +67,12 @@ export class Main {
     this.frameCount = 0;
 
     // --- UIs ---
-    // All UI has been removed.
+    // *** NEW: Sun slider listener ***
+    this.sunSlider = document.getElementById('sun-slider');
+    if (this.sunSlider) {
+      this.sunSlider.addEventListener('input', (e) => this.updateSun(e.target.value));
+      this.updateSun(this.sunSlider.value); // Set initial position
+    }
 
     window.addEventListener('resize', () => this.onWindowResize(), false);
     this.initPerformanceMonitor();
@@ -67,9 +86,6 @@ export class Main {
     // Helper function to set material properties for shadows
     const setMaterialProperties = (mat) => {
       if (mat.transparent) {
-        // This is the key: It tells the renderer to only cast shadows
-        // from pixels with an alpha value > 0.5 (the window rails)
-        // and let light pass through pixels < 0.5 (the glass).
         mat.alphaTest = 0.5;
       }
     };
@@ -79,13 +95,11 @@ export class Main {
       (model) => {
         model.position.set(0, 0, 0); // Place at world center, ground level
         
-        // *** NEW: Traverse model to set shadow and transparency properties ***
         model.traverse(o => {
           if (o.isMesh) {
-            o.castShadow = true; // All parts of the hall can cast shadows
-            o.receiveShadow = true; // All parts can receive shadows
+            o.castShadow = true; 
+            o.receiveShadow = true; 
             
-            // Handle transparent windows
             if (Array.isArray(o.material)) {
               o.material.forEach(mat => setMaterialProperties(mat));
             } else if (o.material) {
@@ -104,6 +118,40 @@ export class Main {
     );
   }
 
+  // *** NEW: Function to update sun and sky based on slider ***
+  updateSun(sliderValue) {
+    const normalizedTime = sliderValue / 100; // 0.0 to 1.0
+    // Angle: -0.25 (sunrise) -> 0.0 (noon) -> 0.25 (sunset) -> 0.5 (midnight)
+    const angle = (normalizedTime - 0.25) * Math.PI * 2;
+    
+    const R = 600; // Sun distance
+    
+    // Sun rises in the East (positive Z), high at noon, sets in West (negative Z)
+    const sunX = 0;
+    const sunY = Math.sin(angle) * R; // Elevation (max at noon)
+    const sunZ = Math.cos(angle) * R; // East/West
+    this.sunLight.position.set(sunX, sunY, sunZ);
+
+    // Sun progress: 0.0 at night, 1.0 at noon
+    const sunProgress = Math.max(0, Math.sin(angle));
+
+    // Intensity
+    this.sunLight.intensity = sunProgress * 1.4 + 0.05; // Min 0.05, max 1.45
+    this.ambientLight.intensity = sunProgress * 0.4 + 0.1; // Min 0.1, max 0.5
+    
+    // Sky Color
+    this.sky.material.uniforms.topColor.value.lerpColors(
+      this.skyColors.nightTop, 
+      this.skyColors.dayTop, 
+      sunProgress
+    );
+    this.sky.material.uniforms.bottomColor.value.lerpColors(
+      this.skyColors.nightBottom, 
+      this.skyColors.dayBottom, 
+      sunProgress
+    );
+  }
+
   /* ---------------- Main loop ---------------- */
   start(){ this.animate(); }
   animate(){
@@ -113,8 +161,6 @@ export class Main {
 
     if (!this.controlsPaused) this.updatePlayer(dt);
 
-    // All rocket and effect updates removed
-
     // Simple render
     this.renderer.render(this.scene, this.camera);
 
@@ -122,7 +168,6 @@ export class Main {
   }
 
   updatePlayer(deltaTime){
-    // *** UPDATED: Increased moveSpeed from 5.0 to 12.0 ***
     const moveSpeed = 12.0 * deltaTime, mv=this.controls.moveVector, lv=this.controls.lookVector;
     
     if (lv.length()>0){
@@ -131,6 +176,18 @@ export class Main {
       this.camera.rotation.x = Math.max(-Math.PI/2, Math.min(Math.PI/2, this.camera.rotation.x));
       this.controls.lookVector.set(0,0);
     }
+
+    // Check for movement
+    const isMoving = mv.y !== 0 || mv.x !== 0;
+    let bobOffset = 0;
+    
+    if (isMoving) {
+      this.bobTime += deltaTime * this.bobSpeed;
+      bobOffset = Math.sin(this.bobTime) * this.bobAmount;
+    } else {
+      this.bobTime = 0; // Reset time if not moving
+    }
+    
     this.playerVelocity.z = mv.y*moveSpeed; this.playerVelocity.x = mv.x*moveSpeed;
     this.camera.translateX(this.playerVelocity.x); this.camera.translateZ(this.playerVelocity.z);
 
@@ -138,7 +195,6 @@ export class Main {
     const rayOrigin = new THREE.Vector3(this.camera.position.x, 80, this.camera.position.z);
     this.raycaster.set(rayOrigin, this.rayDown);
 
-    // UPDATED to check terrain AND hall model
     const collidableMeshes = [];
     this.terrain.traverse(o => { if (o.isMesh) collidableMeshes.push(o); });
     if (this.hallModel) {
@@ -147,8 +203,8 @@ export class Main {
 
     const hits = this.raycaster.intersectObjects(collidableMeshes, true);
     if (hits.length > 0) {
-      // *** UPDATED: Changed from Math.max to direct assignment to "stick" to floor ***
-      this.camera.position.y = hits[0].point.y + this.playerHeight;
+      // *** UPDATED: Set Y-pos + player height + bob offset ***
+      this.camera.position.y = hits[0].point.y + this.playerHeight + bobOffset;
     }
   }
 
