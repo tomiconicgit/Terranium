@@ -15,14 +15,29 @@ export class EditorManager {
     this.state = 'EDITOR'; // 'EDITOR' or 'GAME'
     this.selectedObject = null;
 
-    // Get UI elements
-    this.editorUI = document.getElementById('editor-ui');
+    // --- Get New UI Elements ---
+    this.appContainer = document.getElementById('app-container');
     this.playButton = document.getElementById('btn-play');
+    this.endTestButton = document.getElementById('btn-end-test');
     this.toolbar = document.getElementById('editor-toolbar');
-    this.assetPanel = document.getElementById('asset-panel');
-    this.propPanel = document.getElementById('property-panel');
+
+    // Tab UI
+    this.tabBar = document.querySelector('.tab-bar');
+    this.tabButtons = document.querySelectorAll('.tab-button');
+    this.tabContents = document.querySelectorAll('.tab-content');
+
+    // Scene Tab
+    this.sunSlider = document.getElementById('sun-slider');
+    this.gridToggle = document.getElementById('grid-toggle');
+    
+    // Asset Tab
+    this.assetPanel = document.getElementById('asset-list');
     this.fileInput = document.getElementById('file-input');
     this.uploadButton = document.getElementById('btn-upload-asset');
+    
+    // Properties Tab
+    this.propPanel = document.getElementById('props-content');
+
 
     // 1. Setup OrbitControls (Editor Camera)
     this.orbitControls = new OrbitControls(this.camera, this.renderer.domElement);
@@ -33,7 +48,6 @@ export class EditorManager {
     // 2. Setup TransformControls (Gizmo)
     this.transformControls = new TransformControls(this.camera, this.renderer.domElement);
     this.transformControls.addEventListener('dragging-changed', (event) => {
-      // Disable orbit controls while dragging gizmo
       this.orbitControls.enabled = !event.value;
     });
     this.scene.add(this.transformControls);
@@ -41,79 +55,115 @@ export class EditorManager {
     // 3. Setup Raycaster (Object Selection)
     this.raycaster = new THREE.Raycaster();
     this.pointer = new THREE.Vector2();
-    // Listen on the canvas for clicks
     this.renderer.domElement.addEventListener('pointerdown', (e) => this.onPointerDown(e), false);
 
-    // 4. Connect UI Buttons
-    this.playButton.addEventListener('click', () => this.toggleGameMode());
-    this.toolbar.addEventListener('click', (e) => this.onToolClick(e));
-    this.assetPanel.addEventListener('click', (e) => this.onAssetClick(e));
-    this.uploadButton.addEventListener('click', () => this.fileInput.click());
-    this.fileInput.addEventListener('change', (e) => this.onFileUpload(e));
-    
-    document.getElementById('btn-delete').addEventListener('click', () => this.deleteSelected());
+    // 4. Connect All UI Buttons
+    this.connectUI();
 
-    // Set initial camera position for editor
-    this.camera.position.set(10, 10, 10);
+    // *** MODIFIED: Set initial camera zoomed out ***
+    this.camera.position.set(25, 25, 25);
     this.camera.lookAt(0, 0, 0);
     
     // Set initial tool
     this.onToolClick({ target: document.getElementById('btn-select') });
   }
 
-  toggleGameMode() {
-    if (this.state === 'EDITOR') {
-      this.enterGameMode();
-    } else {
-      this.enterEditorMode();
-    }
+  connectUI() {
+    // Game Mode
+    this.playButton.addEventListener('click', () => this.enterGameMode());
+    this.endTestButton.addEventListener('click', () => this.enterEditorMode());
+
+    // Transform Toolbar
+    this.toolbar.addEventListener('click', (e) => this.onToolClick(e));
+    
+    // Tab Switching
+    this.tabBar.addEventListener('click', (e) => this.onTabClick(e));
+
+    // --- Scene Tab Listeners ---
+    this.sunSlider.addEventListener('input', (e) => this.main.updateSun(e.target.value));
+    this.main.updateSun(this.sunSlider.value); // Set initial
+    
+    this.gridToggle.addEventListener('change', (e) => {
+      this.main.gridHelper.visible = e.target.checked;
+    });
+
+    // Texture Buttons
+    document.getElementById('tex-grey').onclick = () => this.setTerrainColor(0x555555);
+    document.getElementById('tex-grass').onclick = () => this.setTerrainColor(0x3d703a);
+    document.getElementById('tex-sand').onclick = () => this.setTerrainColor(0xc2b280);
+    document.getElementById('tex-concrete').onclick = () => this.setTerrainColor(0x808080);
+    // TODO: Replace setTerrainColor with a texture loading function
+
+    // --- Asset Tab Listeners ---
+    this.assetPanel.addEventListener('click', (e) => this.onAssetClick(e));
+    this.uploadButton.addEventListener('click', () => this.fileInput.click());
+    this.fileInput.addEventListener('change', (e) => this.onFileUpload(e));
+    
+    // Delete button (in toolbar)
+    document.getElementById('btn-delete').addEventListener('click', () => this.deleteSelected());
   }
+
+  // --- Game Mode Logic ---
 
   enterGameMode() {
     this.state = 'GAME';
-    this.playButton.textContent = '⏹️ Editor';
+    this.appContainer.classList.add('game-mode-active');
     
-    // Disable editor controls
     this.orbitControls.enabled = false;
-    this.transformControls.detach(); // Hide gizmo
-    this.editorUI.style.display = 'none'; // Hide all editor UI
-
-    // Enable game controls (from Main.js)
+    this.transformControls.detach();
     this.main.controls.setPaused(false);
-    
-    // Reset player position (or use a dedicated spawn point)
+    this.main.gridHelper.visible = false; // Always hide grid in game mode
+
     this.main.camera.position.set(0, this.main.playerHeight, 5);
     this.main.camera.rotation.set(0, 0, 0, 'YXZ');
+    
+    // CRITICAL: Tell renderer to resize to new full-screen container
+    this.main.onWindowResize();
   }
 
   enterEditorMode() {
     this.state = 'EDITOR';
-    this.playButton.textContent = '▶️ Play';
-    
-    // Enable editor controls
+    this.appContainer.classList.remove('game-mode-active');
+
     this.orbitControls.enabled = true;
-    this.editorUI.style.display = 'block'; // Show editor UI
     if (this.selectedObject) {
       this.transformControls.attach(this.selectedObject);
     }
-
-    // Disable game controls
     this.main.controls.setPaused(true);
+    this.main.gridHelper.visible = this.gridToggle.checked; // Restore grid state
 
-    // Set camera to a good editor position
-    this.camera.position.set(10, 10, 10);
+    this.camera.position.set(25, 25, 25);
     this.orbitControls.target.set(0, 1, 0);
     this.orbitControls.update();
+    
+    // CRITICAL: Tell renderer to resize back to 50/50 container
+    this.main.onWindowResize();
+  }
+
+  // --- UI Event Handlers ---
+
+  onTabClick(event) {
+    const button = event.target.closest('button.tab-button');
+    if (!button) return;
+
+    const tabId = button.dataset.tab;
+    
+    // Deactivate all
+    this.tabButtons.forEach(btn => btn.classList.remove('active'));
+    this.tabContents.forEach(content => content.classList.remove('active'));
+    
+    // Activate clicked
+    button.classList.add('active');
+    document.getElementById(tabId).classList.add('active');
   }
 
   onToolClick(event) {
     const button = event.target.closest('button.tool');
     if (!button) return;
 
-    // Handle tool mode
     const tool = button.dataset.tool;
     if (tool === 'select') {
-      this.transformControls.setMode('translate'); // Use 'translate' for selection visual
+      this.transformControls.setMode('translate');
       this.transformControls.showX = false;
       this.transformControls.showY = false;
       this.transformControls.showZ = false;
@@ -124,7 +174,6 @@ export class EditorManager {
       this.transformControls.showZ = true;
     }
 
-    // Update active button style
     this.toolbar.querySelectorAll('.tool').forEach(b => b.classList.remove('active'));
     button.classList.add('active');
   }
@@ -139,9 +188,9 @@ export class EditorManager {
     loadModel(
       path, 
       (model) => {
-        model.position.set(0, 0.1, 0); // Place at camera target
+        model.position.set(0, 0.1, 0);
         this.scene.add(model);
-        this.selectObject(model); // Select the new model
+        this.selectObject(model);
       },
       (error) => this.main.debugger.handleError(error, 'AssetLoad')
     );
@@ -156,7 +205,6 @@ export class EditorManager {
       reader.onload = (e) => {
         const buffer = e.target.result;
         const filename = file.name.toLowerCase();
-        
         const loader = filename.endsWith('.fbx') ? loadFBXModel : loadModel;
         
         loader(
@@ -171,35 +219,53 @@ export class EditorManager {
       };
       reader.readAsArrayBuffer(file);
     }
-    
-    // Reset file input
     event.target.value = null;
   }
 
+  // --- Scene / Object Logic ---
+
+  setTerrainColor(color) {
+    // This is a placeholder. You can swap this for texture loading.
+    const mesh = this.main.terrainMesh;
+    if (!mesh) return;
+    
+    mesh.material.map = null; // Remove any existing texture
+    mesh.material.color.set(color);
+    mesh.material.needsUpdate = true;
+  }
+  /*
+  // Example of texture loading:
+  setTerrainTexture(texturePath) {
+    const mesh = this.main.terrainMesh;
+    if (!mesh) return;
+    
+    const texture = this.main.textureLoader.load(texturePath);
+    texture.wrapS = THREE.RepeatWrapping;
+    texture.wrapT = THREE.RepeatWrapping;
+    texture.repeat.set(20, 20); // Repeat texture 20x20 times
+    
+    mesh.material.map = texture;
+    mesh.material.color.set(0xffffff); // Set to white to not tint texture
+    mesh.material.needsUpdate = true;
+  }
+  */
+
   onPointerDown(event) {
     if (this.state !== 'EDITOR') return;
-
-    // Don't select if clicking on the gizmo
     if (this.transformControls.dragging) return;
     
-    // Clicks on HTML (UI) are on a different layer and won't reach the canvas,
-    // so we don't need to check for .no-look here.
+    // Calculate pointer position
+    const rect = this.renderer.domElement.getBoundingClientRect();
+    this.pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+    this.pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
 
-    // Calculate pointer position in normalized device coordinates
-    this.pointer.x = (event.clientX / window.innerWidth) * 2 - 1;
-    this.pointer.y = -(event.clientY / window.innerHeight) * 2 + 1;
-
-    // Update the raycaster
     this.raycaster.setFromCamera(this.pointer, this.camera);
-    
-    // Find intersections (only check models, not terrain or sky)
     const intersects = this.raycaster.intersectObjects(this.scene.children, true);
     
-    // Find the first "selectable" object
     let hit = null;
     for (const i of intersects) {
       
-      // *** FIX: Check if the intersected object is part of the TransformControls gizmo ***
+      // *** ERROR FIX: Check if the intersected object is part of the TransformControls gizmo ***
       let isGizmo = false;
       i.object.traverseAncestors((parent) => {
         if (parent === this.transformControls) {
@@ -208,18 +274,16 @@ export class EditorManager {
       });
       if (isGizmo) continue; // Skip this intersection, it's the gizmo
 
-      // Original logic
+      // Check for selectable objects
       if (i.object.isMesh && 
           i.object.name !== 'SkyDome_10km' && 
-          !i.object.userData.__isTerrain) {
+          !i.object.userData.__isTerrain &&
+          !i.object.isGridHelper) {
         
-        // Traverse up to find the root model (the THREE.Group)
         let rootObject = i.object;
         while (rootObject.parent && rootObject.parent !== this.scene) {
           rootObject = rootObject.parent;
         }
-        
-        // Final check: don't select the root of the gizmo
         if (rootObject === this.transformControls) continue;
 
         hit = rootObject;
@@ -227,11 +291,7 @@ export class EditorManager {
       }
     }
 
-    if (hit) {
-      this.selectObject(hit);
-    } else {
-      this.selectObject(null); // Deselect
-    }
+    this.selectObject(hit);
   }
 
   selectObject(obj) {
@@ -254,10 +314,8 @@ export class EditorManager {
     const obj = this.selectedObject;
     this.selectObject(null); // Deselect first
     
-    // Remove from scene
     obj.removeFromParent();
     
-    // Optional: Dispose geometry/material
     obj.traverse(child => {
       if (child.isMesh) {
         child.geometry?.dispose();
@@ -277,7 +335,6 @@ export class EditorManager {
       return;
     }
 
-    // A simple property editor
     content.innerHTML = `
       <strong>${obj.name || 'Object'}</strong>
       <label>Pos X:</label>
@@ -291,7 +348,6 @@ export class EditorManager {
       <input type="number" step="0.05" value="${obj.scale.x.toFixed(2)}" data-prop="scale.x">
     `;
     
-    // Add live-updating
     content.querySelectorAll('input').forEach(input => {
       input.addEventListener('input', (e) => {
         const propPath = e.target.dataset.prop;
