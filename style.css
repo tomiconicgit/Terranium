@@ -1,3 +1,309 @@
+/* General Body and HTML styles */
+html, body {
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background-color: #000;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    color: #fff;
+
+    /* iPhone Optimization: Disable all browser touch gestures (pinch-zoom, scroll) */
+    touch-action: none;
+}
+
+/* Game Canvas */
+#game-canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+    position: fixed;
+    top: 0;
+    left: 0;
+    z-index: 1;
+}
+
+/* Loader Styles */
+#loader-container {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(rgba(0, 0, 0, 0.6), rgba(0, 0, 0, 0.6)), url('src/assets/IMG_0022.jpeg') center center / cover no-repeat;
+    backdrop-filter: blur(8px);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 100;
+    transition: opacity 0.5s ease-out;
+    padding: 20px;
+    box-sizing: border-box;
+}
+
+.loader-card {
+    display: flex;
+    width: 100%;
+    max-width: 800px;
+    height: 90%;
+    max-height: 450px;
+    background: #1e1e24;
+    border-radius: 8px;
+    overflow: hidden;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+}
+
+.loader-image-side {
+    flex: 0 0 45%;
+    background-color: #000;
+    overflow: hidden;
+}
+
+.loader-image-side img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.loader-content-side {
+    flex: 1;
+    padding: 30px 40px;
+    display: flex;
+    flex-direction: column;
+    color: #eee;
+}
+
+.loader-content-side h2 {
+    margin-top: 0;
+    font-size: 1.8em;
+    font-weight: 600;
+    letter-spacing: 1px;
+    color: #fff;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    padding-bottom: 15px;
+    margin-bottom: auto;
+}
+
+.loader-status-line {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    font-size: 1em;
+    margin-bottom: 10px;
+}
+
+#loader-status-text {
+    margin: 0;
+    color: #ccc;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    flex-grow: 1;
+    padding-right: 10px;
+}
+
+#progress-percentage-text {
+    font-weight: bold;
+    color: #fff;
+    min-width: 40px;
+    text-align: right;
+}
+
+.progress-bar-container {
+    width: 100%;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 3px;
+    height: 8px;
+    overflow: hidden;
+    margin-bottom: 20px;
+}
+
+#progress-bar {
+    width: 0%;
+    height: 100%;
+    background: linear-gradient(90deg, #4f8ff7, #6e4ff7);
+    transition: width 0.3s ease-in-out, background-color 0.3s ease;
+}
+
+/* Button Group Styling */
+.button-group {
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 10px;
+    margin-top: 10px;
+}
+
+/* Enter Button */
+#enter-button {
+    padding: 10px 25px;
+    border: none;
+    border-radius: 4px;
+    font-size: 1em;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s;
+    background-color: #3b3b4d;
+    color: #888;
+}
+
+#enter-button:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+#enter-button:not(:disabled) {
+    background-color: #4f8ff7;
+    color: #fff;
+}
+
+#enter-button:not(:disabled):hover {
+    background-color: #6e4ff7;
+    box-shadow: 0 2px 10px rgba(79, 143, 247, 0.4);
+}
+
+/* Reload Button */
+#reload-button {
+    width: 40px;
+    height: 40px;
+    border: 1px solid #555;
+    background: transparent;
+    color: #ccc;
+    border-radius: 4px;
+    font-size: 1.5em;
+    cursor: pointer;
+    transition: all 0.3s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+#reload-button:hover {
+    background: #555;
+    color: #fff;
+}
+
+/* Debugger Message Area */
+#debugger-message-area {
+    min-height: 50px;
+    color: #d43b3b;
+    font-size: 0.85em;
+    background: rgba(212, 59, 59, 0.1);
+    border-left: 3px solid #d43b3b;
+    padding: 10px;
+    margin-bottom: 15px;
+    border-radius: 4px;
+    display: none;
+    overflow: auto;
+    max-height: 100px;
+}
+
+/* Debugger Notification Cards */
+#debugger-notifications {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    z-index: 200;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.debugger-card {
+    padding: 15px;
+    border-radius: 8px;
+    background: rgba(212, 59, 59, 0.85);
+    backdrop-filter: blur(5px);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    color: #fff;
+    width: 320px;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+    animation: slide-in 0.5s forwards;
+}
+
+@keyframes slide-in {
+    from {
+        transform: translateX(110%);
+        opacity: 0;
+    }
+    to {
+        transform: translateX(0);
+        opacity: 1;
+    }
+}
+
+/* TouchPad Controls (Game Mode) */
+.touch-controls {
+    position: fixed;
+    bottom: 20px;
+    left: 20px;
+    z-index: 10;
+    width: 120px;
+    height: 120px;
+}
+
+#joystick-base {
+    position: absolute;
+    width: 100%;
+    height: 100%;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 50%;
+    border: 2px solid rgba(255, 255, 255, 0.2);
+}
+
+#joystick-nub {
+    position: absolute;
+    width: 60px;
+    height: 60px;
+    background: rgba(255, 255, 255, 0.3);
+    border-radius: 50%;
+    top: 30px;
+    left: 30px;
+    pointer-events: none;
+}
+
+/* --- UI Container (empty placeholder) --- */
+#ui-container {
+    position: fixed;
+    top: 20px;
+    left: 20px;
+    z-index: 10;
+    display: flex;
+    gap: 10px;
+}
+
+/* --- Time of Day Slider --- */
+#time-of-day-slider {
+    position: fixed;
+    top: 20px;
+    left: 20px;
+    z-index: 11;
+    background: rgba(30, 30, 36, 0.85);
+    backdrop-filter: blur(8px);
+    border-radius: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    padding: 12px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+#time-of-day-slider label {
+    font-weight: 600;
+    font-size: 0.9em;
+    color: #eee;
+}
+#time-of-day-slider input[type="range"] {
+    width: 200px;
+    accent-color: #4f8ff7;
+}
+
+/* Class to prevent UI from moving camera (applied in JS) */
+.no-look {
+    touch-action: auto; /* Re-enable touch for this element */
+}
+
+
 /* --- Editor UI Styles --- */
 
 #editor-ui {
@@ -37,6 +343,7 @@
     padding: 8px 12px;
     cursor: pointer;
     font-size: 1em;
+    transition: background 0.2s;
 }
 
 #editor-toolbar button:hover {
@@ -48,20 +355,14 @@
     border-color: #4f8ff7;
 }
 
-#btn-play {
-    background: #2a8837;
-    border-color: #3aa84a;
-}
-#btn-delete {
-    background: #a82b2b;
-    border-color: #d43b3b;
-}
+#btn-play { background: #2a8837; border-color: #3aa84a; }
+#btn-delete { background: #a82b2b; border-color: #d43b3b; }
 
 #asset-panel, #property-panel {
     position: absolute;
     top: 80px;
     width: 250px;
-    max-height: calc(100vh - 100px);
+    max-height: calc(100vh - 100px); /* Fit on screen */
     background: rgba(30, 30, 36, 0.85);
     backdrop-filter: blur(8px);
     border-radius: 8px;
@@ -70,14 +371,13 @@
     padding: 15px;
     display: flex;
     flex-direction: column;
+    
+    /* iPhone Optimization: Allow scrolling *within* this panel */
+    touch-action: auto; 
 }
 
-#asset-panel {
-    left: 20px;
-}
-#property-panel {
-    right: 20px;
-}
+#asset-panel { left: 20px; }
+#property-panel { right: 20px; }
 
 #asset-panel h3, #property-panel h3 {
     margin-top: 0;
@@ -85,11 +385,16 @@
     padding-bottom: 10px;
 }
 
+#asset-list, #props-content {
+    /* iPhone Optimization: Make content scrollable */
+    overflow-y: auto;
+    flex-grow: 1; /* Allow content to fill panel */
+}
+
 #asset-list {
     display: flex;
     flex-direction: column;
     gap: 8px;
-    overflow-y: auto;
 }
 
 #asset-list button {
@@ -100,17 +405,20 @@
     padding: 8px 12px;
     cursor: pointer;
     text-align: left;
+    transition: background 0.2s;
 }
 #asset-list button:hover {
     background: #555;
 }
 
 #props-content {
-    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
 }
 #props-content label {
     display: block;
-    margin-top: 10px;
+    margin-top: 8px;
     font-size: 0.9em;
     color: #ccc;
 }
@@ -122,4 +430,43 @@
     padding: 5px;
     border-radius: 4px;
     box-sizing: border-box; /* Important */
+}
+
+/* --- Responsive Loader (Original) --- */
+@media (max-width: 768px) and (orientation: landscape) {
+    .loader-card { max-height: 350px; }
+    .loader-image-side { flex: 0 0 40%; }
+    .loader-content-side { padding: 15px 20px; }
+    .loader-content-side h2 { font-size: 1.3em; }
+}
+@media (max-width: 600px) and (orientation: portrait) {
+    .loader-card {
+        flex-direction: column;
+        max-height: 90%;
+        height: auto;
+    }
+    .loader-image-side { height: 180px; flex-basis: auto; }
+}
+
+/* --- iPhone Optimization (Editor UI) --- */
+@media (max-width: 900px) and (orientation: landscape) {
+    #asset-panel, #property-panel {
+        width: 180px; /* Narrower panels */
+        top: 15px;
+        max-height: calc(100vh - 30px);
+    }
+    #asset-panel { left: 15px; }
+    #property-panel { right: 15px; }
+    
+    #editor-toolbar {
+        top: 15px;
+    }
+    #editor-toolbar button {
+        padding: 6px 10px;
+        font-size: 0.9em;
+    }
+    
+    #time-of-day-slider {
+        display: none; /* Hide slider on small screens to save space */
+    }
 }
