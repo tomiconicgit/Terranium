@@ -5,7 +5,6 @@ import { createSkyDome }  from './scene/SkyDome.js';
 import { createLighting } from './scene/Lighting.js';
 import { createCamera }   from './scene/Camera.js';
 import { TouchPad }       from './controls/TouchPad.js';
-// import { loadModel }      from './ModelLoading.js'; // Not used by default
 import { EditorManager }  from './EditorManager.js'; 
 
 export class Main {
@@ -30,6 +29,7 @@ export class Main {
     this.world.name = "WorldRoot";
     this.scene.add(this.world);
 
+    // --- lighting / sky / terrain ---
     const lights = createLighting();
     this.sunLight = lights.sunLight;
     
@@ -40,10 +40,17 @@ export class Main {
     this.terrain = createTerrain();
     this.scene.add(this.terrain, this.sky);
 
+    // *** NEW: Add specific names for the editor to find ***
+    this.sky.name = "SkySettings";
+    this.sunLight.name = "LightingSettings";
+    this.terrain.name = "TerrainSettings"; // This is the group
+    this.hemiLight.name = "AmbientLight"; // Also track this
+    
     this.terrainMesh = this.terrain.getObjectByName('ConcreteTerrain_100x100_Flat');
     this.textureLoader = new THREE.TextureLoader();
 
     this.gridHelper = new THREE.GridHelper(100, 100, 0x888888, 0x444444);
+    this.gridHelper.name = "EditorGrid"; // Give grid a name to ignore it
     this.scene.add(this.gridHelper);
 
     this.skyColors = {
@@ -115,19 +122,16 @@ export class Main {
     this.terrainMesh.material.needsUpdate = true;
   }
 
-  /* ---------------- Main loop ---------------- */
   start(){ this.animate(); }
   
   animate(){
     requestAnimationFrame(()=>this.animate());
-    const dt = this.clock.getDelta(); // Get time delta
+    const dt = this.clock.getDelta();
 
     if (this.editorManager.state === 'GAME') {
       this.updatePlayer(dt);
     }
     
-    // *** NEW: Animation Mixer Loop ***
-    // This updates any playing animations on any object
     this.world.traverse(obj => {
         if (obj.mixer) {
             obj.mixer.update(dt);
