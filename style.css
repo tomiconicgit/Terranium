@@ -231,27 +231,29 @@ button:disabled {
 
 /*
 =================================================
- HIERARCHY STYLES (FIXED)
+ SCENE HIERARCHY STYLES (LARGER UI)
 =================================================
 */
 
 #scene-tree-view {
-    font-size: 14px;
     user-select: none;
 }
 .tree-category {
-    font-size: 16px;
+    /* *** MODIFIED: Larger text *** */
+    font-size: 18px;
     font-weight: 600;
     color: #fff;
     margin-bottom: 8px;
     display: flex;
     align-items: center;
     cursor: pointer;
+    /* *** MODIFIED: Larger padding *** */
+    padding: 4px 0;
 }
 .tree-category .arrow {
-    margin-right: 6px;
+    margin-right: 8px;
     transition: transform 0.2s ease;
-    font-size: 12px;
+    font-size: 14px;
 }
 .tree-category.expanded .arrow {
     transform: rotate(90deg);
@@ -260,7 +262,8 @@ button:disabled {
 .tree-item {
     display: flex;
     align-items: center;
-    padding: 4px 8px;
+    /* *** MODIFIED: Larger padding for easier tapping *** */
+    padding: 8px 10px;
     border-radius: 5px;
     cursor: pointer;
     transition: background-color 0.2s ease;
@@ -274,10 +277,11 @@ button:disabled {
     font-weight: 600;
 }
 .tree-item .arrow {
-    width: 14px;
+    width: 16px;
     text-align: center;
-    font-size: 10px;
-    margin-right: 4px;
+    /* *** MODIFIED: Larger arrow *** */
+    font-size: 12px;
+    margin-right: 6px;
     color: #aaa;
     transition: transform 0.2s ease;
 }
@@ -285,18 +289,22 @@ button:disabled {
     transform: rotate(90deg);
 }
 .tree-item .icon {
-    margin-right: 6px;
+    /* *** MODIFIED: Larger icon/spacing *** */
+    margin-right: 8px;
+    font-size: 16px;
 }
 .tree-item .label {
     flex-grow: 1;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    /* *** MODIFIED: Larger text *** */
+    font-size: 16px;
 }
-
 .tree-children {
     display: none;
-    padding-left: 20px;
+    /* *** MODIFIED: Deeper indent *** */
+    padding-left: 25px;
 }
 
 /* *** CRITICAL HIERARCHY FIX *** */
@@ -306,8 +314,6 @@ button:disabled {
 .tree-item.expanded + .tree-children {
     display: block;
 }
-/* *** END FIX *** */
-
 
 /*
 =================================================
@@ -369,7 +375,6 @@ button:disabled {
     font-size: 12px;
 }
 
-/* *** NEW: Position Slider Styles *** */
 .props-group .props-slider {
     grid-column: 2 / -1;
     display: flex;
@@ -383,8 +388,6 @@ button:disabled {
 .props-group .props-slider input[type="range"] {
     flex-grow: 1;
 }
-/* *** END NEW *** */
-
 
 input[type="range"] {
     width: 100%;
