@@ -2,12 +2,10 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  
   <meta
     name="viewport"
     content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    
-  <title>Terranium</title>
+  <title>Terranium Editor</title>
 
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="apple-touch-icon" href="/icons/icon-192x192.png">
@@ -20,7 +18,6 @@
     "imports": {
       "three": "https://cdn.jsdelivr.net/npm/three@0.163.0/build/three.module.js",
       "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.163.0/examples/jsm/",
-      
       "three/addons/controls/OrbitControls.js": "https://cdn.jsdelivr.net/npm/three@0.163.0/examples/jsm/controls/OrbitControls.js",
       "three/addons/controls/TransformControls.js": "https://cdn.jsdelivr.net/npm/three@0.163.0/examples/jsm/controls/TransformControls.js",
       "three/addons/loaders/FBXLoader.js": "https://cdn.jsdelivr.net/npm/three@0.163.0/examples/jsm/loaders/FBXLoader.js"
@@ -40,18 +37,12 @@
       </div>
       <div class="loader-content-side">
         <h2>Terranium Initialising</h2>
-
         <div class="loader-status-line">
           <p id="loader-status-text">Preparing systems...</p>
           <span id="progress-percentage-text">0%</span>
         </div>
-
-        <div class="progress-bar-container">
-          <div id="progress-bar"></div>
-        </div>
-
+        <div class="progress-bar-container"><div id="progress-bar"></div></div>
         <div id="debugger-message-area"></div>
-
         <div class="button-group">
           <button id="reload-button" title="Reload">&#x21bb;</button>
           <button id="enter-button" disabled>LOADING</button>
@@ -61,37 +52,76 @@
   </div>
 
   <div id="debugger-notifications"></div>
-  <canvas id="game-canvas"></canvas>
-  <div id="ui-container"></div>
-  <div id="time-of-day-slider" class="no-look">
-    <label for="sun-slider">☀️ Time of Day</label>
-    <input type="range" id="sun-slider" min="0" max="100" value="50">
-  </div>
 
-  <div id="editor-ui" class="no-look">
-    <div id="editor-toolbar">
-      <button id="btn-play" title="Play (Enter Game Mode)">▶️ Play</button>
-      <button id="btn-select" class="tool active" data-tool="select" title="Select">🖐</button>
-      <button id="btn-move" class="tool" data-tool="translate" title="Move">↔️</button>
-      <button id="btn-rotate" class="tool" data-tool="rotate" title="Rotate">🔄</button>
-      <button id="btn-scale" class="tool" data-tool="scale" title="Scale">Scaling</button>
-      <button id="btn-delete" title="Delete Selected">🗑️</button>
-    </div>
+  <div id="app-container">
 
-    <div id="asset-panel">
-      <h3>Assets</h3>
-      <div id="asset-list">
-        <button class="asset-item" data-path="src/assets/ModernHall.glb">ModernHall.glb</button>
-        
-        <input type="file" id="file-input" multiple accept=".glb,.fbx" style="display: none;">
-        <button id="btn-upload-asset" title="Load from device">Upload .glb/.fbx</button>
+    <div id="viewport-container">
+      <canvas id="game-canvas"></canvas>
+      
+      <div id="editor-toolbar" class="no-look">
+        <button id="btn-select" class="tool active" data-tool="select" title="Select">🖐</button>
+        <button id="btn-move" class="tool" data-tool="translate" title="Move">↔️</button>
+        <button id="btn-rotate" class="tool" data-tool="rotate" title="Rotate">🔄</button>
+        <button id="btn-scale" class="tool" data-tool="scale" title="Scale">Scaling</button>
+        <button id="btn-delete" title="Delete Selected">🗑️</button>
       </div>
+
+      <button id="btn-play" class="no-look" title="Play (Enter Game Mode)">▶️ Play</button>
+      <button id="btn-end-test" class="no-look" title="End Test Mode">⏹️ End Test</button>
     </div>
 
-    <div id="property-panel">
-      <h3>Properties</h3>
-      <div id="props-content">
-        <p>No object selected.</p>
+    <div id="editor-panel-container" class="no-look">
+      
+      <nav class="tab-bar">
+        <button class="tab-button active" data-tab="tab-scene">Scene</button>
+        <button class="tab-button" data-tab="tab-assets">Assets</button>
+        <button class="tab-button" data-tab="tab-properties">Properties</button>
+      </nav>
+
+      <div class="tab-content-wrapper">
+
+        <div id="tab-scene" class="tab-content active">
+          <div class="panel-section">
+            <h4>Environment</h4>
+            <div class="control-grid">
+              <label>Time of Day</label>
+              <input type="range" id="sun-slider" min="0" max="100" value="50">
+              
+              <label for="grid-toggle">Show Grid</label>
+              <input type="checkbox" id="grid-toggle" checked>
+            </div>
+          </div>
+          <div class="panel-section">
+            <h4>Floor Texture</h4>
+            <div class="button-row">
+              <button id="tex-grey">Plain (Grey)</button>
+              <button id="tex-grass">Grass</button>
+              <button id="tex-sand">Sand</button>
+              <button id="tex-concrete">Concrete</button>
+            </div>
+          </div>
+        </div>
+
+        <div id="tab-assets" class="tab-content">
+          <div class="panel-section">
+            <h4>Assets</h4>
+            <div id="asset-list">
+              <button class="asset-item" data-path="src/assets/ModernHall.glb">ModernHall.glb</button>
+              <input type="file" id="file-input" multiple accept=".glb,.fbx" style="display: none;">
+              <button id="btn-upload-asset" title="Load from device">Upload .glb/.fbx</button>
+            </div>
+          </div>
+        </div>
+
+        <div id="tab-properties" class="tab-content">
+          <div class="panel-section">
+            <h4>Properties</h4>
+            <div id="props-content">
+              <p>No object selected.</p>
+            </div>
+          </div>
+        </div>
+
       </div>
     </div>
   </div>
