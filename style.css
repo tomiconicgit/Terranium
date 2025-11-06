@@ -56,7 +56,6 @@ html, body {
     background: #1c1c1c;
 }
 
-/* --- 1. Viewport (Top Half) --- */
 #viewport-container {
     width: 100%;
     height: 50%; /* Top 50% */
@@ -71,7 +70,6 @@ html, body {
     display: block;
 }
 
-/* --- 2. Editor Panel (Bottom Half) --- */
 #editor-panel-container {
     width: 100%;
     height: 50%; /* Bottom 50% */
@@ -83,7 +81,6 @@ html, body {
     overflow: hidden;
 }
 
-/* --- Full-Screen Game Mode --- */
 #app-container.game-mode-active #viewport-container {
     height: 100%;
     z-index: 10;
@@ -102,7 +99,6 @@ html, body {
     touch-action: auto;
 }
 
-/* --- Generic UI Elements --- */
 button {
     background: #444;
     color: #fff;
@@ -126,7 +122,6 @@ button:disabled {
     cursor: not-allowed;
 }
 
-/* --- Viewport UI --- */
 #editor-toolbar {
     position: absolute;
     top: 10px;
@@ -172,7 +167,6 @@ button:disabled {
 #app-container.game-mode-active #btn-play { display: none; }
 #app-container.game-mode-active #btn-end-test { display: block; }
 
-/* --- Editor Panel UI (Tabs) --- */
 .tab-bar {
     display: flex;
     flex-shrink: 0;
@@ -212,7 +206,6 @@ button:disabled {
     to { opacity: 1; }
 }
 
-/* --- Panel Content Styles --- */
 .panel-section {
     margin-bottom: 20px;
     padding-bottom: 15px;
@@ -231,12 +224,10 @@ button:disabled {
 .button-row { display: flex; flex-wrap: wrap; gap: 10px; }
 .button-row button { background: #444; }
 
-/* Asset List */
 #asset-list { display: flex; flex-direction: column; gap: 8px; }
 #asset-list button { background: #444; text-align: left; }
 #btn-upload-model { background: #007aff; margin-top: 8px; }
 
-/* Scene Hierarchy Tree */
 #scene-tree-view {
     font-size: 14px;
     line-height: 1.8;
@@ -259,7 +250,6 @@ button:disabled {
     margin-left: 20px;
 }
 
-/* Properties & Environment Panel */
 .control-grid, .props-group {
     display: grid;
     grid-template-columns: 1fr 2fr;
@@ -272,7 +262,7 @@ button:disabled {
     color: #ccc;
     font-size: 14px;
 }
-.props-group h5 { /* Sub-group title e.g. Material */
+.props-group h5 {
     grid-column: 1 / -1;
     margin: 10px 0 0 0;
     font-size: 15px;
@@ -285,7 +275,7 @@ button:disabled {
     display: flex;
     gap: 8px;
 }
-.props-group .props-vector3 span { /* X, Y, Z labels */
+.props-group .props-vector3 span {
     width: 20px;
     text-align: center;
     color: #999;
@@ -315,7 +305,6 @@ button:disabled {
 }
 
 
-/* --- Sliders, Inputs, Toggles --- */
 input[type="range"] {
     width: 100%;
     accent-color: #007aff;
@@ -338,14 +327,9 @@ input[type="number"], input[type="text"] {
     font-weight: 500;
 }
 
-/*
-=================================================
- PORTRAIT MODE OVERRIDES
-=================================================
-*/
 @media (orientation: portrait) {
     #app-container {
-        flex-direction: row; /* Side-by-side */
+        flex-direction: row;
     }
     #viewport-container { width: 50%; height: 100%; }
     #editor-panel-container { width: 50%; height: 100%; border-top: none; border-left: 1px solid #444; }
@@ -356,9 +340,91 @@ input[type="number"], input[type="text"] {
 
 @media (max-width: 700px) and (orientation: portrait) {
     #app-container {
-        flex-direction: column; /* Stacked */
+        flex-direction: column;
     }
     #viewport-container { width: 100%; height: 50%; }
     #editor-panel-container { width: 100%; height: 50%; border-top: 1px solid #444; border-left: none; }
     #editor-toolbar { top: 10px; bottom: auto; }
+}
+
+/*
+=================================================
+ NEW ANIMATION UI STYLES
+=================================================
+*/
+
+.props-group .animation-creator {
+    grid-column: 1 / -1; /* Span both columns */
+    background: rgba(0, 0, 0, 0.2);
+    border-radius: 8px;
+    padding: 12px;
+    margin-top: 10px;
+    border: 1px solid #555;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.animation-creator label {
+    font-size: 13px;
+    font-weight: 600;
+    color: #fff;
+    margin: 0;
+}
+
+.animation-creator input[type="text"],
+.animation-creator input[type="number"] {
+    padding: 8px;
+    font-size: 13px;
+}
+
+.animation-keyframe-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+}
+
+.animation-keyframe-row button {
+    flex-shrink: 0;
+    background-color: #007aff;
+}
+
+.animation-keyframe-row span {
+    font-family: monospace;
+    font-size: 13px;
+    color: #ccc;
+    background: #1c1c1c;
+    padding: 6px 8px;
+    border-radius: 5px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex-grow: 1;
+}
+
+.animation-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: 10px;
+}
+
+.animation-list-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: #3a3a3a;
+    padding: 8px 12px;
+    border-radius: 6px;
+}
+
+.animation-list-item span {
+    font-weight: 500;
+}
+
+.animation-list-item button {
+    padding: 5px 10px;
+    font-size: 12px;
+    background-color: #34c759;
 }
