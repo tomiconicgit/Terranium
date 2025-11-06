@@ -231,7 +231,7 @@ button:disabled {
 
 /*
 =================================================
- NEW SCENE HIERARCHY STYLES
+ HIERARCHY STYLES (FIXED)
 =================================================
 */
 
@@ -239,7 +239,6 @@ button:disabled {
     font-size: 14px;
     user-select: none;
 }
-/* Top-level categories (World, Models) */
 .tree-category {
     font-size: 16px;
     font-weight: 600;
@@ -258,7 +257,6 @@ button:disabled {
     transform: rotate(90deg);
 }
 
-/* General tree items (models, meshes, etc.) */
 .tree-item {
     display: flex;
     align-items: center;
@@ -295,14 +293,21 @@ button:disabled {
     overflow: hidden;
     text-overflow: ellipsis;
 }
-/* Child container */
+
 .tree-children {
-    display: none; /* Hidden by default */
+    display: none;
     padding-left: 20px;
+}
+
+/* *** CRITICAL HIERARCHY FIX *** */
+.tree-category.expanded + .tree-children {
+    display: block;
 }
 .tree-item.expanded + .tree-children {
     display: block;
 }
+/* *** END FIX *** */
+
 
 /*
 =================================================
@@ -364,6 +369,23 @@ button:disabled {
     font-size: 12px;
 }
 
+/* *** NEW: Position Slider Styles *** */
+.props-group .props-slider {
+    grid-column: 2 / -1;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.props-group .props-slider span {
+    color: #999;
+    font-weight: 600;
+}
+.props-group .props-slider input[type="range"] {
+    flex-grow: 1;
+}
+/* *** END NEW *** */
+
+
 input[type="range"] {
     width: 100%;
     accent-color: #007aff;
@@ -393,7 +415,7 @@ input[type="number"], input[type="text"] {
 */
 
 .props-group .animation-creator {
-    grid-column: 1 / -1; /* Span both columns */
+    grid-column: 1 / -1;
     background: rgba(0, 0, 0, 0.2);
     border-radius: 8px;
     padding: 12px;
