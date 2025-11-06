@@ -1,6 +1,16 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+  <meta charset="UTF-8">
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>Terranium</title>
+
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" href="/icons/icon-192x192.png">
+  <meta name="theme-color" content="#121828">
+
   <script type="importmap">
   {
     "imports": {
@@ -18,12 +28,41 @@
   <script type="module" src="Loader.js" defer></script>
 </head>
 <body>
-  <div id="loader-container"> ... </div>
+  
+  <div id="loader-container">
+    <div class="loader-card">
+      <div class="loader-image-side">
+        <img src="src/assets/IMG_0022.jpeg" alt="Terranium Game Art">
+      </div>
+      <div class="loader-content-side">
+        <h2>Terranium Initialising</h2>
+
+        <div class="loader-status-line">
+          <p id="loader-status-text">Preparing systems...</p>
+          <span id="progress-percentage-text">0%</span>
+        </div>
+
+        <div class="progress-bar-container">
+          <div id="progress-bar"></div>
+        </div>
+
+        <div id="debugger-message-area"></div>
+
+        <div class="button-group">
+          <button id="reload-button" title="Reload">&#x21bb;</button>
+          <button id="enter-button" disabled>LOADING</button>
+        </div>
+      </div>
+    </div>
+  </div>
 
   <div id="debugger-notifications"></div>
   <canvas id="game-canvas"></canvas>
   <div id="ui-container"></div>
-  <div id="time-of-day-slider" class="no-look"> ... </div>
+  <div id="time-of-day-slider" class="no-look">
+    <label for="sun-slider">☀️ Time of Day</label>
+    <input type="range" id="sun-slider" min="0" max="100" value="50">
+  </div>
 
   <div id="editor-ui" class="no-look">
     <div id="editor-toolbar">
@@ -39,6 +78,7 @@
       <h3>Assets</h3>
       <div id="asset-list">
         <button class="asset-item" data-path="src/assets/ModernHall.glb">ModernHall.glb</button>
+        
         <input type="file" id="file-input" multiple accept=".glb,.fbx" style="display: none;">
         <button id="btn-upload-asset" title="Load from device">Upload .glb/.fbx</button>
       </div>
@@ -52,6 +92,8 @@
     </div>
   </div>
 
-  <noscript> ... </noscript>
+  <noscript>
+    <p>This experience requires JavaScript to be enabled. Please enable it in your browser settings.</p>
+  </noscript>
 </body>
 </html>
