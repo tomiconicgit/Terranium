@@ -14,7 +14,7 @@ export class EditorManager {
     this.world = this.main.world; 
     
     this.state = 'EDITOR';
-    this.selectedObject = null; // Can be a THREE.Object3D or a string like 'sky'
+    this.selectedObject = null;
     this.textureLoader = new THREE.TextureLoader();
     this.fileReader = new FileReader();
 
@@ -24,7 +24,7 @@ export class EditorManager {
     this.bindDOM();
     this.initControls();
     this.addEventListeners();
-    this.buildSceneTree(); // Build initial tree
+    this.buildSceneTree();
   }
 
   bindDOM() {
@@ -61,7 +61,18 @@ export class EditorManager {
 
     this.transformControls = new TransformControls(this.camera, this.renderer.domElement);
     this.scene.add(this.transformControls);
-    this.transformControls.addEventListener('objectChange', () => this.syncPropsFromGizmo());
+
+    // *** FIX: Listen for dragging-changed to disable camera ***
+    this.transformControls.addEventListener('dragging-changed', (event) => {
+        this.orbitControls.enabled = !event.value;
+    });
+
+    // *** MODIFIED: Use objectChange for syncing props ***
+    this.transformControls.addEventListener('objectChange', () => {
+      if (this.selectedObject) {
+        this.syncPropsFromGizmo();
+      }
+    });
 
     this.raycaster = new THREE.Raycaster();
     this.pointer = new THREE.Vector2();
@@ -74,16 +85,13 @@ export class EditorManager {
     this.tabBar.addEventListener('click', (e) => this.onTabClick(e));
     this.renderer.domElement.addEventListener('pointerdown', (e) => this.onPointerDown(e), false);
     
-    // --- Scene Tab Listeners ---
     this.parentButton.addEventListener('click', () => this.startParenting());
     this.sceneTreeView.addEventListener('click', (e) => this.onSceneTreeClick(e));
 
-    // --- Asset Tab Listeners ---
     this.assetList.addEventListener('click', (e) => this.onAssetClick(e));
     this.uploadModelButton.addEventListener('click', () => this.modelFileInput.click());
     this.modelFileInput.addEventListener('change', (e) => this.onFileUpload(e));
 
-    // --- Environment Tab Listeners ---
     this.sunSlider.addEventListener('input', (e) => this.main.updateSun(e.target.value));
     this.gridToggle.addEventListener('change', (e) => {
       this.main.gridHelper.visible = e.target.checked;
@@ -186,22 +194,13 @@ export class EditorManager {
 
   // --- Scene Hierarchy & Parenting ---
 
-  /**
-   * Creates an expandable tree node
-   * @param {string} name - The text label
-   * @param {string} icon - The icon (e.g., 📁)
-   * @param {boolean} isCollapsible - If true, adds an arrow
-   * @returns {object} - { category, childrenContainer }
-   */
   createTreeCategory(name, isCollapsible = true) {
     const category = document.createElement('div');
     category.className = 'tree-category';
     
     const arrow = document.createElement('span');
     arrow.className = 'arrow';
-    if (isCollapsible) {
-        arrow.textContent = '►';
-    }
+    if (isCollapsible) arrow.textContent = '►';
     
     const label = document.createElement('span');
     label.className = 'label';
@@ -220,17 +219,9 @@ export class EditorManager {
             }
         });
     }
-
     return { category, childrenContainer };
   }
   
-  /**
-   * Creates a single item in the tree
-   * @param {string} name - The text label
-   * @param {string} icon - The icon
-   * @param {string} data - The data to attach (UUID or special string)
-   * @returns {HTMLElement}
-   */
   createTreeItem(name, icon, data) {
     const item = document.createElement('div');
     item.className = 'tree-item';
@@ -248,16 +239,11 @@ export class EditorManager {
     
     if (data instanceof THREE.Object3D) {
         item.dataset.uuid = data.uuid;
-        if (this.selectedObject === data) {
-            item.classList.add('selected');
-        }
+        if (this.selectedObject === data) item.classList.add('selected');
     } else {
-        item.dataset.special = data; // e.g., 'sky', 'light'
-        if (this.selectedObject === data) {
-            item.classList.add('selected');
-        }
+        item.dataset.special = data;
+        if (this.selectedObject === data) item.classList.add('selected');
     }
-    
     return item;
   }
 
@@ -266,7 +252,7 @@ export class EditorManager {
     
     // 1. "World" Category
     const { category: worldCat, childrenContainer: worldChildren } = this.createTreeCategory('World', true);
-    worldCat.classList.add('expanded'); // Start expanded
+    worldCat.classList.add('expanded');
     
     const sky = this.scene.getObjectByName("SkySettings");
     if (sky) worldChildren.appendChild(this.createTreeItem("Sky", "☁️", "sky"));
@@ -282,9 +268,8 @@ export class EditorManager {
     
     // 2. "Models" Category
     const { category: modelsCat, childrenContainer: modelsChildren } = this.createTreeCategory('Models', true);
-    modelsCat.classList.add('expanded'); // Start expanded
+    modelsCat.classList.add('expanded');
     
-    // Recursive function to build model tree
     const buildModelNode = (obj) => {
         const hasChildren = obj.children.length > 0 || (obj.userData.animations && obj.userData.animations.length > 0);
         
@@ -299,7 +284,7 @@ export class EditorManager {
         
         const icon = document.createElement('span');
         icon.className = 'icon';
-        icon.textContent = obj.isMesh ? '📦' : '📁'; // Icon: Mesh or Folder
+        icon.textContent = obj.isMesh ? '📦' : '📁';
         
         const label = document.createElement('span');
         label.className = 'label';
@@ -313,13 +298,19 @@ export class EditorManager {
             item.classList.add('selected');
         }
         
+        // **NEW** Add expand/collapse listener
+        item.addEventListener('click', (e) => {
+            if (e.target.closest('.arrow')) {
+                item.classList.toggle('expanded');
+            }
+        });
+        
         modelsChildren.appendChild(item);
         
         if (hasChildren) {
             const childrenContainer = document.createElement('div');
             childrenContainer.className = 'tree-children';
             
-            // Add meshes, animations, and child objects
             obj.children.forEach(child => childrenContainer.appendChild(buildModelNode(child)));
             
             if (obj.userData.animations) {
@@ -328,7 +319,6 @@ export class EditorManager {
                     childrenContainer.appendChild(animItem);
                 });
             }
-            
             modelsChildren.appendChild(childrenContainer);
         }
         return item;
@@ -340,16 +330,14 @@ export class EditorManager {
   }
 
   onSceneTreeClick(event) {
-    const item = event.target.closest('.tree-item, .tree-category');
+    const item = event.target.closest('.tree-item');
     if (!item) return;
 
-    // Handle expand/collapse
-    if (event.target.closest('.arrow') && item.classList.contains('collapsible')) {
-        item.classList.toggle('expanded');
+    // Stop if clicking an arrow
+    if (event.target.closest('.arrow')) {
         return;
     }
     
-    // Handle selection
     const uuid = item.dataset.uuid;
     const special = item.dataset.special;
     
@@ -363,7 +351,7 @@ export class EditorManager {
             }
         }
     } else if (special) {
-        this.selectObject(special); // Select 'sky', 'light', or 'terrain'
+        this.selectObject(special);
     }
   }
   
@@ -429,20 +417,17 @@ export class EditorManager {
     }
   }
 
-  selectObject(obj) { // obj can be Object3D, string, or null
+  selectObject(obj) {
     if (this.selectedObject === obj) return;
-    
     this.selectedObject = obj;
-    
     if (obj instanceof THREE.Object3D) {
       this.transformControls.attach(obj);
     } else {
       this.transformControls.detach();
     }
-    
     this.cancelParenting();
     this.updatePropertyPanel(obj);
-    this.buildSceneTree(); // Rebuild to show new selection
+    this.buildSceneTree();
   }
   
   deleteSelected() {
@@ -461,7 +446,7 @@ export class EditorManager {
   }
 
   /**
-   * Rebuilds the Property Panel for the selected object or special string
+   * Rebuilds the Property Panel
    */
   updatePropertyPanel(obj) {
     if (obj === null) {
@@ -512,6 +497,7 @@ export class EditorManager {
           </div>
         `).join('');
 
+        // *** MODIFIED: Added Position Sliders ***
         this.propsContent.innerHTML = `
           <strong>${obj.name || obj.type}</strong>
           
@@ -523,6 +509,17 @@ export class EditorManager {
               <span>Y</span><input type="number" step="0.1" id="props-pos-y" value="${pos.y.toFixed(2)}">
               <span>Z</span><input type="number" step="0.1" id="props-pos-z" value="${pos.z.toFixed(2)}">
             </div>
+            
+            <label></label> <div class="props-slider">
+              <span>X</span><input type="range" min="-50" max="50" step="0.1" id="props-pos-x-slider" value="${pos.x.toFixed(2)}">
+            </div>
+            <label></label> <div class="props-slider">
+              <span>Y</span><input type="range" min="0" max="50" step="0.1" id="props-pos-y-slider" value="${pos.y.toFixed(2)}">
+            </div>
+            <label></label> <div class="props-slider">
+              <span>Z</span><input type="range" min="-50" max="50" step="0.1" id="props-pos-z-slider" value="${pos.z.toFixed(2)}">
+            </div>
+
             <label>Rotation</label>
             <div class="props-vector3">
               <span>X</span><input type="number" step="1" id="props-rot-x" value="${THREE.MathUtils.radToDeg(rot.x).toFixed(1)}">
@@ -539,7 +536,12 @@ export class EditorManager {
             <input type="range" min="0.01" max="5" step="0.01" id="props-scl-uniform" value="${scl.x.toFixed(2)}">
           </div>
           
-          ${mat ? `
+          ${mat ? `... (Material HTML is unchanged) ...` : ''}
+          ${anims.length > 0 || true ? `... (Animation HTML is unchanged) ...` : ''}
+        `;
+        
+        // Re-generate the mat/anim HTML (it was removed for brevity)
+        const matHTML = mat ? `
           <div class="props-group">
             <h5>Material (PBR)</h5>
             <label>Metalness</label>
@@ -561,13 +563,13 @@ export class EditorManager {
             <label>UV Repeat Y</label>
             <input type="number" step="0.1" id="props-uv-y" value="${mat.map ? mat.map.repeat.y : 1}">
           </div>
-          ` : ''}
+        ` : '';
 
+        const animHTML = `
           <div class="props-group">
             <h5>Animations</h5>
             <div class="animation-list" id="anim-list">${animListHTML}</div>
             <button id="btn-anim-create-new" style="margin-top: 10px;">Create New Animation</button>
-            
             <div class="animation-creator" id="anim-creator" style="display: none;">
               <label>Animation Name</label>
               <input type="text" id="anim-name" placeholder="e.g. 'DoorOpen'">
@@ -585,19 +587,58 @@ export class EditorManager {
             </div>
           </div>
         `;
+        
+        // Find the placeholder and replace it
+        this.propsContent.innerHTML = this.propsContent.innerHTML
+            .replace('... (Material HTML is unchanged) ...', matHTML)
+            .replace('... (Animation HTML is unchanged) ...', animHTML);
 
         this.bindPropertyPanelEvents(obj, mat);
     }
   }
 
+  /**
+   * Binds update events to the dynamically created property panel
+   */
   bindPropertyPanelEvents(obj, mat) {
-    document.getElementById('props-pos-x').oninput = (e) => obj.position.x = parseFloat(e.target.value);
-    document.getElementById('props-pos-y').oninput = (e) => obj.position.y = parseFloat(e.target.value);
-    document.getElementById('props-pos-z').oninput = (e) => obj.position.z = parseFloat(e.target.value);
+    // --- Get All Inputs ---
+    const pX = document.getElementById('props-pos-x');
+    const pY = document.getElementById('props-pos-y');
+    const pZ = document.getElementById('props-pos-z');
+    const pXSlider = document.getElementById('props-pos-x-slider');
+    const pYSlider = document.getElementById('props-pos-y-slider');
+    const pZSlider = document.getElementById('props-pos-z-slider');
+    
+    // --- Position Handlers ---
+    const syncPos = (source, value) => {
+        const val = parseFloat(value);
+        if (isNaN(val)) return;
+        
+        if (source !== 'x-num') pX.value = val.toFixed(2);
+        if (source !== 'x-slider') pXSlider.value = val;
+        if (source !== 'y-num') pY.value = val.toFixed(2);
+        if (source !== 'y-slider') pYSlider.value = val;
+        if (source !== 'z-num') pZ.value = val.toFixed(2);
+        if (source !== 'z-slider') pZSlider.value = val;
+        
+        if (source === 'x-num' || source === 'x-slider') obj.position.x = val;
+        if (source === 'y-num' || source === 'y-slider') obj.position.y = val;
+        if (source === 'z-num' || source === 'z-slider') obj.position.z = val;
+    };
+
+    pX.oninput = (e) => syncPos('x-num', e.target.value);
+    pY.oninput = (e) => syncPos('y-num', e.target.value);
+    pZ.oninput = (e) => syncPos('z-num', e.target.value);
+    pXSlider.oninput = (e) => syncPos('x-slider', e.target.value);
+    pYSlider.oninput = (e) => syncPos('y-slider', e.target.value);
+    pZSlider.oninput = (e) => syncPos('z-slider', e.target.value);
+
+    // --- Rotation Handlers ---
     document.getElementById('props-rot-x').oninput = (e) => obj.rotation.x = THREE.MathUtils.degToRad(parseFloat(e.target.value));
     document.getElementById('props-rot-y').oninput = (e) => obj.rotation.y = THREE.MathUtils.degToRad(parseFloat(e.target.value));
     document.getElementById('props-rot-z').oninput = (e) => obj.rotation.z = THREE.MathUtils.degToRad(parseFloat(e.target.value));
     
+    // --- Scale Handlers ---
     const sclX = document.getElementById('props-scl-x');
     const sclY = document.getElementById('props-scl-y');
     const sclZ = document.getElementById('props-scl-z');
@@ -610,9 +651,12 @@ export class EditorManager {
     sclUni.oninput = (e) => {
         const val = parseFloat(e.target.value);
         obj.scale.set(val, val, val);
-        sclX.value = val.toFixed(2); sclY.value = val.toFixed(2); sclZ.value = val.toFixed(2);
+        sclX.value = val.toFixed(2);
+        sclY.value = val.toFixed(2);
+        sclZ.value = val.toFixed(2);
     };
 
+    // --- Material Handlers ---
     if (mat) {
       document.getElementById('props-mat-metal').oninput = (e) => mat.metalness = parseFloat(e.target.value);
       document.getElementById('props-mat-rough').oninput = (e) => mat.roughness = parseFloat(e.target.value);
@@ -624,6 +668,7 @@ export class EditorManager {
       this.texInputNormal.onchange = (e) => this.handleTextureUpload(e, mat, 'normalMap');
     }
 
+    // --- Animation Handlers ---
     document.getElementById('btn-anim-create-new').onclick = () => {
       document.getElementById('anim-creator').style.display = 'flex';
       this.resetAnimCreator();
@@ -639,20 +684,31 @@ export class EditorManager {
     });
   }
 
+  /**
+   * Updates the input sliders when the gizmo is moved
+   */
   syncPropsFromGizmo() {
     if (!this.selectedObject || !(this.selectedObject instanceof THREE.Object3D)) return;
     
     const { position, rotation, scale } = this.selectedObject;
+
+    // Sync Position (Numbers and Sliders)
     document.getElementById('props-pos-x').value = position.x.toFixed(2);
     document.getElementById('props-pos-y').value = position.y.toFixed(2);
     document.getElementById('props-pos-z').value = position.z.toFixed(2);
+    document.getElementById('props-pos-x-slider').value = position.x.toFixed(2);
+    document.getElementById('props-pos-y-slider').value = position.y.toFixed(2);
+    document.getElementById('props-pos-z-slider').value = position.z.toFixed(2);
+    
+    // Sync Rotation
     document.getElementById('props-rot-x').value = THREE.MathUtils.radToDeg(rotation.x).toFixed(1);
     document.getElementById('props-rot-y').value = THREE.MathUtils.radToDeg(rotation.y).toFixed(1);
     document.getElementById('props-rot-z').value = THREE.MathUtils.radToDeg(rotation.z).toFixed(1);
+    
+    // Sync Scale
     document.getElementById('props-scl-x').value = scale.x.toFixed(2);
     document.getElementById('props-scl-y').value = scale.y.toFixed(2);
     document.getElementById('props-scl-z').value = scale.z.toFixed(2);
-    
     const uniSlider = document.getElementById('props-scl-uniform');
     if (scale.x === scale.y && scale.x === scale.z) {
         uniSlider.value = scale.x.toFixed(2);
