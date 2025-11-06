@@ -534,7 +534,6 @@ export class EditorManager {
       ... (Animation HTML) ...
     `;
     
-    // *** MODIFIED: Added all PBR map types ***
     const matHTML = mat ? `
       <div class="props-group">
         <h5>Material (PBR)</h5>
@@ -612,10 +611,12 @@ export class EditorManager {
         </div>
     `;
     
+    // Bind Events
     document.getElementById('props-sky-top').oninput = (e) => sky.material.uniforms.topColor.value.set(e.target.value);
     document.getElementById('props-sky-bottom').oninput = (e) => sky.material.uniforms.bottomColor.value.set(e.target.value);
     document.getElementById('props-sun-color').oninput = (e) => sunLight.color.set(e.target.value);
     document.getElementById('props-sun-intensity').oninput = (e) => sunLight.intensity = parseFloat(e.target.value);
+    
     document.getElementById('props-sun-slider').oninput = (e) => {
         const val = e.target.value;
         this.main.updateSun(val);
@@ -651,6 +652,7 @@ export class EditorManager {
         </div>
     `;
     
+    // Bind Events
     document.getElementById('props-sun-color').oninput = (e) => sunLight.color.set(e.target.value);
     document.getElementById('props-sun-intensity').oninput = (e) => sunLight.intensity = parseFloat(e.target.value);
     document.getElementById('props-pos-x').oninput = (e) => sunLight.position.x = parseFloat(e.target.value);
@@ -661,7 +663,7 @@ export class EditorManager {
     document.getElementById('props-hemi-intensity').oninput = (e) => hemiLight.intensity = parseFloat(e.target.value);
   }
   
-  // --- PANEL BUILDD_pER: TERRAIN ---
+  // --- PANEL BUILDER: TERRAIN ---
   buildTerrainPanel() {
     const terrainMesh = this.main.terrainMesh;
     if (!terrainMesh) return;
@@ -716,12 +718,12 @@ export class EditorManager {
     document.getElementById('btn-load-ao').onclick = () => this.texInputAO.click();
     document.getElementById('btn-load-disp').onclick = () => this.texInputDisplacement.click();
 
-    this.texInputMap.onchange = (e) => this.handleTextureUpload(e, mat, 'map');
-    this.texInputNormal.onchange = (e) => this.handleTextureUpload(e, mat, 'normalMap');
-    this.texInputRough.onchange = (e) => this.handleTextureUpload(e, mat, 'roughnessMap');
-    this.texInputMetal.onchange = (e) => this.handleTextureUpload(e, mat, 'metalnessMap');
-    this.texInputAO.onchange = (e) => this.handleTextureUpload(e, mat, 'aoMap');
-    this.texInputDisplacement.onchange = (e) => this.handleTextureUpload(e, mat, 'displacementMap');
+    this.texInputMap.onchange = (e) => this.handleTextureUpload(e, mat, 'map', true); // isTerrain = true
+    this.texInputNormal.onchange = (e) => this.handleTextureUpload(e, mat, 'normalMap', true);
+    this.texInputRough.onchange = (e) => this.handleTextureUpload(e, mat, 'roughnessMap', true);
+    this.texInputMetal.onchange = (e) => this.handleTextureUpload(e, mat, 'metalnessMap', true);
+    this.texInputAO.onchange = (e) => this.handleTextureUpload(e, mat, 'aoMap', true);
+    this.texInputDisplacement.onchange = (e) => this.handleTextureUpload(e, mat, 'displacementMap', true);
 
     document.getElementById('props-disp-scale').oninput = (e) => mat.displacementScale = parseFloat(e.target.value);
     document.getElementById('props-uv-x').oninput = (e) => this.setMaterialUV(mat, 'x', e.target.value);
@@ -789,14 +791,14 @@ export class EditorManager {
       document.getElementById('btn-load-ao').onclick = () => this.texInputAO.click();
       document.getElementById('btn-load-emissive').onclick = () => this.texInputEmissive.click();
       document.getElementById('btn-load-disp').onclick = () => this.texInputDisplacement.click();
-
-      this.texInputMap.onchange = (e) => this.handleTextureUpload(e, mat, 'map');
-      this.texInputNormal.onchange = (e) => this.handleTextureUpload(e, mat, 'normalMap');
-      this.texInputRough.onchange = (e) => this.handleTextureUpload(e, mat, 'roughnessMap');
-      this.texInputMetal.onchange = (e) => this.handleTextureUpload(e, mat, 'metalnessMap');
-      this.texInputAO.onchange = (e) => this.handleTextureUpload(e, mat, 'aoMap');
-      this.texInputEmissive.onchange = (e) => this.handleTextureUpload(e, mat, 'emissiveMap');
-      this.texInputDisplacement.onchange = (e) => this.handleTextureUpload(e, mat, 'displacementMap');
+      
+      this.texInputMap.onchange = (e) => this.handleTextureUpload(e, mat, 'map', false); // isTerrain = false
+      this.texInputNormal.onchange = (e) => this.handleTextureUpload(e, mat, 'normalMap', false);
+      this.texInputRough.onchange = (e) => this.handleTextureUpload(e, mat, 'roughnessMap', false);
+      this.texInputMetal.onchange = (e) => this.handleTextureUpload(e, mat, 'metalnessMap', false);
+      this.texInputAO.onchange = (e) => this.handleTextureUpload(e, mat, 'aoMap', false);
+      this.texInputEmissive.onchange = (e) => this.handleTextureUpload(e, mat, 'emissiveMap', false);
+      this.texInputDisplacement.onchange = (e) => this.handleTextureUpload(e, mat, 'displacementMap', false);
     }
 
     document.getElementById('btn-anim-create-new').onclick = () => {
@@ -804,7 +806,8 @@ export class EditorManager {
       this.resetAnimCreator();
     };
     document.getElementById('btn-anim-set-pos1').onclick = () => this.setAnimKeyframe(1);
-    document.getElementById('btn-anim-set-pos2').onclick = ()_ => this.setAnimKeyframe(2);
+    // *** FIX: This was the syntax error ***
+    document.getElementById('btn-anim-set-pos2').onclick = () => this.setAnimKeyframe(2);
     document.getElementById('btn-anim-save').onclick = () => this.saveAnimation();
     
     document.getElementById('anim-list').addEventListener('click', (e) => {
@@ -907,22 +910,23 @@ export class EditorManager {
   }
   
   // --- Material/Texture Logic ---
-  handleTextureUpload(event, material, mapType) {
+  handleTextureUpload(event, material, mapType, isTerrain = false) {
     const file = event.target.files[0];
     if (!file) return;
     this.fileReader.onload = (e) => {
       this.textureLoader.load(e.target.result, (texture) => {
         texture.name = file.name;
-        
-        // *** FIX: Set wrapping and repeat by default ***
         texture.wrapS = THREE.RepeatWrapping;
         texture.wrapT = THREE.RepeatWrapping;
-        texture.repeat.set(20, 20); // Default 20x20 tiling
+        
+        // *** FIX: Set default tiling based on type ***
+        const repeatVal = isTerrain ? 20 : 1;
+        texture.repeat.set(repeatVal, repeatVal);
         
         material[mapType] = texture;
         material.needsUpdate = true;
         
-        // Refresh the whole panel to show new UV values
+        // Refresh the whole panel to show new UV values and texture name
         this.updatePropertyPanel(this.selectedObject);
       });
     };
