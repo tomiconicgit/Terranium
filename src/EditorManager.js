@@ -12,12 +12,14 @@ export class EditorManager {
     this.camera = mainApp.camera;
     this.renderer = mainApp.renderer;
     
+    // *** MODIFIED: Get the world container ***
+    this.world = this.main.world; 
+    
     this.state = 'EDITOR';
     this.selectedObject = null;
     this.textureLoader = new THREE.TextureLoader();
     this.fileReader = new FileReader();
 
-    // Parenting State
     this.parentingState = {
       isWaiting: false,
       parentObject: null
@@ -26,7 +28,7 @@ export class EditorManager {
     this.bindDOM();
     this.initControls();
     this.addEventListeners();
-    this.buildSceneTree();
+    this.buildSceneTree(); // Build initial (empty) tree
   }
 
   /**
@@ -76,9 +78,8 @@ export class EditorManager {
     this.orbitControls.update();
 
     this.transformControls = new TransformControls(this.camera, this.renderer.domElement);
-    this.scene.add(this.transformControls);
+    this.scene.add(this.transformControls); // Gizmo is added to the main scene, NOT the world
 
-    // *** NEW: Link Gizmo movement back to Property Panel ***
     this.transformControls.addEventListener('objectChange', () => {
       if (this.selectedObject) {
         this.syncPropsFromGizmo();
@@ -116,12 +117,14 @@ export class EditorManager {
       this.main.gridHelper.visible = e.target.checked;
     });
 
+    // *** MODIFIED: Use main's texture methods ***
     document.getElementById('tex-grey').onclick = () => this.main.setTerrainColor(0x555555);
     document.getElementById('tex-grass').onclick = () => this.main.setTerrainTexture('src/assets/textures/grass.jpg');
     document.getElementById('tex-sand').onclick = () => this.main.setTerrainTexture('src/assets/textures/sand.jpg');
     document.getElementById('tex-concrete').onclick = () => this.main.setTerrainTexture('src/assets/textures/concrete.jpg');
     
-    // Properties Tab events are bound dynamically in `updatePropertyPanel`
+    // Delete button (in toolbar)
+    document.getElementById('btn-delete').addEventListener('click', () => this.deleteSelected());
   }
 
   // --- Game Mode Logic ---
@@ -129,7 +132,7 @@ export class EditorManager {
     this.state = 'GAME';
     this.appContainer.classList.add('game-mode-active');
     this.orbitControls.enabled = false;
-    this.transformControls.detach();
+    this.transformControls.detach(); // Detach gizmo
     this.main.controls.setPaused(false);
     this.main.gridHelper.visible = false;
     this.main.camera.position.set(0, this.main.playerHeight, 5);
@@ -142,7 +145,7 @@ export class EditorManager {
     this.appContainer.classList.remove('game-mode-active');
     this.orbitControls.enabled = true;
     if (this.selectedObject) {
-      this.transformControls.attach(this.selectedObject);
+      this.transformControls.attach(this.selectedObject); // Re-attach gizmo
     }
     this.main.controls.setPaused(true);
     this.main.gridHelper.visible = this.gridToggle.checked;
@@ -190,7 +193,8 @@ export class EditorManager {
     loadModel(path, 
       (model) => {
         model.position.set(0, 0.1, 0);
-        this.scene.add(model);
+        // *** MODIFIED: Add to world, not scene ***
+        this.world.add(model); 
         this.selectObject(model);
         this.buildSceneTree();
       },
@@ -209,7 +213,8 @@ export class EditorManager {
         loader(buffer,
           (model) => {
             model.name = file.name;
-            this.scene.add(model);
+            // *** MODIFIED: Add to world, not scene ***
+            this.world.add(model);
             this.selectObject(model);
             this.buildSceneTree();
           },
@@ -224,12 +229,10 @@ export class EditorManager {
   // --- Scene Hierarchy & Parenting ---
   buildSceneTree() {
     this.sceneTreeView.innerHTML = ''; // Clear old tree
+    
+    // *** MODIFIED: Recursive function to build nodes ***
     const buildNode = (obj, depth = 0) => {
-      // Ignore non-editable objects
-      if (obj.isLight || obj.isCamera || obj.isGridHelper || obj.name === 'SkyDome_10km' || obj.userData.__isTerrain) {
-        return;
-      }
-
+      // All objects in this.world are considered editable
       const item = document.createElement('div');
       item.className = 'scene-tree-item';
       if (depth > 0) item.classList.add('child');
@@ -239,15 +242,14 @@ export class EditorManager {
       if (this.selectedObject && obj.uuid === this.selectedObject.uuid) {
         item.classList.add('selected');
       }
-      
       this.sceneTreeView.appendChild(item);
 
       // Recurse for children
       obj.children.forEach(child => buildNode(child, depth + 1));
     };
 
-    // Start recursion from scene
-    this.scene.children.forEach(child => buildNode(child));
+    // *** MODIFIED: Only build tree from the 'world' group ***
+    this.world.children.forEach(child => buildNode(child));
   }
 
   onSceneTreeClick(event) {
@@ -255,7 +257,9 @@ export class EditorManager {
     if (!item) return;
 
     const uuid = item.dataset.uuid;
-    const object = this.scene.getObjectByProperty('uuid', uuid);
+    // *** MODIFIED: Search in world, not scene ***
+    const object = this.world.getObjectByProperty('uuid', uuid); 
+    
     if (object) {
       if (this.parentingState.isWaiting) {
         this.completeParenting(object);
@@ -280,12 +284,12 @@ export class EditorManager {
       return;
     }
     
-    // Perform reparenting
-    this.parentingState.parentObject.add(childObject);
+    // *** MODIFIED: Use attach() to reparent while preserving world transform ***
+    this.parentingState.parentObject.attach(childObject);
     this.main.debugger.log(`Parented ${childObject.name} to ${this.parentingState.parentObject.name}`);
     this.cancelParenting();
     this.buildSceneTree();
-    this.selectObject(childObject); // Reselect to update gizmo/props
+    this.selectObject(childObject);
   }
   
   cancelParenting() {
@@ -305,20 +309,28 @@ export class EditorManager {
     this.pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
 
     this.raycaster.setFromCamera(this.pointer, this.camera);
-    const intersects = this.raycaster.intersectObjects(this.scene.children, true);
+    
+    // *** MODIFIED: Only intersect with objects in 'world' and terrain ***
+    const objectsToIntersect = [...this.world.children, this.main.terrain];
+    const intersects = this.raycaster.intersectObjects(objectsToIntersect, true);
     
     let hit = null;
     for (const i of intersects) {
-      let isGizmo = false;
-      i.object.traverseAncestors((parent) => { if (parent === this.transformControls) isGizmo = true; });
-      if (isGizmo) continue;
-
-      if (i.object.isMesh && i.object.name !== 'SkyDome_10km' && !i.object.userData.__isTerrain && !i.object.isGridHelper) {
+      // Gizmo is not in this.world, so no need to check for it
+      
+      // Check for selectable objects (anything not terrain)
+      if (i.object.userData.__isTerrain) {
+          // Clicked on terrain, de-select
+          hit = null;
+          break; 
+      }
+      
+      if (i.object.isMesh) {
         let rootObject = i.object;
-        while (rootObject.parent && rootObject.parent !== this.scene) {
+        // *** MODIFIED: Traverse up to the 'world' container ***
+        while (rootObject.parent && rootObject.parent !== this.world) {
           rootObject = rootObject.parent;
         }
-        if (rootObject === this.transformControls) continue;
         hit = rootObject;
         break;
       }
@@ -342,7 +354,7 @@ export class EditorManager {
       this.transformControls.detach();
     }
     
-    this.cancelParenting(); // Always cancel parenting on new selection
+    this.cancelParenting();
     this.updatePropertyPanel(obj);
     this.buildSceneTree();
   }
@@ -351,7 +363,7 @@ export class EditorManager {
     if (!this.selectedObject) return;
     const obj = this.selectedObject;
     this.selectObject(null);
-    obj.removeFromParent();
+    obj.removeFromParent(); // This is fine, it removes from its parent (world or another obj)
     obj.traverse(child => {
       if (child.isMesh) {
         child.geometry?.dispose();
@@ -375,7 +387,6 @@ export class EditorManager {
     const rot = obj.rotation;
     const scl = obj.scale;
 
-    // Find the first mesh to get material properties
     let mesh = null;
     obj.traverse(child => { if (child.isMesh) mesh = child; });
     const mat = mesh ? (Array.isArray(mesh.material) ? mesh.material[0] : mesh.material) : null;
@@ -433,7 +444,6 @@ export class EditorManager {
       ` : ''}
     `;
 
-    // Now, bind events to these new inputs
     this.bindPropertyPanelEvents(obj, mat);
   }
 
@@ -468,7 +478,7 @@ export class EditorManager {
   }
 
   /**
-   * Updates the input sliders when the gizmo is moved (two-way binding)
+   * Updates the input sliders when the gizmo is moved
    */
   syncPropsFromGizmo() {
     if (!this.selectedObject) return;
@@ -505,12 +515,11 @@ export class EditorManager {
         material[mapType] = texture;
         material.needsUpdate = true;
         
-        // Update UI
         document.getElementById(mapType === 'map' ? 'map-name' : 'normal-name').textContent = file.name;
       });
     };
     this.fileReader.readAsDataURL(file);
-    event.target.value = null; // Reset file input
+    event.target.value = null;
   }
   
   /**
