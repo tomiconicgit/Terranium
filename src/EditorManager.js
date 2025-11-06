@@ -26,7 +26,6 @@ export class EditorManager {
     
     // Store time of day to fix bug
     this.timeOfDay = 50; 
-    // Store grid state
     this.isGridVisible = true;
 
     this.bindDOM();
@@ -355,6 +354,7 @@ export class EditorManager {
     }
   }
   
+  // *** MODIFIED: New Parenting Logic ***
   startChildingProcess() {
     if (!this.selectedObject || !(this.selectedObject instanceof THREE.Object3D)) {
         this.main.debugger.warn("Select an object to be the child first.", "Parenting");
@@ -489,44 +489,45 @@ export class EditorManager {
     `).join('');
 
     this.propsContent.innerHTML = `
-      <strong>${obj.name || obj.type}</strong>
-      
       <div class="props-group">
-        <h5>Transform</h5>
-        <label>Position</label>
-        <div class="props-vector3">
-          <span>X</span><input type="number" step="0.1" id="props-pos-x" value="${pos.x.toFixed(2)}">
-          <span>Y</span><input type="number" step="0.1" id="props-pos-y" value="${pos.y.toFixed(2)}">
-          <span>Z</span><input type="number" step="0.1" id="props-pos-z" value="${pos.z.toFixed(2)}">
+        <h5>${obj.name || obj.type}</h5>
+        <div class="props-stack">
+            <label>Position</label>
+            <div class="props-vector3">
+              <span>X</span><input type="number" step="0.1" id="props-pos-x" value="${pos.x.toFixed(2)}">
+              <span>Y</span><input type="number" step="0.1" id="props-pos-y" value="${pos.y.toFixed(2)}">
+              <span>Z</span><input type="number" step="0.1" id="props-pos-z" value="${pos.z.toFixed(2)}">
+            </div>
+            <div class="props-slider">
+              <span>X</span><input type="range" min="-50" max="50" step="0.1" id="props-pos-x-slider" value="${pos.x.toFixed(2)}">
+            </div>
+            <div class="props-slider">
+              <span>Y</span><input type="range" min="0" max="50" step="0.1" id="props-pos-y-slider" value="${pos.y.toFixed(2)}">
+            </div>
+            <div class="props-slider">
+              <span>Z</span><input type="range" min="-50" max="50" step="0.1" id="props-pos-z-slider" value="${pos.z.toFixed(2)}">
+            </div>
         </div>
-        
-        <label></label>
-        <div class="props-slider">
-          <span>X</span><input type="range" min="-50" max="50" step="0.1" id="props-pos-x-slider" value="${pos.x.toFixed(2)}">
+        <div class="props-stack">
+            <label>Rotation</label>
+            <div class="props-vector3">
+              <span>X</span><input type="number" step="1" id="props-rot-x" value="${THREE.MathUtils.radToDeg(rot.x).toFixed(1)}">
+              <span>Y</span><input type="number" step="1" id="props-rot-y" value="${THREE.MathUtils.radToDeg(rot.y).toFixed(1)}">
+              <span>Z</span><input type="number" step="1" id="props-rot-z" value="${THREE.MathUtils.radToDeg(rot.z).toFixed(1)}">
+            </div>
         </div>
-        <label></label>
-        <div class="props-slider">
-          <span>Y</span><input type="range" min="0" max="50" step="0.1" id="props-pos-y-slider" value="${pos.y.toFixed(2)}">
+        <div class="props-stack">
+            <label>Scale (Non-Uniform)</label>
+            <div class="props-vector3">
+              <span>X</span><input type="number" step="0.05" id="props-scl-x" value="${scl.x.toFixed(2)}">
+              <span>Y</span><input type="number" step="0.05" id="props-scl-y" value="${scl.y.toFixed(2)}">
+              <span>Z</span><input type="number" step="0.05" id="props-scl-z" value="${scl.z.toFixed(2)}">
+            </div>
         </div>
-        <label></label>
-        <div class="props-slider">
-          <span>Z</span><input type="range" min="-50" max="50" step="0.1" id="props-pos-z-slider" value="${pos.z.toFixed(2)}">
+        <div class="props-stack">
+            <label>Scale (Uniform)</label>
+            <input type="range" min="0.01" max="5" step="0.01" id="props-scl-uniform" value="${scl.x.toFixed(2)}">
         </div>
-
-        <label>Rotation</label>
-        <div class="props-vector3">
-          <span>X</span><input type="number" step="1" id="props-rot-x" value="${THREE.MathUtils.radToDeg(rot.x).toFixed(1)}">
-          <span>Y</span><input type="number" step="1" id="props-rot-y" value="${THREE.MathUtils.radToDeg(rot.y).toFixed(1)}">
-          <span>Z</span><input type="number" step="1" id="props-rot-z" value="${THREE.MathUtils.radToDeg(rot.z).toFixed(1)}">
-        </div>
-        <label>Scale (Non-Uniform)</label>
-        <div class="props-vector3">
-          <span>X</span><input type="number" step="0.05" id="props-scl-x" value="${scl.x.toFixed(2)}">
-          <span>Y</span><input type="number" step="0.05" id="props-scl-y" value="${scl.y.toFixed(2)}">
-          <span>Z</span><input type="number" step="0.05" id="props-scl-z" value="${scl.z.toFixed(2)}">
-        </div>
-        <label>Scale (Uniform)</label>
-        <input type="range" min="0.01" max="5" step="0.01" id="props-scl-uniform" value="${scl.x.toFixed(2)}">
       </div>
       
       ${mat ? `... (Material HTML) ...` : ''}
@@ -537,46 +538,28 @@ export class EditorManager {
     const matHTML = mat ? `
       <div class="props-group">
         <h5>Material (PBR)</h5>
-        <label>Metalness</label>
-        <input type="range" min="0" max="1" step="0.01" id="props-mat-metal" value="${mat.metalness || 0}">
-        <label>Roughness</label>
-        <input type="range" min="0" max="1" step="0.01" id="props-mat-rough" value="${mat.roughness || 0}">
+        <div class="props-row"><label>Metalness</label><input type="range" min="0" max="1" step="0.01" id="props-mat-metal" value="${mat.metalness || 0}"></div>
+        <div class="props-row"><label>Roughness</label><input type="range" min="0" max="1" step="0.01" id="props-mat-rough" value="${mat.roughness || 0}"></div>
         
-        <label>Albedo Map</label>
-        <div class="props-texture">
-          <span id="map-name">${mat.map ? mat.map.name || 'Texture' : 'None'}</span>
-          <button id="btn-load-map">Load</button>
-        </div>
-        <label>Normal Map</label>
-        <div class="props-texture">
-          <span id="normal-name">${mat.normalMap ? mat.normalMap.name || 'Texture' : 'None'}</span>
-          <button id="btn-load-normal">Load</button>
-        </div>
-        <label>Roughness Map</label>
-        <div class="props-texture">
-          <span id="rough-name">${mat.roughnessMap ? mat.roughnessMap.name || 'Texture' : 'None'}</span>
-          <button id="btn-load-rough">Load</button>
-        </div>
-        <label>Metalness Map</label>
-        <div class="props-texture">
-          <span id="metal-name">${mat.metalnessMap ? mat.metalnessMap.name || 'Texture' : 'None'}</span>
-          <button id="btn-load-metal">Load</button>
-        </div>
-        <label>AO Map</label>
-        <div class="props-texture">
-          <span id="ao-name">${mat.aoMap ? mat.aoMap.name || 'Texture' : 'None'}</span>
-          <button id="btn-load-ao">Load</button>
-        </div>
-        <label>Emissive Map</label>
-        <div class="props-texture">
-          <span id="emissive-name">${mat.emissiveMap ? mat.emissiveMap.name || 'Texture' : 'None'}</span>
-          <button id="btn-load-emissive">Load</button>
-        </div>
+        <div class="props-row"><label>Albedo Map</label><div class="props-texture"><span id="map-name">${mat.map ? mat.map.name || 'Texture' : 'None'}</span><button id="btn-load-map">Load</button></div></div>
+        <div class="props-row"><label>Normal Map</label><div class="props-texture"><span id="normal-name">${mat.normalMap ? mat.normalMap.name || 'Texture' : 'None'}</span><button id="btn-load-normal">Load</button></div></div>
+        <div class="props-row"><label>Roughness Map</label><div class="props-texture"><span id="rough-name">${mat.roughnessMap ? mat.roughnessMap.name || 'Texture' : 'None'}</span><button id="btn-load-rough">Load</button></div></div>
+        <div class="props-row"><label>Metalness Map</label><div class="props-texture"><span id="metal-name">${mat.metalnessMap ? mat.metalnessMap.name || 'Texture' : 'None'}</span><button id="btn-load-metal">Load</button></div></div>
+        <div class="props-row"><label>AO Map</label><div class="props-texture"><span id="ao-name">${mat.aoMap ? mat.aoMap.name || 'Texture' : 'None'}</span><button id="btn-load-ao">Load</button></div></div>
+        <div class="props-row"><label>Emissive Map</label><div class="props-texture"><span id="emissive-name">${mat.emissiveMap ? mat.emissiveMap.name || 'Texture' : 'None'}</span><button id="btn-load-emissive">Load</button></div></div>
+        <div class="props-row"><label>Displacement</label><div class="props-texture"><span id="disp-name">${mat.displacementMap ? mat.displacementMap.name || 'Texture' : 'None'}</span><button id="btn-load-disp">Load</button></div></div>
         
-        <label>UV Repeat X</label>
-        <input type="number" step="0.1" id="props-uv-x" value="${mat.map ? mat.map.repeat.x : 1}">
-        <label>UV Repeat Y</label>
-        <input type="number" step="0.1" id="props-uv-y" value="${mat.map ? mat.map.repeat.y : 1}">
+        <div class="props-stack">
+            <label>Displacement Scale</label>
+            <input type="range" min="0" max="5" step="0.1" id="props-disp-scale" value="${mat.displacementScale || 1}">
+        </div>
+        <div class="props-stack">
+            <label>UV Repeat</label>
+            <div class="props-vector3">
+                <span>X</span><input type="number" step="0.1" id="props-uv-x" value="${mat.map ? mat.map.repeat.x : 1}">
+                <span>Y</span><input type="number" step="0.1" id="props-uv-y" value="${mat.map ? mat.map.repeat.y : 1}">
+            </div>
+        </div>
       </div>
     ` : '';
 
@@ -615,37 +598,28 @@ export class EditorManager {
     const sky = this.main.sky;
     const sunLight = this.main.sunLight;
     
-    // *** FIX: Read from this.timeOfDay, not a non-existent element ***
     this.propsContent.innerHTML = `
-        <strong>Sky Settings</strong>
         <div class="props-group">
-            <h5>Sky Colors</h5>
-            <label>Top Color</label>
-            <input type="color" id="props-sky-top" value="${'#' + sky.material.uniforms.topColor.value.getHexString()}">
-            <label>Bottom Color</label>
-            <input type="color" id="props-sky-bottom" value="${'#' + sky.material.uniforms.bottomColor.value.getHexString()}">
-            
+            <h5>Sky Settings</h5>
+            <div class="props-stack"><label>Top Color</label><input type="color" id="props-sky-top" value="${'#' + sky.material.uniforms.topColor.value.getHexString()}"></div>
+            <div class="props-stack"><label>Bottom Color</label><input type="color" id="props-sky-bottom" value="${'#' + sky.material.uniforms.bottomColor.value.getHexString()}"></div>
+        </div>
+        <div class="props-group">
             <h5>Sun</h5>
-            <label>Sun Color</label>
-            <input type="color" id="props-sun-color" value="${'#' + sunLight.color.getHexString()}">
-            <label>Sun Intensity</label>
-            <input type="range" min="0" max="5" step="0.1" id="props-sun-intensity" value="${sunLight.intensity}">
-            <label>Time of Day</label>
-            <input type="range" min="0" max="100" step="1" id="props-sun-slider" value="${this.timeOfDay}">
+            <div class="props-stack"><label>Sun Color</label><input type="color" id="props-sun-color" value="${'#' + sunLight.color.getHexString()}"></div>
+            <div class="props-stack"><label>Sun Intensity</label><input type="range" min="0" max="5" step="0.1" id="props-sun-intensity" value="${sunLight.intensity}"></div>
+            <div class="props-stack"><label>Time of Day</label><input type="range" min="0" max="100" step="1" id="props-sun-slider" value="${this.timeOfDay}"></div>
         </div>
     `;
     
-    // Bind Events
     document.getElementById('props-sky-top').oninput = (e) => sky.material.uniforms.topColor.value.set(e.target.value);
     document.getElementById('props-sky-bottom').oninput = (e) => sky.material.uniforms.bottomColor.value.set(e.target.value);
     document.getElementById('props-sun-color').oninput = (e) => sunLight.color.set(e.target.value);
     document.getElementById('props-sun-intensity').oninput = (e) => sunLight.intensity = parseFloat(e.target.value);
-    
-    // *** FIX: Update this.timeOfDay when slider moves ***
     document.getElementById('props-sun-slider').oninput = (e) => {
         const val = e.target.value;
         this.main.updateSun(val);
-        this.timeOfDay = val; // Store the new value
+        this.timeOfDay = val;
     };
   }
   
@@ -656,32 +630,27 @@ export class EditorManager {
     const pos = sunLight.position;
     
     this.propsContent.innerHTML = `
-        <strong>Global Lighting</strong>
         <div class="props-group">
             <h5>Sun Light (Directional)</h5>
-            <label>Sun Color</label>
-            <input type="color" id="props-sun-color" value="${'#' + sunLight.color.getHexString()}">
-            <label>Sun Intensity</label>
-            <input type="range" min="0" max="5" step="0.1" id="props-sun-intensity" value="${sunLight.intensity}">
-
-            <label>Sun Position</label>
-            <div class="props-vector3">
-              <span>X</span><input type="number" step="1" id="props-pos-x" value="${pos.x.toFixed(0)}">
-              <span>Y</span><input type="number" step="1" id="props-pos-y" value="${pos.y.toFixed(0)}">
-              <span>Z</span><input type="number" step="1" id="props-pos-z" value="${pos.z.toFixed(0)}">
+            <div class="props-stack"><label>Sun Color</label><input type="color" id="props-sun-color" value="${'#' + sunLight.color.getHexString()}"></div>
+            <div class="props-stack"><label>Sun Intensity</label><input type="range" min="0" max="5" step="0.1" id="props-sun-intensity" value="${sunLight.intensity}"></div>
+            <div class="props-stack">
+                <label>Sun Position</label>
+                <div class="props-vector3">
+                  <span>X</span><input type="number" step="1" id="props-pos-x" value="${pos.x.toFixed(0)}">
+                  <span>Y</span><input type="number" step="1" id="props-pos-y" value="${pos.y.toFixed(0)}">
+                  <span>Z</span><input type="number" step="1" id="props-pos-z" value="${pos.z.toFixed(0)}">
+                </div>
             </div>
-
+        </div>
+        <div class="props-group">
             <h5>Ambient Light (Hemisphere)</h5>
-            <label>Sky Color</label>
-            <input type="color" id="props-hemi-sky" value="${'#' + hemiLight.color.getHexString()}">
-            <label>Ground Color</label>
-            <input type="color" id="props-hemi-ground" value="${'#' + hemiLight.groundColor.getHexString()}">
-            <label>Ambient Intensity</label>
-            <input type="range" min="0" max="3" step="0.05" id="props-hemi-intensity" value="${hemiLight.intensity}">
+            <div class="props-stack"><label>Sky Color</label><input type="color" id="props-hemi-sky" value="${'#' + hemiLight.color.getHexString()}"></div>
+            <div class="props-stack"><label>Ground Color</label><input type="color" id="props-hemi-ground" value="${'#' + hemiLight.groundColor.getHexString()}"></div>
+            <div class="props-stack"><label>Ambient Intensity</label><input type="range" min="0" max="3" step="0.05" id="props-hemi-intensity" value="${hemiLight.intensity}"></div>
         </div>
     `;
     
-    // Bind Events
     document.getElementById('props-sun-color').oninput = (e) => sunLight.color.set(e.target.value);
     document.getElementById('props-sun-intensity').oninput = (e) => sunLight.intensity = parseFloat(e.target.value);
     document.getElementById('props-pos-x').oninput = (e) => sunLight.position.x = parseFloat(e.target.value);
@@ -692,71 +661,42 @@ export class EditorManager {
     document.getElementById('props-hemi-intensity').oninput = (e) => hemiLight.intensity = parseFloat(e.target.value);
   }
   
-  // --- PANEL BUILDER: TERRAIN ---
+  // --- PANEL BUILDD_pER: TERRAIN ---
   buildTerrainPanel() {
     const terrainMesh = this.main.terrainMesh;
     if (!terrainMesh) return;
     const mat = terrainMesh.material;
     
     this.propsContent.innerHTML = `
-        <strong>Terrain Settings</strong>
         <div class="props-group">
-            <h5>General</h5>
-            <label>Grid</label>
-            <input type="checkbox" id="props-grid-toggle" ${this.main.gridHelper.visible ? 'checked' : ''}>
-            
+            <h5>Terrain Settings</h5>
+            <div class="props-row"><label>Show Grid</label><input type="checkbox" id="props-grid-toggle" ${this.isGridVisible ? 'checked' : ''}></div>
+        </div>
+        <div class="props-group">
             <h5>Material</h5>
-            <label>Base Color</label>
-            <input type="color" id="props-terrain-color" value="${'#' + mat.color.getHexString()}">
-            <label>Metalness</label>
-            <input type="range" min="0" max="1" step="0.01" id="props-mat-metal" value="${mat.metalness || 0}">
-            <label>Roughness</label>
-            <input type="range" min="0" max="1" step="0.01" id="props-mat-rough" value="${mat.roughness || 0}">
-
+            <div class="props-stack"><label>Base Color</label><input type="color" id="props-terrain-color" value="${'#' + mat.color.getHexString()}"></div>
+            <div class="props-row"><label>Metalness</label><input type="range" min="0" max="1" step="0.01" id="props-mat-metal" value="${mat.metalness || 0}"></div>
+            <div class="props-row"><label>Roughness</label><input type="range" min="0" max="1" step="0.01" id="props-mat-rough" value="${mat.roughness || 0}"></div>
+        </div>
+        <div class="props-group">
             <h5>Textures</h5>
-            <label>Albedo Map</label>
-            <div class="props-texture">
-              <span id="map-name">${mat.map ? mat.map.name || 'Texture' : 'None'}</span>
-              <button id="btn-load-map">Load</button>
+            <div class="props-row"><label>Albedo Map</label><div class="props-texture"><span id="map-name">${mat.map ? mat.map.name || 'Texture' : 'None'}</span><button id="btn-load-map">Load</button></div></div>
+            <div class="props-row"><label>Normal Map</label><div class="props-texture"><span id="normal-name">${mat.normalMap ? mat.normalMap.name || 'Texture' : 'None'}</span><button id="btn-load-normal">Load</button></div></div>
+            <div class="props-row"><label>Roughness Map</label><div class="props-texture"><span id="rough-name">${mat.roughnessMap ? mat.roughnessMap.name || 'Texture' : 'None'}</span><button id="btn-load-rough">Load</button></div></div>
+            <div class="props-row"><label>Metalness Map</label><div class="props-texture"><span id="metal-name">${mat.metalnessMap ? mat.metalnessMap.name || 'Texture' : 'None'}</span><button id="btn-load-metal">Load</button></div></div>
+            <div class="props-row"><label>AO Map</label><div class="props-texture"><span id="ao-name">${mat.aoMap ? mat.aoMap.name || 'Texture' : 'None'}</span><button id="btn-load-ao">Load</button></div></div>
+            <div class="props-row"><label>Displacement</label><div class="props-texture"><span id="disp-name">${mat.displacementMap ? mat.displacementMap.name || 'Texture' : 'None'}</span><button id="btn-load-disp">Load</button></div></div>
+            <div class="props-stack">
+                <label>Displacement Scale</label>
+                <input type="range" min="0" max="5" step="0.1" id="props-disp-scale" value="${mat.displacementScale || 1}">
             </div>
-            <label>Normal Map</label>
-            <div class="props-texture">
-              <span id="normal-name">${mat.normalMap ? mat.normalMap.name || 'Texture' : 'None'}</span>
-              <button id="btn-load-normal">Load</button>
+            <div class="props-stack">
+                <label>UV Repeat</label>
+                <div class="props-vector3">
+                    <span>X</span><input type="number" step="1" id="props-uv-x" value="${mat.map ? mat.map.repeat.x : 20}">
+                    <span>Y</span><input type="number" step="1" id="props-uv-y" value="${mat.map ? mat.map.repeat.y : 20}">
+                </div>
             </div>
-            <label>Roughness Map</label>
-            <div class="props-texture">
-              <span id="rough-name">${mat.roughnessMap ? mat.roughnessMap.name || 'Texture' : 'None'}</span>
-              <button id="btn-load-rough">Load</button>
-            </div>
-            <label>Metalness Map</label>
-            <div class="props-texture">
-              <span id="metal-name">${mat.metalnessMap ? mat.metalnessMap.name || 'Texture' : 'None'}</span>
-              <button id="btn-load-metal">Load</button>
-            </div>
-            <label>AO Map</label>
-            <div class="props-texture">
-              <span id="ao-name">${mat.aoMap ? mat.aoMap.name || 'Texture' : 'None'}</span>
-              <button id="btn-load-ao">Load</button>
-            </div>
-            <label>Displacement</label>
-            <div class="props-texture">
-              <span id="disp-name">${mat.displacementMap ? mat.displacementMap.name || 'Texture' : 'None'}</span>
-              <button id="btn-load-disp">Load</button>
-            </div>
-            <label>Disp. Scale</label>
-            <input type="range" min="0" max="5" step="0.1" id="props-disp-scale" value="${mat.displacementScale || 1}">
-            
-            <label>Emissive Map</label>
-            <div class="props-texture">
-              <span id="emissive-name">${mat.emissiveMap ? mat.emissiveMap.name || 'Texture' : 'None'}</span>
-              <button id="btn-load-emissive">Load</button>
-            </div>
-
-            <label>UV Repeat X</label>
-            <input type="number" step="0.1" id="props-uv-x" value="${mat.map ? mat.map.repeat.x : 1}">
-            <label>UV Repeat Y</label>
-            <input type="number" step="0.1" id="props-uv-y" value="${mat.map ? mat.map.repeat.y : 1}">
         </div>
     `;
     
@@ -775,7 +715,6 @@ export class EditorManager {
     document.getElementById('btn-load-metal').onclick = () => this.texInputMetal.click();
     document.getElementById('btn-load-ao').onclick = () => this.texInputAO.click();
     document.getElementById('btn-load-disp').onclick = () => this.texInputDisplacement.click();
-    document.getElementById('btn-load-emissive').onclick = () => this.texInputEmissive.click();
 
     this.texInputMap.onchange = (e) => this.handleTextureUpload(e, mat, 'map');
     this.texInputNormal.onchange = (e) => this.handleTextureUpload(e, mat, 'normalMap');
@@ -783,7 +722,6 @@ export class EditorManager {
     this.texInputMetal.onchange = (e) => this.handleTextureUpload(e, mat, 'metalnessMap');
     this.texInputAO.onchange = (e) => this.handleTextureUpload(e, mat, 'aoMap');
     this.texInputDisplacement.onchange = (e) => this.handleTextureUpload(e, mat, 'displacementMap');
-    this.texInputEmissive.onchange = (e) => this.handleTextureUpload(e, mat, 'emissiveMap');
 
     document.getElementById('props-disp-scale').oninput = (e) => mat.displacementScale = parseFloat(e.target.value);
     document.getElementById('props-uv-x').oninput = (e) => this.setMaterialUV(mat, 'x', e.target.value);
@@ -850,13 +788,15 @@ export class EditorManager {
       document.getElementById('btn-load-metal').onclick = () => this.texInputMetal.click();
       document.getElementById('btn-load-ao').onclick = () => this.texInputAO.click();
       document.getElementById('btn-load-emissive').onclick = () => this.texInputEmissive.click();
-      
+      document.getElementById('btn-load-disp').onclick = () => this.texInputDisplacement.click();
+
       this.texInputMap.onchange = (e) => this.handleTextureUpload(e, mat, 'map');
       this.texInputNormal.onchange = (e) => this.handleTextureUpload(e, mat, 'normalMap');
       this.texInputRough.onchange = (e) => this.handleTextureUpload(e, mat, 'roughnessMap');
       this.texInputMetal.onchange = (e) => this.handleTextureUpload(e, mat, 'metalnessMap');
       this.texInputAO.onchange = (e) => this.handleTextureUpload(e, mat, 'aoMap');
       this.texInputEmissive.onchange = (e) => this.handleTextureUpload(e, mat, 'emissiveMap');
+      this.texInputDisplacement.onchange = (e) => this.handleTextureUpload(e, mat, 'displacementMap');
     }
 
     document.getElementById('btn-anim-create-new').onclick = () => {
@@ -864,7 +804,7 @@ export class EditorManager {
       this.resetAnimCreator();
     };
     document.getElementById('btn-anim-set-pos1').onclick = () => this.setAnimKeyframe(1);
-    document.getElementById('btn-anim-set-pos2').onclick = () => this.setAnimKeyframe(2);
+    document.getElementById('btn-anim-set-pos2').onclick = ()_ => this.setAnimKeyframe(2);
     document.getElementById('btn-anim-save').onclick = () => this.saveAnimation();
     
     document.getElementById('anim-list').addEventListener('click', (e) => {
@@ -973,25 +913,17 @@ export class EditorManager {
     this.fileReader.onload = (e) => {
       this.textureLoader.load(e.target.result, (texture) => {
         texture.name = file.name;
+        
+        // *** FIX: Set wrapping and repeat by default ***
         texture.wrapS = THREE.RepeatWrapping;
         texture.wrapT = THREE.RepeatWrapping;
+        texture.repeat.set(20, 20); // Default 20x20 tiling
         
         material[mapType] = texture;
         material.needsUpdate = true;
         
-        // *** MODIFIED: Find all possible span IDs ***
-        let spanId;
-        if (mapType === 'map') spanId = 'map-name';
-        else if (mapType === 'normalMap') spanId = 'normal-name';
-        else if (mapType === 'displacementMap') spanId = 'disp-name';
-        else if (mapType === 'roughnessMap') spanId = 'rough-name';
-        else if (mapType === 'metalnessMap') spanId = 'metal-name';
-        else if (mapType === 'aoMap') spanId = 'ao-name';
-        else if (mapType === 'emissiveMap') spanId = 'emissive-name';
-        
-        if (spanId && document.getElementById(spanId)) {
-          document.getElementById(spanId).textContent = file.name;
-        }
+        // Refresh the whole panel to show new UV values
+        this.updatePropertyPanel(this.selectedObject);
       });
     };
     this.fileReader.readAsDataURL(file);
@@ -1002,7 +934,6 @@ export class EditorManager {
     const val = parseFloat(value);
     if (isNaN(val)) return;
     
-    // *** MODIFIED: Include all map types ***
     ['map', 'normalMap', 'roughnessMap', 'metalnessMap', 'aoMap', 'displacementMap', 'emissiveMap'].forEach(mapType => {
         if (material[mapType]) {
             material[mapType].repeat[axis] = val;
