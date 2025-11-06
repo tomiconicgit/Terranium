@@ -74,14 +74,12 @@
         <button class="tab-button active" data-tab="tab-scene">Scene</button>
         <button class="tab-button" data-tab="tab-properties">Properties</button>
         <button class="tab-button" data-tab="tab-assets">Assets</button>
-        <button class="tab-button" data-tab="tab-environment">Environment</button>
-      </nav>
+        </nav>
 
       <div class="tab-content-wrapper">
 
         <div id="tab-scene" class="tab-content active">
           <div class="panel-section">
-            <h4>Scene Hierarchy</h4>
             <div id="scene-tree-view">
               </div>
             <div class="button-row">
@@ -109,28 +107,7 @@
           </div>
         </div>
         
-        <div id="tab-environment" class="tab-content">
-          <div class="panel-section">
-            <h4>Environment</h4>
-            <div class="control-grid">
-              <label>Time of Day</label>
-              <input type="range" id="sun-slider" min="0" max="100" value="50">
-              <label for="grid-toggle">Show Grid</label>
-              <input type="checkbox" id="grid-toggle" checked>
-            </div>
-          </div>
-          <div class="panel-section">
-            <h4>Floor Texture</h4>
-            <div class="button-row">
-              <button id="tex-grey">Plain (Grey)</button>
-              <button id="tex-grass">Grass</button>
-              <button id="tex-sand">Sand</button>
-              <button id="tex-concrete">Concrete</button>
-            </div>
-          </div>
         </div>
-
-      </div>
     </div>
   </div>
 
@@ -138,6 +115,7 @@
   <input type="file" id="texture-input-normal" accept="image/*" style="display: none;">
   <input type="file" id="texture-input-metal" accept="image/*" style="display: none;">
   <input type="file" id="texture-input-rough" accept="image/*" style="display: none;">
+  <input type="file" id="texture-input-displacement" accept="image/*" style="display: none;">
 
   <noscript>
     <p>This experience requires JavaScript to be enabled. Please enable it in your browser settings.</p>
