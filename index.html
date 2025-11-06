@@ -44,7 +44,7 @@
         <div class="progress-bar-container"><div id="progress-bar"></div></div>
         <div id="debugger-message-area"></div>
         <div class="button-group">
-          <button id="reload-button" title="Reload">&#x21bb;</button>
+          <button id="reload-button" title="Reload">Reload</button>
           <button id="enter-button" disabled>LOADING</button>
         </div>
       </div>
@@ -59,34 +59,64 @@
       <canvas id="game-canvas"></canvas>
       
       <div id="editor-toolbar" class="no-look">
-        <button id="btn-select" class="tool active" data-tool="select" title="Select">🖐</button>
-        <button id="btn-move" class="tool" data-tool="translate" title="Move">↔️</button>
-        <button id="btn-rotate" class="tool" data-tool="rotate" title="Rotate">🔄</button>
-        <button id="btn-scale" class="tool" data-tool="scale" title="Scale">Scaling</button>
-        <button id="btn-delete" title="Delete Selected">🗑️</button>
+        <button id="btn-select" class="tool active" data-tool="select" title="Select">Select</button>
+        <button id="btn-move" class="tool" data-tool="translate" title="Move">Move</button>
+        <button id="btn-rotate" class="tool" data-tool="rotate" title="Rotate">Rotate</button>
+        <button id="btn-scale" class="tool" data-tool="scale" title="Scale">Scale</button>
+        <button id="btn-delete" title="Delete Selected">Delete</button>
       </div>
 
-      <button id="btn-play" class="no-look" title="Play (Enter Game Mode)">▶️ Play</button>
-      <button id="btn-end-test" class="no-look" title="End Test Mode">⏹️ End Test</button>
+      <button id="btn-play" class="no-look" title="Play Test">Play</button>
+      <button id="btn-end-test" class="no-look" title="End Test Mode">End Test</button>
     </div>
 
     <div id="editor-panel-container" class="no-look">
       
       <nav class="tab-bar">
         <button class="tab-button active" data-tab="tab-scene">Scene</button>
-        <button class="tab-button" data-tab="tab-assets">Assets</button>
         <button class="tab-button" data-tab="tab-properties">Properties</button>
+        <button class="tab-button" data-tab="tab-assets">Assets</button>
+        <button class="tab-button" data-tab="tab-environment">Environment</button>
       </nav>
 
       <div class="tab-content-wrapper">
 
         <div id="tab-scene" class="tab-content active">
           <div class="panel-section">
+            <h4>Scene Hierarchy</h4>
+            <div id="scene-tree-view">
+              </div>
+            <div class="button-row">
+              <button id="btn-parent-object" disabled>Set as Parent</button>
+            </div>
+          </div>
+        </div>
+
+        <div id="tab-properties" class="tab-content">
+          <div class="panel-section">
+            <div id="props-content">
+              <p>No object selected.</p>
+            </div>
+          </div>
+        </div>
+
+        <div id="tab-assets" class="tab-content">
+          <div class="panel-section">
+            <h4>Assets</h4>
+            <div id="asset-list">
+              <button class="asset-item" data-path="src/assets/ModernHall.glb">ModernHall.glb</button>
+              <input type="file" id="file-input-model" multiple accept=".glb,.fbx" style="display: none;">
+              <button id="btn-upload-model" title="Upload 3D Model">Upload .glb/.fbx</button>
+            </div>
+          </div>
+        </div>
+        
+        <div id="tab-environment" class="tab-content">
+          <div class="panel-section">
             <h4>Environment</h4>
             <div class="control-grid">
               <label>Time of Day</label>
               <input type="range" id="sun-slider" min="0" max="100" value="50">
-              
               <label for="grid-toggle">Show Grid</label>
               <input type="checkbox" id="grid-toggle" checked>
             </div>
@@ -102,29 +132,14 @@
           </div>
         </div>
 
-        <div id="tab-assets" class="tab-content">
-          <div class="panel-section">
-            <h4>Assets</h4>
-            <div id="asset-list">
-              <button class="asset-item" data-path="src/assets/ModernHall.glb">ModernHall.glb</button>
-              <input type="file" id="file-input" multiple accept=".glb,.fbx" style="display: none;">
-              <button id="btn-upload-asset" title="Load from device">Upload .glb/.fbx</button>
-            </div>
-          </div>
-        </div>
-
-        <div id="tab-properties" class="tab-content">
-          <div class="panel-section">
-            <h4>Properties</h4>
-            <div id="props-content">
-              <p>No object selected.</p>
-            </div>
-          </div>
-        </div>
-
       </div>
     </div>
   </div>
+
+  <input type="file" id="texture-input-map" accept="image/*" style="display: none;">
+  <input type="file" id="texture-input-normal" accept="image/*" style="display: none;">
+  <input type="file" id="texture-input-metal" accept="image/*" style="display: none;">
+  <input type="file" id="texture-input-rough" accept="image/*" style="display: none;">
 
   <noscript>
     <p>This experience requires JavaScript to be enabled. Please enable it in your browser settings.</p>
