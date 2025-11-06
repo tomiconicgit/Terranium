@@ -14,25 +14,17 @@ export class EditorManager {
     this.world = this.main.world; 
     
     this.state = 'EDITOR';
-    this.selectedObject = null;
+    this.selectedObject = null; // Can be a THREE.Object3D or a string like 'sky'
     this.textureLoader = new THREE.TextureLoader();
     this.fileReader = new FileReader();
 
-    this.parentingState = {
-      isWaiting: false,
-      parentObject: null
-    };
-
-    // NEW: State for Animation Creator
-    this.animCreatorState = {
-      pos1: null,
-      pos2: null
-    };
+    this.parentingState = { isWaiting: false, parentObject: null };
+    this.animCreatorState = { pos1: null, pos2: null };
 
     this.bindDOM();
     this.initControls();
     this.addEventListeners();
-    this.buildSceneTree();
+    this.buildSceneTree(); // Build initial tree
   }
 
   bindDOM() {
@@ -69,12 +61,7 @@ export class EditorManager {
 
     this.transformControls = new TransformControls(this.camera, this.renderer.domElement);
     this.scene.add(this.transformControls);
-
-    this.transformControls.addEventListener('objectChange', () => {
-      if (this.selectedObject) {
-        this.syncPropsFromGizmo();
-      }
-    });
+    this.transformControls.addEventListener('objectChange', () => this.syncPropsFromGizmo());
 
     this.raycaster = new THREE.Raycaster();
     this.pointer = new THREE.Vector2();
@@ -83,24 +70,24 @@ export class EditorManager {
   addEventListeners() {
     this.playButton.addEventListener('click', () => this.enterGameMode());
     this.endTestButton.addEventListener('click', () => this.enterEditorMode());
-
     this.toolbar.addEventListener('click', (e) => this.onToolClick(e));
     this.tabBar.addEventListener('click', (e) => this.onTabClick(e));
     this.renderer.domElement.addEventListener('pointerdown', (e) => this.onPointerDown(e), false);
-
+    
+    // --- Scene Tab Listeners ---
     this.parentButton.addEventListener('click', () => this.startParenting());
     this.sceneTreeView.addEventListener('click', (e) => this.onSceneTreeClick(e));
 
+    // --- Asset Tab Listeners ---
     this.assetList.addEventListener('click', (e) => this.onAssetClick(e));
     this.uploadModelButton.addEventListener('click', () => this.modelFileInput.click());
     this.modelFileInput.addEventListener('change', (e) => this.onFileUpload(e));
 
+    // --- Environment Tab Listeners ---
     this.sunSlider.addEventListener('input', (e) => this.main.updateSun(e.target.value));
-    this.main.updateSun(this.sunSlider.value);
     this.gridToggle.addEventListener('change', (e) => {
       this.main.gridHelper.visible = e.target.checked;
     });
-
     document.getElementById('tex-grey').onclick = () => this.main.setTerrainColor(0x555555);
     document.getElementById('tex-grass').onclick = () => this.main.setTerrainTexture('src/assets/textures/grass.jpg');
     document.getElementById('tex-sand').onclick = () => this.main.setTerrainTexture('src/assets/textures/sand.jpg');
@@ -126,7 +113,7 @@ export class EditorManager {
     this.state = 'EDITOR';
     this.appContainer.classList.remove('game-mode-active');
     this.orbitControls.enabled = true;
-    if (this.selectedObject) {
+    if (this.selectedObject instanceof THREE.Object3D) {
       this.transformControls.attach(this.selectedObject);
     }
     this.main.controls.setPaused(true);
@@ -154,14 +141,10 @@ export class EditorManager {
     const tool = button.dataset.tool;
     if (tool === 'select') {
       this.transformControls.setMode('translate');
-      this.transformControls.showX = false;
-      this.transformControls.showY = false;
-      this.transformControls.showZ = false;
+      this.transformControls.showX = false; this.transformControls.showY = false; this.transformControls.showZ = false;
     } else {
       this.transformControls.setMode(tool);
-      this.transformControls.showX = true;
-      this.transformControls.showY = true;
-      this.transformControls.showZ = true;
+      this.transformControls.showX = true; this.transformControls.showY = true; this.transformControls.showZ = true;
     }
     this.toolbar.querySelectorAll('.tool').forEach(b => b.classList.remove('active'));
     button.classList.add('active');
@@ -202,39 +185,190 @@ export class EditorManager {
   }
 
   // --- Scene Hierarchy & Parenting ---
+
+  /**
+   * Creates an expandable tree node
+   * @param {string} name - The text label
+   * @param {string} icon - The icon (e.g., 📁)
+   * @param {boolean} isCollapsible - If true, adds an arrow
+   * @returns {object} - { category, childrenContainer }
+   */
+  createTreeCategory(name, isCollapsible = true) {
+    const category = document.createElement('div');
+    category.className = 'tree-category';
+    
+    const arrow = document.createElement('span');
+    arrow.className = 'arrow';
+    if (isCollapsible) {
+        arrow.textContent = '►';
+    }
+    
+    const label = document.createElement('span');
+    label.className = 'label';
+    label.textContent = name;
+    
+    category.appendChild(arrow);
+    category.appendChild(label);
+    
+    const childrenContainer = document.createElement('div');
+    childrenContainer.className = 'tree-children';
+    
+    if (isCollapsible) {
+        category.addEventListener('click', (e) => {
+            if (e.target.closest('.label') || e.target.closest('.arrow')) {
+                category.classList.toggle('expanded');
+            }
+        });
+    }
+
+    return { category, childrenContainer };
+  }
+  
+  /**
+   * Creates a single item in the tree
+   * @param {string} name - The text label
+   * @param {string} icon - The icon
+   * @param {string} data - The data to attach (UUID or special string)
+   * @returns {HTMLElement}
+   */
+  createTreeItem(name, icon, data) {
+    const item = document.createElement('div');
+    item.className = 'tree-item';
+    
+    const itemIcon = document.createElement('span');
+    itemIcon.className = 'icon';
+    itemIcon.textContent = icon;
+    
+    const label = document.createElement('span');
+    label.className = 'label';
+    label.textContent = name;
+    
+    item.appendChild(itemIcon);
+    item.appendChild(label);
+    
+    if (data instanceof THREE.Object3D) {
+        item.dataset.uuid = data.uuid;
+        if (this.selectedObject === data) {
+            item.classList.add('selected');
+        }
+    } else {
+        item.dataset.special = data; // e.g., 'sky', 'light'
+        if (this.selectedObject === data) {
+            item.classList.add('selected');
+        }
+    }
+    
+    return item;
+  }
+
   buildSceneTree() {
     this.sceneTreeView.innerHTML = '';
-    const buildNode = (obj, depth = 0) => {
-      const item = document.createElement('div');
-      item.className = 'scene-tree-item';
-      if (depth > 0) item.classList.add('child');
-      item.textContent = obj.name || obj.type;
-      item.dataset.uuid = obj.uuid;
-      if (this.selectedObject && obj.uuid === this.selectedObject.uuid) {
-        item.classList.add('selected');
-      }
-      this.sceneTreeView.appendChild(item);
-      obj.children.forEach(child => buildNode(child, depth + 1));
+    
+    // 1. "World" Category
+    const { category: worldCat, childrenContainer: worldChildren } = this.createTreeCategory('World', true);
+    worldCat.classList.add('expanded'); // Start expanded
+    
+    const sky = this.scene.getObjectByName("SkySettings");
+    if (sky) worldChildren.appendChild(this.createTreeItem("Sky", "☁️", "sky"));
+    
+    const light = this.scene.getObjectByName("LightingSettings");
+    if (light) worldChildren.appendChild(this.createTreeItem("Lighting", "💡", "light"));
+    
+    const terrain = this.scene.getObjectByName("TerrainSettings");
+    if (terrain) worldChildren.appendChild(this.createTreeItem("Terrain", "🌲", "terrain"));
+
+    this.sceneTreeView.appendChild(worldCat);
+    this.sceneTreeView.appendChild(worldChildren);
+    
+    // 2. "Models" Category
+    const { category: modelsCat, childrenContainer: modelsChildren } = this.createTreeCategory('Models', true);
+    modelsCat.classList.add('expanded'); // Start expanded
+    
+    // Recursive function to build model tree
+    const buildModelNode = (obj) => {
+        const hasChildren = obj.children.length > 0 || (obj.userData.animations && obj.userData.animations.length > 0);
+        
+        const item = document.createElement('div');
+        item.className = 'tree-item';
+        if (hasChildren) item.classList.add('collapsible');
+        item.dataset.uuid = obj.uuid;
+
+        const arrow = document.createElement('span');
+        arrow.className = 'arrow';
+        if (hasChildren) arrow.textContent = '►';
+        
+        const icon = document.createElement('span');
+        icon.className = 'icon';
+        icon.textContent = obj.isMesh ? '📦' : '📁'; // Icon: Mesh or Folder
+        
+        const label = document.createElement('span');
+        label.className = 'label';
+        label.textContent = obj.name || obj.type;
+
+        item.appendChild(arrow);
+        item.appendChild(icon);
+        item.appendChild(label);
+        
+        if (this.selectedObject === obj) {
+            item.classList.add('selected');
+        }
+        
+        modelsChildren.appendChild(item);
+        
+        if (hasChildren) {
+            const childrenContainer = document.createElement('div');
+            childrenContainer.className = 'tree-children';
+            
+            // Add meshes, animations, and child objects
+            obj.children.forEach(child => childrenContainer.appendChild(buildModelNode(child)));
+            
+            if (obj.userData.animations) {
+                obj.userData.animations.forEach(anim => {
+                    const animItem = this.createTreeItem(anim.name, '🔧', anim);
+                    childrenContainer.appendChild(animItem);
+                });
+            }
+            
+            modelsChildren.appendChild(childrenContainer);
+        }
+        return item;
     };
-    this.world.children.forEach(child => buildNode(child));
+    
+    this.world.children.forEach(child => buildModelNode(child));
+    this.sceneTreeView.appendChild(modelsCat);
+    this.sceneTreeView.appendChild(modelsChildren);
   }
 
   onSceneTreeClick(event) {
-    const item = event.target.closest('.scene-tree-item');
+    const item = event.target.closest('.tree-item, .tree-category');
     if (!item) return;
+
+    // Handle expand/collapse
+    if (event.target.closest('.arrow') && item.classList.contains('collapsible')) {
+        item.classList.toggle('expanded');
+        return;
+    }
+    
+    // Handle selection
     const uuid = item.dataset.uuid;
-    const object = this.world.getObjectByProperty('uuid', uuid); 
-    if (object) {
-      if (this.parentingState.isWaiting) {
-        this.completeParenting(object);
-      } else {
-        this.selectObject(object);
-      }
+    const special = item.dataset.special;
+    
+    if (uuid) {
+        const object = this.world.getObjectByProperty('uuid', uuid);
+        if (object) {
+            if (this.parentingState.isWaiting) {
+                this.completeParenting(object);
+            } else {
+                this.selectObject(object);
+            }
+        }
+    } else if (special) {
+        this.selectObject(special); // Select 'sky', 'light', or 'terrain'
     }
   }
   
   startParenting() {
-    if (!this.selectedObject) return;
+    if (!this.selectedObject || !(this.selectedObject instanceof THREE.Object3D)) return;
     this.parentingState.isWaiting = true;
     this.parentingState.parentObject = this.selectedObject;
     this.parentButton.textContent = 'Cancel Parenting';
@@ -257,7 +391,7 @@ export class EditorManager {
     this.parentingState.parentObject = null;
     this.parentButton.textContent = 'Set as Parent';
     this.parentButton.style.background = '';
-    this.parentButton.disabled = (this.selectedObject === null);
+    this.parentButton.disabled = !(this.selectedObject instanceof THREE.Object3D);
   }
 
   // --- Object Selection & Properties ---
@@ -295,21 +429,24 @@ export class EditorManager {
     }
   }
 
-  selectObject(obj) {
+  selectObject(obj) { // obj can be Object3D, string, or null
     if (this.selectedObject === obj) return;
+    
     this.selectedObject = obj;
-    if (obj) {
+    
+    if (obj instanceof THREE.Object3D) {
       this.transformControls.attach(obj);
     } else {
       this.transformControls.detach();
     }
+    
     this.cancelParenting();
     this.updatePropertyPanel(obj);
-    this.buildSceneTree();
+    this.buildSceneTree(); // Rebuild to show new selection
   }
   
   deleteSelected() {
-    if (!this.selectedObject) return;
+    if (!this.selectedObject || !(this.selectedObject instanceof THREE.Object3D)) return;
     const obj = this.selectedObject;
     this.selectObject(null);
     obj.removeFromParent();
@@ -324,111 +461,135 @@ export class EditorManager {
   }
 
   /**
-   * Rebuilds the Property Panel for the selected object
+   * Rebuilds the Property Panel for the selected object or special string
    */
   updatePropertyPanel(obj) {
-    if (!obj) {
-      this.propsContent.innerHTML = '<p>No object selected.</p>';
-      return;
+    if (obj === null) {
+        this.propsContent.innerHTML = '<p>No object selected.</p>';
+        return;
     }
-
-    const pos = obj.position;
-    const rot = obj.rotation;
-    const scl = obj.scale;
-
-    let mesh = null;
-    obj.traverse(child => { if (child.isMesh) mesh = child; });
-    const mat = mesh ? (Array.isArray(mesh.material) ? mesh.material[0] : mesh.material) : null;
     
-    const anims = obj.userData.animations || [];
-    const animListHTML = anims.map(anim => `
-      <div class="animation-list-item">
-        <span>${anim.name}</span>
-        <button data-anim-name="${anim.name}">Test</button>
-      </div>
-    `).join('');
+    // --- Handle Special "World" Objects ---
+    if (typeof obj === 'string') {
+        if (obj === 'sky') {
+            this.propsContent.innerHTML = '<strong>Sky Settings</strong><p>Sky properties (like color, texture) would go here. For now, use the Environment tab.</p>';
+            this.onTabClick({ target: document.querySelector('button[data-tab="tab-environment"]') });
+        } else if (obj === 'light') {
+            const light = this.main.sunLight;
+            this.propsContent.innerHTML = `
+                <strong>Lighting Settings</strong>
+                <div class="props-group">
+                    <label>Sun Intensity</label>
+                    <input type="range" min="0" max="5" step="0.1" id="props-sun-intensity" value="${light.intensity}">
+                    <label>Ambient Intensity</label>
+                    <input type="range" min="0" max="2" step="0.05" id="props-hemi-intensity" value="${this.main.hemiLight.intensity}">
+                </div>
+            `;
+            document.getElementById('props-sun-intensity').oninput = (e) => light.intensity = parseFloat(e.target.value);
+            document.getElementById('props-hemi-intensity').oninput = (e) => this.main.hemiLight.intensity = parseFloat(e.target.value);
+        } else if (obj === 'terrain') {
+            this.propsContent.innerHTML = '<strong>Terrain Settings</strong><p>Terrain properties (like texture) would go here. For now, use the Environment tab.</p>';
+            this.onTabClick({ target: document.querySelector('button[data-tab="tab-environment"]') });
+        }
+        return;
+    }
+    
+    // --- Handle 3D Objects ---
+    if (obj instanceof THREE.Object3D) {
+        const pos = obj.position;
+        const rot = obj.rotation;
+        const scl = obj.scale;
 
-    this.propsContent.innerHTML = `
-      <strong>${obj.name || obj.type}</strong>
-      
-      <div class="props-group">
-        <h5>Transform</h5>
-        <label>Position</label>
-        <div class="props-vector3">
-          <span>X</span><input type="number" step="0.1" id="props-pos-x" value="${pos.x.toFixed(2)}">
-          <span>Y</span><input type="number" step="0.1" id="props-pos-y" value="${pos.y.toFixed(2)}">
-          <span>Z</span><input type="number" step="0.1" id="props-pos-z" value="${pos.z.toFixed(2)}">
-        </div>
-        <label>Rotation</label>
-        <div class="props-vector3">
-          <span>X</span><input type="number" step="1" id="props-rot-x" value="${THREE.MathUtils.radToDeg(rot.x).toFixed(1)}">
-          <span>Y</span><input type="number" step="1" id="props-rot-y" value="${THREE.MathUtils.radToDeg(rot.y).toFixed(1)}">
-          <span>Z</span><input type="number" step="1" id="props-rot-z" value="${THREE.MathUtils.radToDeg(rot.z).toFixed(1)}">
-        </div>
-        <label>Scale (Non-Uniform)</label>
-        <div class="props-vector3">
-          <span>X</span><input type="number" step="0.05" id="props-scl-x" value="${scl.x.toFixed(2)}">
-          <span>Y</span><input type="number" step="0.05" id="props-scl-y" value="${scl.y.toFixed(2)}">
-          <span>Z</span><input type="number" step="0.05" id="props-scl-z" value="${scl.z.toFixed(2)}">
-        </div>
+        let mesh = null;
+        obj.traverse(child => { if (child.isMesh) mesh = child; });
+        const mat = mesh ? (Array.isArray(mesh.material) ? mesh.material[0] : mesh.material) : null;
         
-        <label>Scale (Uniform)</label>
-        <input type="range" min="0.01" max="5" step="0.01" id="props-scl-uniform" value="${scl.x.toFixed(2)}">
-      </div>
-      
-      ${mat ? `
-      <div class="props-group">
-        <h5>Material (PBR)</h5>
-        <label>Metalness</label>
-        <input type="range" min="0" max="1" step="0.01" id="props-mat-metal" value="${mat.metalness || 0}">
-        <label>Roughness</label>
-        <input type="range" min="0" max="1" step="0.01" id="props-mat-rough" value="${mat.roughness || 0}">
-        <label>Albedo Map</label>
-        <div class="props-texture">
-          <span id="map-name">${mat.map ? mat.map.name || 'Texture' : 'None'}</span>
-          <button id="btn-load-map">Load</button>
-        </div>
-        <label>Normal Map</label>
-        <div class="props-texture">
-          <span id="normal-name">${mat.normalMap ? mat.normalMap.name || 'Texture' : 'None'}</span>
-          <button id="btn-load-normal">Load</button>
-        </div>
-        <label>UV Repeat X</label>
-        <input type="number" step="0.1" id="props-uv-x" value="${mat.map ? mat.map.repeat.x : 1}">
-        <label>UV Repeat Y</label>
-        <input type="number" step="0.1" id="props-uv-y" value="${mat.map ? mat.map.repeat.y : 1}">
-      </div>
-      ` : ''}
-
-      <div class="props-group">
-        <h5>Animations</h5>
-        <div class="animation-list" id="anim-list">${animListHTML}</div>
-        <button id="btn-anim-create-new" style="margin-top: 10px;">Create New Animation</button>
-        
-        <div class="animation-creator" id="anim-creator" style="display: none;">
-          <label>Animation Name</label>
-          <input type="text" id="anim-name" placeholder="e.g. 'DoorOpen'">
-          <div class="animation-keyframe-row">
-            <button id="btn-anim-set-pos1">Set Start Pos</button>
-            <span id="anim-pos1-display">...</span>
+        const anims = obj.userData.animations || [];
+        const animListHTML = anims.map(anim => `
+          <div class="animation-list-item">
+            <span>${anim.name}</span>
+            <button data-anim-name="${anim.name}">Test</button>
           </div>
-          <div class="animation-keyframe-row">
-            <button id="btn-anim-set-pos2">Set End Pos</button>
-            <span id="anim-pos2-display">...</span>
-          </div>
-          <label>Duration (seconds)</label>
-          <input type="number" id="anim-duration" value="2" step="0.1">
-          <button id="btn-anim-save">Save Animation</button>
-        </div>
-      </div>
-    `;
+        `).join('');
 
-    this.bindPropertyPanelEvents(obj, mat);
+        this.propsContent.innerHTML = `
+          <strong>${obj.name || obj.type}</strong>
+          
+          <div class="props-group">
+            <h5>Transform</h5>
+            <label>Position</label>
+            <div class="props-vector3">
+              <span>X</span><input type="number" step="0.1" id="props-pos-x" value="${pos.x.toFixed(2)}">
+              <span>Y</span><input type="number" step="0.1" id="props-pos-y" value="${pos.y.toFixed(2)}">
+              <span>Z</span><input type="number" step="0.1" id="props-pos-z" value="${pos.z.toFixed(2)}">
+            </div>
+            <label>Rotation</label>
+            <div class="props-vector3">
+              <span>X</span><input type="number" step="1" id="props-rot-x" value="${THREE.MathUtils.radToDeg(rot.x).toFixed(1)}">
+              <span>Y</span><input type="number" step="1" id="props-rot-y" value="${THREE.MathUtils.radToDeg(rot.y).toFixed(1)}">
+              <span>Z</span><input type="number" step="1" id="props-rot-z" value="${THREE.MathUtils.radToDeg(rot.z).toFixed(1)}">
+            </div>
+            <label>Scale (Non-Uniform)</label>
+            <div class="props-vector3">
+              <span>X</span><input type="number" step="0.05" id="props-scl-x" value="${scl.x.toFixed(2)}">
+              <span>Y</span><input type="number" step="0.05" id="props-scl-y" value="${scl.y.toFixed(2)}">
+              <span>Z</span><input type="number" step="0.05" id="props-scl-z" value="${scl.z.toFixed(2)}">
+            </div>
+            <label>Scale (Uniform)</label>
+            <input type="range" min="0.01" max="5" step="0.01" id="props-scl-uniform" value="${scl.x.toFixed(2)}">
+          </div>
+          
+          ${mat ? `
+          <div class="props-group">
+            <h5>Material (PBR)</h5>
+            <label>Metalness</label>
+            <input type="range" min="0" max="1" step="0.01" id="props-mat-metal" value="${mat.metalness || 0}">
+            <label>Roughness</label>
+            <input type="range" min="0" max="1" step="0.01" id="props-mat-rough" value="${mat.roughness || 0}">
+            <label>Albedo Map</label>
+            <div class="props-texture">
+              <span id="map-name">${mat.map ? mat.map.name || 'Texture' : 'None'}</span>
+              <button id="btn-load-map">Load</button>
+            </div>
+            <label>Normal Map</label>
+            <div class="props-texture">
+              <span id="normal-name">${mat.normalMap ? mat.normalMap.name || 'Texture' : 'None'}</span>
+              <button id="btn-load-normal">Load</button>
+            </div>
+            <label>UV Repeat X</label>
+            <input type="number" step="0.1" id="props-uv-x" value="${mat.map ? mat.map.repeat.x : 1}">
+            <label>UV Repeat Y</label>
+            <input type="number" step="0.1" id="props-uv-y" value="${mat.map ? mat.map.repeat.y : 1}">
+          </div>
+          ` : ''}
+
+          <div class="props-group">
+            <h5>Animations</h5>
+            <div class="animation-list" id="anim-list">${animListHTML}</div>
+            <button id="btn-anim-create-new" style="margin-top: 10px;">Create New Animation</button>
+            
+            <div class="animation-creator" id="anim-creator" style="display: none;">
+              <label>Animation Name</label>
+              <input type="text" id="anim-name" placeholder="e.g. 'DoorOpen'">
+              <div class="animation-keyframe-row">
+                <button id="btn-anim-set-pos1">Set Start Pos</button>
+                <span id="anim-pos1-display">...</span>
+              </div>
+              <div class="animation-keyframe-row">
+                <button id="btn-anim-set-pos2">Set End Pos</button>
+                <span id="anim-pos2-display">...</span>
+              </div>
+              <label>Duration (seconds)</label>
+              <input type="number" id="anim-duration" value="2" step="0.1">
+              <button id="btn-anim-save">Save Animation</button>
+            </div>
+          </div>
+        `;
+
+        this.bindPropertyPanelEvents(obj, mat);
+    }
   }
 
-  /**
-   * Binds update events to the dynamically created property panel
-   */
   bindPropertyPanelEvents(obj, mat) {
     document.getElementById('props-pos-x').oninput = (e) => obj.position.x = parseFloat(e.target.value);
     document.getElementById('props-pos-y').oninput = (e) => obj.position.y = parseFloat(e.target.value);
@@ -449,9 +610,7 @@ export class EditorManager {
     sclUni.oninput = (e) => {
         const val = parseFloat(e.target.value);
         obj.scale.set(val, val, val);
-        sclX.value = val.toFixed(2);
-        sclY.value = val.toFixed(2);
-        sclZ.value = val.toFixed(2);
+        sclX.value = val.toFixed(2); sclY.value = val.toFixed(2); sclZ.value = val.toFixed(2);
     };
 
     if (mat) {
@@ -480,20 +639,16 @@ export class EditorManager {
     });
   }
 
-  /**
-   * Updates the input sliders when the gizmo is moved
-   */
   syncPropsFromGizmo() {
-    if (!this.selectedObject) return;
+    if (!this.selectedObject || !(this.selectedObject instanceof THREE.Object3D)) return;
+    
     const { position, rotation, scale } = this.selectedObject;
-
     document.getElementById('props-pos-x').value = position.x.toFixed(2);
     document.getElementById('props-pos-y').value = position.y.toFixed(2);
     document.getElementById('props-pos-z').value = position.z.toFixed(2);
     document.getElementById('props-rot-x').value = THREE.MathUtils.radToDeg(rotation.x).toFixed(1);
     document.getElementById('props-rot-y').value = THREE.MathUtils.radToDeg(rotation.y).toFixed(1);
     document.getElementById('props-rot-z').value = THREE.MathUtils.radToDeg(rotation.z).toFixed(1);
-    
     document.getElementById('props-scl-x').value = scale.x.toFixed(2);
     document.getElementById('props-scl-y').value = scale.y.toFixed(2);
     document.getElementById('props-scl-z').value = scale.z.toFixed(2);
@@ -519,7 +674,6 @@ export class EditorManager {
     if (!this.selectedObject) return;
     const pos = this.selectedObject.position.clone();
     const displayStr = `X: ${pos.x.toFixed(1)}, Y: ${pos.y.toFixed(1)}, Z: ${pos.z.toFixed(1)}`;
-    
     if (index === 1) {
       this.animCreatorState.pos1 = pos;
       document.getElementById('anim-pos1-display').textContent = displayStr;
@@ -534,18 +688,9 @@ export class EditorManager {
     const name = document.getElementById('anim-name').value;
     const duration = parseFloat(document.getElementById('anim-duration').value);
 
-    if (!pos1 || !pos2) {
-      this.main.debugger.warn('Set both start and end positions.', 'Animation');
-      return;
-    }
-    if (!name) {
-      this.main.debugger.warn('Enter an animation name.', 'Animation');
-      return;
-    }
-    if (isNaN(duration) || duration <= 0) {
-      this.main.debugger.warn('Enter a valid duration.', 'Animation');
-      return;
-    }
+    if (!pos1 || !pos2) { this.main.debugger.warn('Set both start and end positions.', 'Animation'); return; }
+    if (!name) { this.main.debugger.warn('Enter an animation name.', 'Animation'); return; }
+    if (isNaN(duration) || duration <= 0) { this.main.debugger.warn('Enter a valid duration.', 'Animation'); return; }
 
     const times = [0, duration];
     const values = [pos1.x, pos1.y, pos1.z, pos2.x, pos2.y, pos2.z];
@@ -565,10 +710,7 @@ export class EditorManager {
   testAnimation(animName) {
     if (!this.selectedObject || !this.selectedObject.userData.animations) return;
     const clip = THREE.AnimationClip.findByName(this.selectedObject.userData.animations, animName);
-    if (!clip) {
-      this.main.debugger.warn(`Animation '${animName}' not found.`, 'Animation');
-      return;
-    }
+    if (!clip) { this.main.debugger.warn(`Animation '${animName}' not found.`, 'Animation'); return; }
 
     if (!this.selectedObject.mixer) {
       this.selectedObject.mixer = new THREE.AnimationMixer(this.selectedObject);
