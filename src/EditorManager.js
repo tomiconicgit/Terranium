@@ -198,12 +198,30 @@ export class EditorManager {
     // Find the first "selectable" object
     let hit = null;
     for (const i of intersects) {
-      if (i.object.isMesh && i.object.name !== 'SkyDome_10km' && !i.object.userData.__isTerrain) {
+      
+      // *** FIX: Check if the intersected object is part of the TransformControls gizmo ***
+      let isGizmo = false;
+      i.object.traverseAncestors((parent) => {
+        if (parent === this.transformControls) {
+          isGizmo = true;
+        }
+      });
+      if (isGizmo) continue; // Skip this intersection, it's the gizmo
+
+      // Original logic
+      if (i.object.isMesh && 
+          i.object.name !== 'SkyDome_10km' && 
+          !i.object.userData.__isTerrain) {
+        
         // Traverse up to find the root model (the THREE.Group)
         let rootObject = i.object;
         while (rootObject.parent && rootObject.parent !== this.scene) {
           rootObject = rootObject.parent;
         }
+        
+        // Final check: don't select the root of the gizmo
+        if (rootObject === this.transformControls) continue;
+
         hit = rootObject;
         break;
       }
