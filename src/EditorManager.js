@@ -24,6 +24,9 @@ export class EditorManager {
     };
     this.animCreatorState = { pos1: null, pos2: null };
 
+    // *** NEW: Store time of day to fix bug ***
+    this.timeOfDay = 50;
+
     this.bindDOM();
     this.initControls();
     this.addEventListeners();
@@ -48,7 +51,8 @@ export class EditorManager {
     this.modelFileInput = document.getElementById('file-input-model');
     this.uploadModelButton = document.getElementById('btn-upload-model');
     
-    // Hidden Texture Inputs
+    // Note: sun-slider and grid-toggle are now created dynamically
+    
     this.texInputMap = document.getElementById('texture-input-map');
     this.texInputNormal = document.getElementById('texture-input-normal');
     this.texInputMetal = document.getElementById('texture-input-metal');
@@ -118,7 +122,10 @@ export class EditorManager {
       this.transformControls.attach(this.selectedObject);
     }
     this.main.controls.setPaused(true);
-    this.main.gridHelper.visible = document.getElementById('grid-toggle')?.checked ?? true;
+    // Check if grid toggle exists before reading it
+    const gridToggle = document.getElementById('props-grid-toggle');
+    this.main.gridHelper.visible = gridToggle ? gridToggle.checked : true;
+    
     this.camera.position.set(25, 25, 25);
     this.orbitControls.target.set(0, 1, 0);
     this.orbitControls.update();
@@ -271,7 +278,7 @@ export class EditorManager {
         item.dataset.uuid = obj.uuid;
 
         const arrow = document.createElement('span');
-        arrow.className = 'arrow';
+arrow.className = 'arrow';
         if (isCollapsible) arrow.textContent = '►';
         
         const icon = document.createElement('span');
@@ -347,8 +354,12 @@ export class EditorManager {
     }
   }
   
+  // *** MODIFIED: New Parenting Logic ***
   startChildingProcess() {
-    if (!this.selectedObject || !(this.selectedObject instanceof THREE.Object3D)) return;
+    if (!this.selectedObject || !(this.selectedObject instanceof THREE.Object3D)) {
+        this.main.debugger.warn("Select an object to be the child first.", "Parenting");
+        return;
+    }
     this.parentingState.isWaiting = true;
     this.parentingState.childToMove = this.selectedObject;
     this.parentButton.textContent = 'Cancel (Select Parent)';
@@ -417,6 +428,8 @@ export class EditorManager {
     this.selectedObject = obj;
     if (obj instanceof THREE.Object3D) {
       this.transformControls.attach(obj);
+      // *** MODIFIED: Switch to Properties tab on object selection ***
+      this.onTabClick({ target: document.querySelector('button[data-tab="tab-properties"]') });
     } else {
       this.transformControls.detach();
     }
@@ -444,19 +457,16 @@ export class EditorManager {
    * ROUTER: Rebuilds the Property Panel based on selection
    */
   updatePropertyPanel(obj) {
-    // Clear panel and reset animation state
     this.propsContent.innerHTML = '';
     this.resetAnimCreator();
 
     if (obj === null) {
       this.propsContent.innerHTML = '<p>No object selected.</p>';
     } else if (typeof obj === 'string') {
-      // Handle special 'World' object strings
       if (obj === 'sky') this.buildSkyPanel();
       if (obj === 'light') this.buildLightPanel();
       if (obj === 'terrain') this.buildTerrainPanel();
     } else if (obj instanceof THREE.Object3D) {
-      // Handle a 3D model, mesh, or group
       this.buildObjectPanel(obj);
     }
   }
@@ -490,6 +500,7 @@ export class EditorManager {
           <span>Y</span><input type="number" step="0.1" id="props-pos-y" value="${pos.y.toFixed(2)}">
           <span>Z</span><input type="number" step="0.1" id="props-pos-z" value="${pos.z.toFixed(2)}">
         </div>
+        
         <label></label>
         <div class="props-slider">
           <span>X</span><input type="range" min="-50" max="50" step="0.1" id="props-pos-x-slider" value="${pos.x.toFixed(2)}">
@@ -519,7 +530,11 @@ export class EditorManager {
         <input type="range" min="0.01" max="5" step="0.01" id="props-scl-uniform" value="${scl.x.toFixed(2)}">
       </div>
       
-      ${mat ? `
+      ${mat ? `... (Material HTML) ...` : ''}
+      ... (Animation HTML) ...
+    `;
+    
+    const matHTML = mat ? `
       <div class="props-group">
         <h5>Material (PBR)</h5>
         <label>Metalness</label>
@@ -541,8 +556,9 @@ export class EditorManager {
         <label>UV Repeat Y</label>
         <input type="number" step="0.1" id="props-uv-y" value="${mat.map ? mat.map.repeat.y : 1}">
       </div>
-      ` : ''}
+    ` : '';
 
+    const animHTML = `
       <div class="props-group">
         <h5>Animations</h5>
         <div class="animation-list" id="anim-list">${animListHTML}</div>
@@ -564,6 +580,10 @@ export class EditorManager {
         </div>
       </div>
     `;
+    
+    this.propsContent.innerHTML = this.propsContent.innerHTML
+        .replace('... (Material HTML) ...', matHTML)
+        .replace('... (Animation HTML) ...', animHTML);
 
     this.bindPropertyPanelEvents(obj, mat);
   }
@@ -573,6 +593,7 @@ export class EditorManager {
     const sky = this.main.sky;
     const sunLight = this.main.sunLight;
     
+    // *** FIX: Read from this.timeOfDay, not a non-existent element ***
     this.propsContent.innerHTML = `
         <strong>Sky Settings</strong>
         <div class="props-group">
@@ -588,7 +609,7 @@ export class EditorManager {
             <label>Sun Intensity</label>
             <input type="range" min="0" max="5" step="0.1" id="props-sun-intensity" value="${sunLight.intensity}">
             <label>Time of Day</label>
-            <input type="range" min="0" max="100" step="1" id="props-sun-slider" value="${document.getElementById('sun-slider').value}">
+            <input type="range" min="0" max="100" step="1" id="props-sun-slider" value="${this.timeOfDay}">
         </div>
     `;
     
@@ -597,7 +618,13 @@ export class EditorManager {
     document.getElementById('props-sky-bottom').oninput = (e) => sky.material.uniforms.bottomColor.value.set(e.target.value);
     document.getElementById('props-sun-color').oninput = (e) => sunLight.color.set(e.target.value);
     document.getElementById('props-sun-intensity').oninput = (e) => sunLight.intensity = parseFloat(e.target.value);
-    document.getElementById('props-sun-slider').oninput = (e) => this.main.updateSun(e.target.value);
+    
+    // *** FIX: Update this.timeOfDay when slider moves ***
+    document.getElementById('props-sun-slider').oninput = (e) => {
+        const val = e.target.value;
+        this.main.updateSun(val);
+        this.timeOfDay = val; // Store the new value
+    };
   }
   
   // --- PANEL BUILDER: LIGHTING ---
@@ -880,13 +907,14 @@ export class EditorManager {
         material[mapType] = texture;
         material.needsUpdate = true;
         
-        // Update UI
         let spanId;
         if (mapType === 'map') spanId = 'map-name';
         else if (mapType === 'normalMap') spanId = 'normal-name';
         else if (mapType === 'displacementMap') spanId = 'disp-name';
         
-        if (spanId) document.getElementById(spanId).textContent = file.name;
+        if (spanId && document.getElementById(spanId)) {
+          document.getElementById(spanId).textContent = file.name;
+        }
       });
     };
     this.fileReader.readAsDataURL(file);
