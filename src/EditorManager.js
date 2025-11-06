@@ -18,10 +18,9 @@ export class EditorManager {
     this.textureLoader = new THREE.TextureLoader();
     this.fileReader = new FileReader();
 
-    // *** MODIFIED: Renamed state object ***
     this.parentingState = {
       isWaiting: false,
-      childToMove: null // Store the child, wait for parent
+      childToMove: null
     };
     this.animCreatorState = { pos1: null, pos2: null };
 
@@ -42,21 +41,19 @@ export class EditorManager {
     this.tabContents = document.querySelectorAll('.tab-content');
 
     this.sceneTreeView = document.getElementById('scene-tree-view');
-    // *** MODIFIED: Find new button ID ***
     this.parentButton = document.getElementById('btn-child-to');
     
     this.propsContent = document.getElementById('props-content');
     this.assetList = document.getElementById('asset-list');
     this.modelFileInput = document.getElementById('file-input-model');
     this.uploadModelButton = document.getElementById('btn-upload-model');
-
-    this.sunSlider = document.getElementById('sun-slider');
-    this.gridToggle = document.getElementById('grid-toggle');
     
+    // Hidden Texture Inputs
     this.texInputMap = document.getElementById('texture-input-map');
     this.texInputNormal = document.getElementById('texture-input-normal');
     this.texInputMetal = document.getElementById('texture-input-metal');
     this.texInputRough = document.getElementById('texture-input-rough');
+    this.texInputDisplacement = document.getElementById('texture-input-displacement');
   }
 
   initControls() {
@@ -90,22 +87,12 @@ export class EditorManager {
     this.tabBar.addEventListener('click', (e) => this.onTabClick(e));
     this.renderer.domElement.addEventListener('pointerdown', (e) => this.onPointerDown(e), false);
     
-    // *** MODIFIED: Use new parenting function name ***
     this.parentButton.addEventListener('click', () => this.startChildingProcess());
     this.sceneTreeView.addEventListener('click', (e) => this.onSceneTreeClick(e));
 
     this.assetList.addEventListener('click', (e) => this.onAssetClick(e));
     this.uploadModelButton.addEventListener('click', () => this.modelFileInput.click());
     this.modelFileInput.addEventListener('change', (e) => this.onFileUpload(e));
-
-    this.sunSlider.addEventListener('input', (e) => this.main.updateSun(e.target.value));
-    this.gridToggle.addEventListener('change', (e) => {
-      this.main.gridHelper.visible = e.target.checked;
-    });
-    document.getElementById('tex-grey').onclick = () => this.main.setTerrainColor(0x555555);
-    document.getElementById('tex-grass').onclick = () => this.main.setTerrainTexture('src/assets/textures/grass.jpg');
-    document.getElementById('tex-sand').onclick = () => this.main.setTerrainTexture('src/assets/textures/sand.jpg');
-    document.getElementById('tex-concrete').onclick = () => this.main.setTerrainTexture('src/assets/textures/concrete.jpg');
     
     document.getElementById('btn-delete').addEventListener('click', () => this.deleteSelected());
   }
@@ -131,7 +118,7 @@ export class EditorManager {
       this.transformControls.attach(this.selectedObject);
     }
     this.main.controls.setPaused(true);
-    this.main.gridHelper.visible = this.gridToggle.checked;
+    this.main.gridHelper.visible = document.getElementById('grid-toggle')?.checked ?? true;
     this.camera.position.set(25, 25, 25);
     this.orbitControls.target.set(0, 1, 0);
     this.orbitControls.update();
@@ -228,13 +215,12 @@ export class EditorManager {
     return { category, childrenContainer };
   }
   
-  createTreeItem(name, icon, data) {
+  createTreeItem(name, iconClass, data) {
     const item = document.createElement('div');
     item.className = 'tree-item';
     
     const itemIcon = document.createElement('span');
-    itemIcon.className = 'icon';
-    itemIcon.textContent = icon;
+    itemIcon.className = 'icon ' + iconClass;
     
     const label = document.createElement('span');
     label.className = 'label';
@@ -260,13 +246,13 @@ export class EditorManager {
     worldCat.classList.add('expanded');
     
     const sky = this.scene.getObjectByName("SkySettings");
-    if (sky) worldChildren.appendChild(this.createTreeItem("Sky", "☁️", "sky"));
+    if (sky) worldChildren.appendChild(this.createTreeItem("Sky", "icon-sky", "sky"));
     
     const light = this.scene.getObjectByName("LightingSettings");
-    if (light) worldChildren.appendChild(this.createTreeItem("Lighting", "💡", "light"));
+    if (light) worldChildren.appendChild(this.createTreeItem("Lighting", "icon-light", "light"));
     
     const terrain = this.scene.getObjectByName("TerrainSettings");
-    if (terrain) worldChildren.appendChild(this.createTreeItem("Terrain", "🌲", "terrain"));
+    if (terrain) worldChildren.appendChild(this.createTreeItem("Terrain", "icon-terrain", "terrain"));
 
     this.sceneTreeView.appendChild(worldCat);
     this.sceneTreeView.appendChild(worldChildren);
@@ -275,20 +261,21 @@ export class EditorManager {
     modelsCat.classList.add('expanded');
     
     const buildModelNode = (obj) => {
-        const hasChildren = obj.children.length > 0 || (obj.userData.animations && obj.userData.animations.length > 0);
+        const hasAnims = obj.userData.animations && obj.userData.animations.length > 0;
+        const hasChildren = obj.children.length > 0;
+        const isCollapsible = hasChildren || hasAnims;
         
         const item = document.createElement('div');
         item.className = 'tree-item';
-        if (hasChildren) item.classList.add('collapsible');
+        if (isCollapsible) item.classList.add('collapsible');
         item.dataset.uuid = obj.uuid;
 
         const arrow = document.createElement('span');
         arrow.className = 'arrow';
-        if (hasChildren) arrow.textContent = '►';
+        if (isCollapsible) arrow.textContent = '►';
         
         const icon = document.createElement('span');
-        icon.className = 'icon';
-        icon.textContent = obj.isMesh ? '📦' : '📁';
+        icon.className = 'icon ' + (obj.isMesh ? 'icon-mesh' : 'icon-folder');
         
         const label = document.createElement('span');
         label.className = 'label';
@@ -313,20 +300,19 @@ export class EditorManager {
 
         if (hasChildren) {
             obj.children.forEach(child => childrenContainer.appendChild(buildModelNode(child)));
-            
-            if (obj.userData.animations) {
-                obj.userData.animations.forEach(anim => {
-                    const animItem = this.createTreeItem(anim.name, '🔧', anim);
-                    childrenContainer.appendChild(animItem);
-                });
-            }
+        }
+        if (hasAnims) {
+            obj.userData.animations.forEach(anim => {
+                const animItem = this.createTreeItem(anim.name, 'icon-animation', anim);
+                childrenContainer.appendChild(animItem);
+            });
         }
         
         modelsChildren.appendChild(item);
-        if (hasChildren) {
+        if (isCollapsible) {
              modelsChildren.appendChild(childrenContainer);
         }
-        return item; // Not strictly needed, but good practice
+        return item;
     };
     
     this.world.children.forEach(child => buildModelNode(child));
@@ -337,10 +323,7 @@ export class EditorManager {
   onSceneTreeClick(event) {
     const item = event.target.closest('.tree-item');
     if (!item) return;
-
-    if (event.target.closest('.arrow')) {
-        return;
-    }
+    if (event.target.closest('.arrow')) return;
     
     const uuid = item.dataset.uuid;
     const special = item.dataset.special;
@@ -349,7 +332,6 @@ export class EditorManager {
         const object = this.world.getObjectByProperty('uuid', uuid);
         if (object) {
             if (this.parentingState.isWaiting) {
-                // *** MODIFIED: Use new logic ***
                 this.completeChildingProcess(object);
             } else {
                 this.selectObject(object);
@@ -365,7 +347,6 @@ export class EditorManager {
     }
   }
   
-  // *** MODIFIED: New Parenting Logic ***
   startChildingProcess() {
     if (!this.selectedObject || !(this.selectedObject instanceof THREE.Object3D)) return;
     this.parentingState.isWaiting = true;
@@ -385,7 +366,7 @@ export class EditorManager {
     this.main.debugger.log(`Parented ${childToMove.name} to ${newParent.name}`);
     this.cancelChildingProcess();
     this.buildSceneTree();
-    this.selectObject(childToMove); // Reselect child
+    this.selectObject(childToMove);
   }
   
   cancelChildingProcess() {
@@ -460,154 +441,264 @@ export class EditorManager {
   }
 
   /**
-   * Rebuilds the Property Panel
+   * ROUTER: Rebuilds the Property Panel based on selection
    */
   updatePropertyPanel(obj) {
+    // Clear panel and reset animation state
+    this.propsContent.innerHTML = '';
+    this.resetAnimCreator();
+
     if (obj === null) {
-        this.propsContent.innerHTML = '<p>No object selected.</p>';
-        return;
+      this.propsContent.innerHTML = '<p>No object selected.</p>';
+    } else if (typeof obj === 'string') {
+      // Handle special 'World' object strings
+      if (obj === 'sky') this.buildSkyPanel();
+      if (obj === 'light') this.buildLightPanel();
+      if (obj === 'terrain') this.buildTerrainPanel();
+    } else if (obj instanceof THREE.Object3D) {
+      // Handle a 3D model, mesh, or group
+      this.buildObjectPanel(obj);
     }
-    
-    if (typeof obj === 'string') {
-        if (obj === 'sky') {
-            this.propsContent.innerHTML = '<strong>Sky Settings</strong><p>Sky properties (like color, texture) would go here. For now, use the Environment tab.</p>';
-            this.onTabClick({ target: document.querySelector('button[data-tab="tab-environment"]') });
-        } else if (obj === 'light') {
-            const light = this.main.sunLight;
-            this.propsContent.innerHTML = `
-                <strong>Lighting Settings</strong>
-                <div class="props-group">
-                    <label>Sun Intensity</label>
-                    <input type="range" min="0" max="5" step="0.1" id="props-sun-intensity" value="${light.intensity}">
-                    <label>Ambient Intensity</label>
-                    <input type="range" min="0" max="2" step="0.05" id="props-hemi-intensity" value="${this.main.hemiLight.intensity}">
-                </div>
-            `;
-            document.getElementById('props-sun-intensity').oninput = (e) => light.intensity = parseFloat(e.target.value);
-            document.getElementById('props-hemi-intensity').oninput = (e) => this.main.hemiLight.intensity = parseFloat(e.target.value);
-        } else if (obj === 'terrain') {
-            this.propsContent.innerHTML = '<strong>Terrain Settings</strong><p>Terrain properties (like texture) would go here. For now, use the Environment tab.</p>';
-            this.onTabClick({ target: document.querySelector('button[data-tab="tab-environment"]') });
-        }
-        return;
-    }
-    
-    if (obj instanceof THREE.Object3D) {
-        const pos = obj.position;
-        const rot = obj.rotation;
-        const scl = obj.scale;
+  }
 
-        let mesh = null;
-        obj.traverse(child => { if (child.isMesh) mesh = child; });
-        const mat = mesh ? (Array.isArray(mesh.material) ? mesh.material[0] : mesh.material) : null;
-        
-        const anims = obj.userData.animations || [];
-        const animListHTML = anims.map(anim => `
-          <div class="animation-list-item">
-            <span>${anim.name}</span>
-            <button data-anim-name="${anim.name}">Test</button>
+  // --- PANEL BUILDER: 3D OBJECT ---
+  buildObjectPanel(obj) {
+    const pos = obj.position;
+    const rot = obj.rotation;
+    const scl = obj.scale;
+
+    let mesh = null;
+    obj.traverse(child => { if (child.isMesh) mesh = child; });
+    const mat = mesh ? (Array.isArray(mesh.material) ? mesh.material[0] : mesh.material) : null;
+    
+    const anims = obj.userData.animations || [];
+    const animListHTML = anims.map(anim => `
+      <div class="animation-list-item">
+        <span>${anim.name}</span>
+        <button data-anim-name="${anim.name}">Test</button>
+      </div>
+    `).join('');
+
+    this.propsContent.innerHTML = `
+      <strong>${obj.name || obj.type}</strong>
+      
+      <div class="props-group">
+        <h5>Transform</h5>
+        <label>Position</label>
+        <div class="props-vector3">
+          <span>X</span><input type="number" step="0.1" id="props-pos-x" value="${pos.x.toFixed(2)}">
+          <span>Y</span><input type="number" step="0.1" id="props-pos-y" value="${pos.y.toFixed(2)}">
+          <span>Z</span><input type="number" step="0.1" id="props-pos-z" value="${pos.z.toFixed(2)}">
+        </div>
+        <label></label>
+        <div class="props-slider">
+          <span>X</span><input type="range" min="-50" max="50" step="0.1" id="props-pos-x-slider" value="${pos.x.toFixed(2)}">
+        </div>
+        <label></label>
+        <div class="props-slider">
+          <span>Y</span><input type="range" min="0" max="50" step="0.1" id="props-pos-y-slider" value="${pos.y.toFixed(2)}">
+        </div>
+        <label></label>
+        <div class="props-slider">
+          <span>Z</span><input type="range" min="-50" max="50" step="0.1" id="props-pos-z-slider" value="${pos.z.toFixed(2)}">
+        </div>
+
+        <label>Rotation</label>
+        <div class="props-vector3">
+          <span>X</span><input type="number" step="1" id="props-rot-x" value="${THREE.MathUtils.radToDeg(rot.x).toFixed(1)}">
+          <span>Y</span><input type="number" step="1" id="props-rot-y" value="${THREE.MathUtils.radToDeg(rot.y).toFixed(1)}">
+          <span>Z</span><input type="number" step="1" id="props-rot-z" value="${THREE.MathUtils.radToDeg(rot.z).toFixed(1)}">
+        </div>
+        <label>Scale (Non-Uniform)</label>
+        <div class="props-vector3">
+          <span>X</span><input type="number" step="0.05" id="props-scl-x" value="${scl.x.toFixed(2)}">
+          <span>Y</span><input type="number" step="0.05" id="props-scl-y" value="${scl.y.toFixed(2)}">
+          <span>Z</span><input type="number" step="0.05" id="props-scl-z" value="${scl.z.toFixed(2)}">
+        </div>
+        <label>Scale (Uniform)</label>
+        <input type="range" min="0.01" max="5" step="0.01" id="props-scl-uniform" value="${scl.x.toFixed(2)}">
+      </div>
+      
+      ${mat ? `
+      <div class="props-group">
+        <h5>Material (PBR)</h5>
+        <label>Metalness</label>
+        <input type="range" min="0" max="1" step="0.01" id="props-mat-metal" value="${mat.metalness || 0}">
+        <label>Roughness</label>
+        <input type="range" min="0" max="1" step="0.01" id="props-mat-rough" value="${mat.roughness || 0}">
+        <label>Albedo Map</label>
+        <div class="props-texture">
+          <span id="map-name">${mat.map ? mat.map.name || 'Texture' : 'None'}</span>
+          <button id="btn-load-map">Load</button>
+        </div>
+        <label>Normal Map</label>
+        <div class="props-texture">
+          <span id="normal-name">${mat.normalMap ? mat.normalMap.name || 'Texture' : 'None'}</span>
+          <button id="btn-load-normal">Load</button>
+        </div>
+        <label>UV Repeat X</label>
+        <input type="number" step="0.1" id="props-uv-x" value="${mat.map ? mat.map.repeat.x : 1}">
+        <label>UV Repeat Y</label>
+        <input type="number" step="0.1" id="props-uv-y" value="${mat.map ? mat.map.repeat.y : 1}">
+      </div>
+      ` : ''}
+
+      <div class="props-group">
+        <h5>Animations</h5>
+        <div class="animation-list" id="anim-list">${animListHTML}</div>
+        <button id="btn-anim-create-new" style="margin-top: 10px;">Create New Animation</button>
+        <div class="animation-creator" id="anim-creator" style="display: none;">
+          <label>Animation Name</label>
+          <input type="text" id="anim-name" placeholder="e.g. 'DoorOpen'">
+          <div class="animation-keyframe-row">
+            <button id="btn-anim-set-pos1">Set Start Pos</button>
+            <span id="anim-pos1-display">...</span>
           </div>
-        `).join('');
+          <div class="animation-keyframe-row">
+            <button id="btn-anim-set-pos2">Set End Pos</button>
+            <span id="anim-pos2-display">...</span>
+          </div>
+          <label>Duration (seconds)</label>
+          <input type="number" id="anim-duration" value="2" step="0.1">
+          <button id="btn-anim-save">Save Animation</button>
+        </div>
+      </div>
+    `;
 
-        // *** MODIFIED: Added Position Sliders ***
-        this.propsContent.innerHTML = `
-          <strong>${obj.name || obj.type}</strong>
-          
-          <div class="props-group">
-            <h5>Transform</h5>
-            <label>Position</label>
-            <div class="props-vector3">
-              <span>X</span><input type="number" step="0.1" id="props-pos-x" value="${pos.x.toFixed(2)}">
-              <span>Y</span><input type="number" step="0.1" id="props-pos-y" value="${pos.y.toFixed(2)}">
-              <span>Z</span><input type="number" step="0.1" id="props-pos-z" value="${pos.z.toFixed(2)}">
-            </div>
+    this.bindPropertyPanelEvents(obj, mat);
+  }
+
+  // --- PANEL BUILDER: SKY ---
+  buildSkyPanel() {
+    const sky = this.main.sky;
+    const sunLight = this.main.sunLight;
+    
+    this.propsContent.innerHTML = `
+        <strong>Sky Settings</strong>
+        <div class="props-group">
+            <h5>Sky Colors</h5>
+            <label>Top Color</label>
+            <input type="color" id="props-sky-top" value="${'#' + sky.material.uniforms.topColor.value.getHexString()}">
+            <label>Bottom Color</label>
+            <input type="color" id="props-sky-bottom" value="${'#' + sky.material.uniforms.bottomColor.value.getHexString()}">
             
-            <label></label>
-            <div class="props-slider">
-              <span>X</span><input type="range" min="-50" max="50" step="0.1" id="props-pos-x-slider" value="${pos.x.toFixed(2)}">
-            </div>
-            <label></label>
-            <div class="props-slider">
-              <span>Y</span><input type="range" min="0" max="50" step="0.1" id="props-pos-y-slider" value="${pos.y.toFixed(2)}">
-            </div>
-            <label></label>
-            <div class="props-slider">
-              <span>Z</span><input type="range" min="-50" max="50" step="0.1" id="props-pos-z-slider" value="${pos.z.toFixed(2)}">
+            <h5>Sun</h5>
+            <label>Sun Color</label>
+            <input type="color" id="props-sun-color" value="${'#' + sunLight.color.getHexString()}">
+            <label>Sun Intensity</label>
+            <input type="range" min="0" max="5" step="0.1" id="props-sun-intensity" value="${sunLight.intensity}">
+            <label>Time of Day</label>
+            <input type="range" min="0" max="100" step="1" id="props-sun-slider" value="${document.getElementById('sun-slider').value}">
+        </div>
+    `;
+    
+    // Bind Events
+    document.getElementById('props-sky-top').oninput = (e) => sky.material.uniforms.topColor.value.set(e.target.value);
+    document.getElementById('props-sky-bottom').oninput = (e) => sky.material.uniforms.bottomColor.value.set(e.target.value);
+    document.getElementById('props-sun-color').oninput = (e) => sunLight.color.set(e.target.value);
+    document.getElementById('props-sun-intensity').oninput = (e) => sunLight.intensity = parseFloat(e.target.value);
+    document.getElementById('props-sun-slider').oninput = (e) => this.main.updateSun(e.target.value);
+  }
+  
+  // --- PANEL BUILDER: LIGHTING ---
+  buildLightPanel() {
+    const sunLight = this.main.sunLight;
+    const hemiLight = this.main.hemiLight;
+    const pos = sunLight.position;
+    
+    this.propsContent.innerHTML = `
+        <strong>Global Lighting</strong>
+        <div class="props-group">
+            <h5>Sun Light (Directional)</h5>
+            <label>Sun Color</label>
+            <input type="color" id="props-sun-color" value="${'#' + sunLight.color.getHexString()}">
+            <label>Sun Intensity</label>
+            <input type="range" min="0" max="5" step="0.1" id="props-sun-intensity" value="${sunLight.intensity}">
+
+            <label>Sun Position</label>
+            <div class="props-vector3">
+              <span>X</span><input type="number" step="1" id="props-pos-x" value="${pos.x.toFixed(0)}">
+              <span>Y</span><input type="number" step="1" id="props-pos-y" value="${pos.y.toFixed(0)}">
+              <span>Z</span><input type="number" step="1" id="props-pos-z" value="${pos.z.toFixed(0)}">
             </div>
 
-            <label>Rotation</label>
-            <div class="props-vector3">
-              <span>X</span><input type="number" step="1" id="props-rot-x" value="${THREE.MathUtils.radToDeg(rot.x).toFixed(1)}">
-              <span>Y</span><input type="number" step="1" id="props-rot-y" value="${THREE.MathUtils.radToDeg(rot.y).toFixed(1)}">
-              <span>Z</span><input type="number" step="1" id="props-rot-z" value="${THREE.MathUtils.radToDeg(rot.z).toFixed(1)}">
-            </div>
-            <label>Scale (Non-Uniform)</label>
-            <div class="props-vector3">
-              <span>X</span><input type="number" step="0.05" id="props-scl-x" value="${scl.x.toFixed(2)}">
-              <span>Y</span><input type="number" step="0.05" id="props-scl-y" value="${scl.y.toFixed(2)}">
-              <span>Z</span><input type="number" step="0.05" id="props-scl-z" value="${scl.z.toFixed(2)}">
-            </div>
-            <label>Scale (Uniform)</label>
-            <input type="range" min="0.01" max="5" step="0.01" id="props-scl-uniform" value="${scl.x.toFixed(2)}">
-          </div>
-          
-          ${mat ? `... (Material HTML) ...` : ''}
-          ... (Animation HTML) ...
-        `;
-        
-        const matHTML = mat ? `
-          <div class="props-group">
-            <h5>Material (PBR)</h5>
+            <h5>Ambient Light (Hemisphere)</h5>
+            <label>Sky Color</label>
+            <input type="color" id="props-hemi-sky" value="${'#' + hemiLight.color.getHexString()}">
+            <label>Ground Color</label>
+            <input type="color" id="props-hemi-ground" value="${'#' + hemiLight.groundColor.getHexString()}">
+            <label>Ambient Intensity</label>
+            <input type="range" min="0" max="3" step="0.05" id="props-hemi-intensity" value="${hemiLight.intensity}">
+        </div>
+    `;
+    
+    // Bind Events
+    document.getElementById('props-sun-color').oninput = (e) => sunLight.color.set(e.target.value);
+    document.getElementById('props-sun-intensity').oninput = (e) => sunLight.intensity = parseFloat(e.target.value);
+    document.getElementById('props-pos-x').oninput = (e) => sunLight.position.x = parseFloat(e.target.value);
+    document.getElementById('props-pos-y').oninput = (e) => sunLight.position.y = parseFloat(e.target.value);
+    document.getElementById('props-pos-z').oninput = (e) => sunLight.position.z = parseFloat(e.target.value);
+    document.getElementById('props-hemi-sky').oninput = (e) => hemiLight.color.set(e.target.value);
+    document.getElementById('props-hemi-ground').oninput = (e) => hemiLight.groundColor.set(e.target.value);
+    document.getElementById('props-hemi-intensity').oninput = (e) => hemiLight.intensity = parseFloat(e.target.value);
+  }
+  
+  // --- PANEL BUILDER: TERRAIN ---
+  buildTerrainPanel() {
+    const terrainMesh = this.main.terrainMesh;
+    if (!terrainMesh) return;
+    const mat = terrainMesh.material;
+    
+    this.propsContent.innerHTML = `
+        <strong>Terrain Settings</strong>
+        <div class="props-group">
+            <h5>General</h5>
+            <label>Grid</label>
+            <input type="checkbox" id="props-grid-toggle" ${this.main.gridHelper.visible ? 'checked' : ''}>
+            
+            <h5>Material</h5>
+            <label>Base Color</label>
+            <input type="color" id="props-terrain-color" value="${'#' + mat.color.getHexString()}">
             <label>Metalness</label>
             <input type="range" min="0" max="1" step="0.01" id="props-mat-metal" value="${mat.metalness || 0}">
             <label>Roughness</label>
             <input type="range" min="0" max="1" step="0.01" id="props-mat-rough" value="${mat.roughness || 0}">
+
+            <h5>Textures</h5>
             <label>Albedo Map</label>
             <div class="props-texture">
               <span id="map-name">${mat.map ? mat.map.name || 'Texture' : 'None'}</span>
               <button id="btn-load-map">Load</button>
             </div>
-            <label>Normal Map</label>
+            <label>Displacement</label>
             <div class="props-texture">
-              <span id="normal-name">${mat.normalMap ? mat.normalMap.name || 'Texture' : 'None'}</span>
-              <button id="btn-load-normal">Load</button>
+              <span id="disp-name">${mat.displacementMap ? mat.displacementMap.name || 'Texture' : 'None'}</span>
+              <button id="btn-load-disp">Load</button>
             </div>
+            <label>Disp. Scale</label>
+            <input type="range" min="0" max="5" step="0.1" id="props-disp-scale" value="${mat.displacementScale || 1}">
+
             <label>UV Repeat X</label>
             <input type="number" step="0.1" id="props-uv-x" value="${mat.map ? mat.map.repeat.x : 1}">
             <label>UV Repeat Y</label>
             <input type="number" step="0.1" id="props-uv-y" value="${mat.map ? mat.map.repeat.y : 1}">
-          </div>
-        ` : '';
+        </div>
+    `;
+    
+    // Bind Events
+    document.getElementById('props-grid-toggle').onchange = (e) => this.main.gridHelper.visible = e.target.checked;
+    document.getElementById('props-terrain-color').oninput = (e) => mat.color.set(e.target.value);
+    document.getElementById('props-mat-metal').oninput = (e) => mat.metalness = parseFloat(e.target.value);
+    document.getElementById('props-mat-rough').oninput = (e) => mat.roughness = parseFloat(e.target.value);
+    
+    document.getElementById('btn-load-map').onclick = () => this.texInputMap.click();
+    document.getElementById('btn-load-disp').onclick = () => this.texInputDisplacement.click();
+    this.texInputMap.onchange = (e) => this.handleTextureUpload(e, mat, 'map');
+    this.texInputDisplacement.onchange = (e) => this.handleTextureUpload(e, mat, 'displacementMap');
 
-        const animHTML = `
-          <div class="props-group">
-            <h5>Animations</h5>
-            <div class="animation-list" id="anim-list">${animListHTML}</div>
-            <button id="btn-anim-create-new" style="margin-top: 10px;">Create New Animation</button>
-            <div class="animation-creator" id="anim-creator" style="display: none;">
-              <label>Animation Name</label>
-              <input type="text" id="anim-name" placeholder="e.g. 'DoorOpen'">
-              <div class="animation-keyframe-row">
-                <button id="btn-anim-set-pos1">Set Start Pos</button>
-                <span id="anim-pos1-display">...</span>
-              </div>
-              <div class="animation-keyframe-row">
-                <button id="btn-anim-set-pos2">Set End Pos</button>
-                <span id="anim-pos2-display">...</span>
-              </div>
-              <label>Duration (seconds)</label>
-              <input type="number" id="anim-duration" value="2" step="0.1">
-              <button id="btn-anim-save">Save Animation</button>
-            </div>
-          </div>
-        `;
-        
-        this.propsContent.innerHTML = this.propsContent.innerHTML
-            .replace('... (Material HTML) ...', matHTML)
-            .replace('... (Animation HTML) ...', animHTML);
-
-        this.bindPropertyPanelEvents(obj, mat);
-    }
+    document.getElementById('props-disp-scale').oninput = (e) => mat.displacementScale = parseFloat(e.target.value);
+    document.getElementById('props-uv-x').oninput = (e) => this.setMaterialUV(mat, 'x', e.target.value);
+    document.getElementById('props-uv-y').oninput = (e) => this.setMaterialUV(mat, 'y', e.target.value);
   }
 
   bindPropertyPanelEvents(obj, mat) {
@@ -621,14 +712,12 @@ export class EditorManager {
     const syncPos = (source, value) => {
         const val = parseFloat(value);
         if (isNaN(val)) return;
-        
         if (source !== 'x-num') pX.value = val.toFixed(2);
         if (source !== 'x-slider') pXSlider.value = val;
         if (source !== 'y-num') pY.value = val.toFixed(2);
         if (source !== 'y-slider') pYSlider.value = val;
         if (source !== 'z-num') pZ.value = val.toFixed(2);
         if (source !== 'z-slider') pZSlider.value = val;
-        
         if (source === 'x-num' || source === 'x-slider') obj.position.x = val;
         if (source === 'y-num' || source === 'y-slider') obj.position.y = val;
         if (source === 'z-num' || source === 'z-slider') obj.position.z = val;
@@ -688,6 +777,7 @@ export class EditorManager {
 
   syncPropsFromGizmo() {
     if (!this.selectedObject || !(this.selectedObject instanceof THREE.Object3D)) return;
+    
     const { position, rotation, scale } = this.selectedObject;
 
     document.getElementById('props-pos-x').value = position.x.toFixed(2);
@@ -715,10 +805,13 @@ export class EditorManager {
   // --- Animation Creator Logic ---
   resetAnimCreator() {
     this.animCreatorState = { pos1: null, pos2: null };
-    document.getElementById('anim-name').value = '';
-    document.getElementById('anim-duration').value = 2;
-    document.getElementById('anim-pos1-display').textContent = '...';
-    document.getElementById('anim-pos2-display').textContent = '...';
+    const nameEl = document.getElementById('anim-name');
+    if (nameEl) {
+        nameEl.value = '';
+        document.getElementById('anim-duration').value = 2;
+        document.getElementById('anim-pos1-display').textContent = '...';
+        document.getElementById('anim-pos2-display').textContent = '...';
+    }
   }
 
   setAnimKeyframe(index) {
@@ -783,9 +876,17 @@ export class EditorManager {
         texture.name = file.name;
         texture.wrapS = THREE.RepeatWrapping;
         texture.wrapT = THREE.RepeatWrapping;
+        
         material[mapType] = texture;
         material.needsUpdate = true;
-        document.getElementById(mapType === 'map' ? 'map-name' : 'normal-name').textContent = file.name;
+        
+        // Update UI
+        let spanId;
+        if (mapType === 'map') spanId = 'map-name';
+        else if (mapType === 'normalMap') spanId = 'normal-name';
+        else if (mapType === 'displacementMap') spanId = 'disp-name';
+        
+        if (spanId) document.getElementById(spanId).textContent = file.name;
       });
     };
     this.fileReader.readAsDataURL(file);
@@ -795,7 +896,7 @@ export class EditorManager {
   setMaterialUV(material, axis, value) {
     const val = parseFloat(value);
     if (isNaN(val)) return;
-    ['map', 'normalMap', 'roughnessMap', 'metalnessMap', 'aoMap'].forEach(mapType => {
+    ['map', 'normalMap', 'roughnessMap', 'metalnessMap', 'aoMap', 'displacementMap'].forEach(mapType => {
         if (material[mapType]) {
             material[mapType].repeat[axis] = val;
             material[mapType].needsUpdate = true;
