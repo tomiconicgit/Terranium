@@ -6,10 +6,10 @@ html, body {
     height: 100%;
     overflow: hidden;
     background-color: #000;
-    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    /* Use the native system font stack for a clean look */
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
     color: #fff;
-
-    /* iPhone Optimization: Disable all browser touch gestures (pinch-zoom, scroll) */
+    /* iPhone Optimization: Disable all browser touch gestures */
     touch-action: none;
 }
 
@@ -279,14 +279,16 @@ html, body {
     top: 20px;
     left: 20px;
     z-index: 11;
-    background: rgba(30, 30, 36, 0.85);
-    backdrop-filter: blur(8px);
-    border-radius: 8px;
-    border: 1px solid rgba(255, 255, 255, 0.2);
+    /* Cleaner UI */
+    background: rgba(20, 20, 25, 0.8);
+    backdrop-filter: blur(10px);
+    border-radius: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
     padding: 12px 16px;
     display: flex;
     flex-direction: column;
     gap: 8px;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.3);
 }
 #time-of-day-slider label {
     font-weight: 600;
@@ -304,7 +306,7 @@ html, body {
 }
 
 
-/* --- Editor UI Styles --- */
+/* --- Editor UI Styles (Cleaner) --- */
 
 #editor-ui {
     position: fixed;
@@ -314,6 +316,9 @@ html, body {
     height: 100%;
     pointer-events: none; /* Pass clicks through */
     z-index: 5;
+    /* Add padding for iPhone safe areas (notch/dynamic island) */
+    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+    box-sizing: border-box;
 }
 
 /* Allow UI elements to be clicked */
@@ -326,28 +331,30 @@ html, body {
     top: 20px;
     left: 50%;
     transform: translateX(-50%);
-    background: rgba(30, 30, 36, 0.85);
-    backdrop-filter: blur(8px);
-    border-radius: 8px;
-    border: 1px solid rgba(255, 255, 255, 0.2);
+    background: rgba(20, 20, 25, 0.8);
+    backdrop-filter: blur(10px);
+    border-radius: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
     padding: 8px;
     display: flex;
     gap: 8px;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.3);
 }
 
 #editor-toolbar button {
-    background: #444;
-    border: 1px solid #666;
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.1);
     color: #fff;
-    border-radius: 5px;
-    padding: 8px 12px;
+    border-radius: 8px;
+    padding: 10px 14px;
     cursor: pointer;
     font-size: 1em;
+    font-weight: 500;
     transition: background 0.2s;
 }
 
 #editor-toolbar button:hover {
-    background: #555;
+    background: rgba(255, 255, 255, 0.2);
 }
 
 #editor-toolbar button.active {
@@ -360,18 +367,18 @@ html, body {
 
 #asset-panel, #property-panel {
     position: absolute;
-    top: 80px;
-    width: 250px;
-    max-height: calc(100vh - 100px); /* Fit on screen */
-    background: rgba(30, 30, 36, 0.85);
-    backdrop-filter: blur(8px);
-    border-radius: 8px;
-    border: 1px solid rgba(255, 255, 255, 0.2);
+    top: 90px;
+    width: 280px;
+    max-height: calc(100vh - 110px); /* Fit on screen */
+    background: rgba(20, 20, 25, 0.8);
+    backdrop-filter: blur(10px);
+    border-radius: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
     color: #eee;
-    padding: 15px;
+    padding: 16px;
     display: flex;
     flex-direction: column;
-    
+    box-shadow: 0 4px 15px rgba(0,0,0,0.3);
     /* iPhone Optimization: Allow scrolling *within* this panel */
     touch-action: auto; 
 }
@@ -381,14 +388,18 @@ html, body {
 
 #asset-panel h3, #property-panel h3 {
     margin-top: 0;
-    border-bottom: 1px solid #555;
-    padding-bottom: 10px;
+    margin-bottom: 12px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    padding-bottom: 12px;
 }
 
 #asset-list, #props-content {
     /* iPhone Optimization: Make content scrollable */
     overflow-y: auto;
     flex-grow: 1; /* Allow content to fill panel */
+    /* Add a subtle scrollbar for browsers that support it */
+    scrollbar-width: thin;
+    scrollbar-color: #555 #333;
 }
 
 #asset-list {
@@ -398,17 +409,23 @@ html, body {
 }
 
 #asset-list button {
-    background: #444;
-    border: 1px solid #666;
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.1);
     color: #fff;
-    border-radius: 5px;
-    padding: 8px 12px;
+    border-radius: 8px;
+    padding: 10px 12px;
     cursor: pointer;
     text-align: left;
     transition: background 0.2s;
+    font-weight: 500;
 }
 #asset-list button:hover {
-    background: #555;
+    background: rgba(255, 255, 255, 0.2);
+}
+#btn-upload-asset {
+    background: #4f8ff7;
+    border-color: #4f8ff7;
+    margin-top: 8px;
 }
 
 #props-content {
@@ -421,16 +438,19 @@ html, body {
     margin-top: 8px;
     font-size: 0.9em;
     color: #ccc;
+    font-weight: 500;
 }
 #props-content input {
     width: 100%;
-    background: #222;
-    border: 1px solid #555;
+    background: rgba(0, 0, 0, 0.3);
+    border: 1px solid rgba(255, 255, 255, 0.1);
     color: #fff;
-    padding: 5px;
-    border-radius: 4px;
+    padding: 10px;
+    border-radius: 8px;
     box-sizing: border-box; /* Important */
+    font-size: 1em;
 }
+
 
 /* --- Responsive Loader (Original) --- */
 @media (max-width: 768px) and (orientation: landscape) {
@@ -438,7 +458,16 @@ html, body {
     .loader-image-side { flex: 0 0 40%; }
     .loader-content-side { padding: 15px 20px; }
     .loader-content-side h2 { font-size: 1.3em; }
+    
+    /* Shrink editor UI on small landscape screens */
+    #asset-panel, #property-panel {
+        width: 200px;
+        top: 80px;
+    }
+    #asset-panel { left: 15px; }
+    #property-panel { right: 15px; }
 }
+
 @media (max-width: 600px) and (orientation: portrait) {
     .loader-card {
         flex-direction: column;
@@ -448,25 +477,43 @@ html, body {
     .loader-image-side { height: 180px; flex-basis: auto; }
 }
 
-/* --- iPhone Optimization (Editor UI) --- */
-@media (max-width: 900px) and (orientation: landscape) {
-    #asset-panel, #property-panel {
-        width: 180px; /* Narrower panels */
-        top: 15px;
-        max-height: calc(100vh - 30px);
-    }
-    #asset-panel { left: 15px; }
-    #property-panel { right: 15px; }
-    
-    #editor-toolbar {
-        top: 15px;
-    }
-    #editor-toolbar button {
-        padding: 6px 10px;
-        font-size: 0.9em;
-    }
+
+/* --- NEW: Portrait Mode UI Overrides --- */
+@media (orientation: portrait) {
     
     #time-of-day-slider {
-        display: none; /* Hide slider on small screens to save space */
+        display: none; /* Hide to save space */
+    }
+
+    #editor-toolbar {
+        top: auto;
+        bottom: 15px; /* Move to bottom */
+        left: 10px;
+        right: 10px;
+        width: auto;
+        transform: none; /* Remove centering */
+        justify-content: space-around;
+        padding: 8px;
+    }
+    
+    #editor-toolbar button {
+        padding: 8px;
+        font-size: 0.8em; /* Smaller buttons */
+    }
+
+    #asset-panel {
+        top: 15px;
+        left: 10px;
+        right: 10px;
+        width: auto; /* Full width */
+        max-height: 40%; /* Take top 40% of screen */
+    }
+
+    #property-panel {
+        top: calc(40% + 30px); /* Stack below asset panel */
+        left: 10px;
+        right: 10px;
+        width: auto; /* Full width */
+        max-height: 40%; /* Take next 40% of screen */
     }
 }
