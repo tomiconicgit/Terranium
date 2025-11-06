@@ -2,34 +2,31 @@
 import * as THREE from 'three';
 
 /**
- * 100x100 flat concrete base.
+ * 100x100 flat base.
  * World span: [-50, 50] in X/Z.
  */
 export function createTerrain() {
-  const SIZE = 100;      // world width/height in meters
+  const SIZE = 100;
   const HALF = SIZE * 0.5;
-  const RES  = 1;        // 1 segment for a single flat plane
+  const RES  = 1;
 
   const geo = new THREE.PlaneGeometry(SIZE, SIZE, RES, RES);
   geo.rotateX(-Math.PI / 2);
-
-  // No noise, it's a flat plane.
   geo.computeVertexNormals();
 
-  // *** UPDATED: PBR concrete material ***
-  const concrete = new THREE.MeshStandardMaterial({
-    color: 0x808080, // Medium grey
-    metalness: 0.1,  // Slightly metallic for a bit of sheen
-    roughness: 0.8   // Mostly rough
+  // *** MODIFIED: Plain grey material by default ***
+  const plainMaterial = new THREE.MeshStandardMaterial({
+    color: 0x555555, // Medium grey
+    metalness: 0.1,
+    roughness: 0.8
   });
 
-  const mesh = new THREE.Mesh(geo, concrete);
+  const mesh = new THREE.Mesh(geo, plainMaterial);
   mesh.receiveShadow = true;
   mesh.castShadow = false;
-  mesh.name = 'ConcreteTerrain_100x100_Flat';
+  mesh.name = 'ConcreteTerrain_100x100_Flat'; // Use this name to find it
   mesh.userData.__isTerrain = true;
 
-  // Helper for bounds
   mesh.userData.bounds = { minX: -HALF, maxX: HALF, minZ: -HALF, maxZ: HALF };
 
   const group = new THREE.Group();
