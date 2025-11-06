@@ -23,9 +23,11 @@ export class EditorManager {
       childToMove: null
     };
     this.animCreatorState = { pos1: null, pos2: null };
-
-    // *** NEW: Store time of day to fix bug ***
-    this.timeOfDay = 50;
+    
+    // Store time of day to fix bug
+    this.timeOfDay = 50; 
+    // Store grid state
+    this.isGridVisible = true;
 
     this.bindDOM();
     this.initControls();
@@ -51,13 +53,14 @@ export class EditorManager {
     this.modelFileInput = document.getElementById('file-input-model');
     this.uploadModelButton = document.getElementById('btn-upload-model');
     
-    // Note: sun-slider and grid-toggle are now created dynamically
-    
+    // Bind all texture inputs
     this.texInputMap = document.getElementById('texture-input-map');
     this.texInputNormal = document.getElementById('texture-input-normal');
     this.texInputMetal = document.getElementById('texture-input-metal');
     this.texInputRough = document.getElementById('texture-input-rough');
     this.texInputDisplacement = document.getElementById('texture-input-displacement');
+    this.texInputEmissive = document.getElementById('texture-input-emissive');
+    this.texInputAO = document.getElementById('texture-input-ao');
   }
 
   initControls() {
@@ -122,9 +125,7 @@ export class EditorManager {
       this.transformControls.attach(this.selectedObject);
     }
     this.main.controls.setPaused(true);
-    // Check if grid toggle exists before reading it
-    const gridToggle = document.getElementById('props-grid-toggle');
-    this.main.gridHelper.visible = gridToggle ? gridToggle.checked : true;
+    this.main.gridHelper.visible = this.isGridVisible;
     
     this.camera.position.set(25, 25, 25);
     this.orbitControls.target.set(0, 1, 0);
@@ -278,7 +279,7 @@ export class EditorManager {
         item.dataset.uuid = obj.uuid;
 
         const arrow = document.createElement('span');
-arrow.className = 'arrow';
+        arrow.className = 'arrow';
         if (isCollapsible) arrow.textContent = '►';
         
         const icon = document.createElement('span');
@@ -354,7 +355,6 @@ arrow.className = 'arrow';
     }
   }
   
-  // *** MODIFIED: New Parenting Logic ***
   startChildingProcess() {
     if (!this.selectedObject || !(this.selectedObject instanceof THREE.Object3D)) {
         this.main.debugger.warn("Select an object to be the child first.", "Parenting");
@@ -428,7 +428,6 @@ arrow.className = 'arrow';
     this.selectedObject = obj;
     if (obj instanceof THREE.Object3D) {
       this.transformControls.attach(obj);
-      // *** MODIFIED: Switch to Properties tab on object selection ***
       this.onTabClick({ target: document.querySelector('button[data-tab="tab-properties"]') });
     } else {
       this.transformControls.detach();
@@ -534,6 +533,7 @@ arrow.className = 'arrow';
       ... (Animation HTML) ...
     `;
     
+    // *** MODIFIED: Added all PBR map types ***
     const matHTML = mat ? `
       <div class="props-group">
         <h5>Material (PBR)</h5>
@@ -541,6 +541,7 @@ arrow.className = 'arrow';
         <input type="range" min="0" max="1" step="0.01" id="props-mat-metal" value="${mat.metalness || 0}">
         <label>Roughness</label>
         <input type="range" min="0" max="1" step="0.01" id="props-mat-rough" value="${mat.roughness || 0}">
+        
         <label>Albedo Map</label>
         <div class="props-texture">
           <span id="map-name">${mat.map ? mat.map.name || 'Texture' : 'None'}</span>
@@ -551,6 +552,27 @@ arrow.className = 'arrow';
           <span id="normal-name">${mat.normalMap ? mat.normalMap.name || 'Texture' : 'None'}</span>
           <button id="btn-load-normal">Load</button>
         </div>
+        <label>Roughness Map</label>
+        <div class="props-texture">
+          <span id="rough-name">${mat.roughnessMap ? mat.roughnessMap.name || 'Texture' : 'None'}</span>
+          <button id="btn-load-rough">Load</button>
+        </div>
+        <label>Metalness Map</label>
+        <div class="props-texture">
+          <span id="metal-name">${mat.metalnessMap ? mat.metalnessMap.name || 'Texture' : 'None'}</span>
+          <button id="btn-load-metal">Load</button>
+        </div>
+        <label>AO Map</label>
+        <div class="props-texture">
+          <span id="ao-name">${mat.aoMap ? mat.aoMap.name || 'Texture' : 'None'}</span>
+          <button id="btn-load-ao">Load</button>
+        </div>
+        <label>Emissive Map</label>
+        <div class="props-texture">
+          <span id="emissive-name">${mat.emissiveMap ? mat.emissiveMap.name || 'Texture' : 'None'}</span>
+          <button id="btn-load-emissive">Load</button>
+        </div>
+        
         <label>UV Repeat X</label>
         <input type="number" step="0.1" id="props-uv-x" value="${mat.map ? mat.map.repeat.x : 1}">
         <label>UV Repeat Y</label>
@@ -697,6 +719,26 @@ arrow.className = 'arrow';
               <span id="map-name">${mat.map ? mat.map.name || 'Texture' : 'None'}</span>
               <button id="btn-load-map">Load</button>
             </div>
+            <label>Normal Map</label>
+            <div class="props-texture">
+              <span id="normal-name">${mat.normalMap ? mat.normalMap.name || 'Texture' : 'None'}</span>
+              <button id="btn-load-normal">Load</button>
+            </div>
+            <label>Roughness Map</label>
+            <div class="props-texture">
+              <span id="rough-name">${mat.roughnessMap ? mat.roughnessMap.name || 'Texture' : 'None'}</span>
+              <button id="btn-load-rough">Load</button>
+            </div>
+            <label>Metalness Map</label>
+            <div class="props-texture">
+              <span id="metal-name">${mat.metalnessMap ? mat.metalnessMap.name || 'Texture' : 'None'}</span>
+              <button id="btn-load-metal">Load</button>
+            </div>
+            <label>AO Map</label>
+            <div class="props-texture">
+              <span id="ao-name">${mat.aoMap ? mat.aoMap.name || 'Texture' : 'None'}</span>
+              <button id="btn-load-ao">Load</button>
+            </div>
             <label>Displacement</label>
             <div class="props-texture">
               <span id="disp-name">${mat.displacementMap ? mat.displacementMap.name || 'Texture' : 'None'}</span>
@@ -704,6 +746,12 @@ arrow.className = 'arrow';
             </div>
             <label>Disp. Scale</label>
             <input type="range" min="0" max="5" step="0.1" id="props-disp-scale" value="${mat.displacementScale || 1}">
+            
+            <label>Emissive Map</label>
+            <div class="props-texture">
+              <span id="emissive-name">${mat.emissiveMap ? mat.emissiveMap.name || 'Texture' : 'None'}</span>
+              <button id="btn-load-emissive">Load</button>
+            </div>
 
             <label>UV Repeat X</label>
             <input type="number" step="0.1" id="props-uv-x" value="${mat.map ? mat.map.repeat.x : 1}">
@@ -713,15 +761,29 @@ arrow.className = 'arrow';
     `;
     
     // Bind Events
-    document.getElementById('props-grid-toggle').onchange = (e) => this.main.gridHelper.visible = e.target.checked;
+    document.getElementById('props-grid-toggle').onchange = (e) => {
+        this.main.gridHelper.visible = e.target.checked;
+        this.isGridVisible = e.target.checked;
+    };
     document.getElementById('props-terrain-color').oninput = (e) => mat.color.set(e.target.value);
     document.getElementById('props-mat-metal').oninput = (e) => mat.metalness = parseFloat(e.target.value);
     document.getElementById('props-mat-rough').oninput = (e) => mat.roughness = parseFloat(e.target.value);
     
     document.getElementById('btn-load-map').onclick = () => this.texInputMap.click();
+    document.getElementById('btn-load-normal').onclick = () => this.texInputNormal.click();
+    document.getElementById('btn-load-rough').onclick = () => this.texInputRough.click();
+    document.getElementById('btn-load-metal').onclick = () => this.texInputMetal.click();
+    document.getElementById('btn-load-ao').onclick = () => this.texInputAO.click();
     document.getElementById('btn-load-disp').onclick = () => this.texInputDisplacement.click();
+    document.getElementById('btn-load-emissive').onclick = () => this.texInputEmissive.click();
+
     this.texInputMap.onchange = (e) => this.handleTextureUpload(e, mat, 'map');
+    this.texInputNormal.onchange = (e) => this.handleTextureUpload(e, mat, 'normalMap');
+    this.texInputRough.onchange = (e) => this.handleTextureUpload(e, mat, 'roughnessMap');
+    this.texInputMetal.onchange = (e) => this.handleTextureUpload(e, mat, 'metalnessMap');
+    this.texInputAO.onchange = (e) => this.handleTextureUpload(e, mat, 'aoMap');
     this.texInputDisplacement.onchange = (e) => this.handleTextureUpload(e, mat, 'displacementMap');
+    this.texInputEmissive.onchange = (e) => this.handleTextureUpload(e, mat, 'emissiveMap');
 
     document.getElementById('props-disp-scale').oninput = (e) => mat.displacementScale = parseFloat(e.target.value);
     document.getElementById('props-uv-x').oninput = (e) => this.setMaterialUV(mat, 'x', e.target.value);
@@ -781,10 +843,20 @@ arrow.className = 'arrow';
       document.getElementById('props-mat-rough').oninput = (e) => mat.roughness = parseFloat(e.target.value);
       document.getElementById('props-uv-x').oninput = (e) => this.setMaterialUV(mat, 'x', e.target.value);
       document.getElementById('props-uv-y').oninput = (e) => this.setMaterialUV(mat, 'y', e.target.value);
+      
       document.getElementById('btn-load-map').onclick = () => this.texInputMap.click();
       document.getElementById('btn-load-normal').onclick = () => this.texInputNormal.click();
+      document.getElementById('btn-load-rough').onclick = () => this.texInputRough.click();
+      document.getElementById('btn-load-metal').onclick = () => this.texInputMetal.click();
+      document.getElementById('btn-load-ao').onclick = () => this.texInputAO.click();
+      document.getElementById('btn-load-emissive').onclick = () => this.texInputEmissive.click();
+      
       this.texInputMap.onchange = (e) => this.handleTextureUpload(e, mat, 'map');
       this.texInputNormal.onchange = (e) => this.handleTextureUpload(e, mat, 'normalMap');
+      this.texInputRough.onchange = (e) => this.handleTextureUpload(e, mat, 'roughnessMap');
+      this.texInputMetal.onchange = (e) => this.handleTextureUpload(e, mat, 'metalnessMap');
+      this.texInputAO.onchange = (e) => this.handleTextureUpload(e, mat, 'aoMap');
+      this.texInputEmissive.onchange = (e) => this.handleTextureUpload(e, mat, 'emissiveMap');
     }
 
     document.getElementById('btn-anim-create-new').onclick = () => {
@@ -907,10 +979,15 @@ arrow.className = 'arrow';
         material[mapType] = texture;
         material.needsUpdate = true;
         
+        // *** MODIFIED: Find all possible span IDs ***
         let spanId;
         if (mapType === 'map') spanId = 'map-name';
         else if (mapType === 'normalMap') spanId = 'normal-name';
         else if (mapType === 'displacementMap') spanId = 'disp-name';
+        else if (mapType === 'roughnessMap') spanId = 'rough-name';
+        else if (mapType === 'metalnessMap') spanId = 'metal-name';
+        else if (mapType === 'aoMap') spanId = 'ao-name';
+        else if (mapType === 'emissiveMap') spanId = 'emissive-name';
         
         if (spanId && document.getElementById(spanId)) {
           document.getElementById(spanId).textContent = file.name;
@@ -924,7 +1001,9 @@ arrow.className = 'arrow';
   setMaterialUV(material, axis, value) {
     const val = parseFloat(value);
     if (isNaN(val)) return;
-    ['map', 'normalMap', 'roughnessMap', 'metalnessMap', 'aoMap', 'displacementMap'].forEach(mapType => {
+    
+    // *** MODIFIED: Include all map types ***
+    ['map', 'normalMap', 'roughnessMap', 'metalnessMap', 'aoMap', 'displacementMap', 'emissiveMap'].forEach(mapType => {
         if (material[mapType]) {
             material[mapType].repeat[axis] = val;
             material[mapType].needsUpdate = true;
