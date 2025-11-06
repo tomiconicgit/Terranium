@@ -1,9 +1,9 @@
-// File: src/EditorManager.js
+// src/EditorManager.js
 
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { TransformControls } from 'three/addons/controls/TransformControls.js';
-import { loadModel, loadFBXModel } from './ModelLoading.js'; // We will add loadFBXModel later
+import { loadModel, loadFBXModel } from './ModelLoading.js';
 
 export class EditorManager {
   constructor(mainApp) {
@@ -41,6 +41,7 @@ export class EditorManager {
     // 3. Setup Raycaster (Object Selection)
     this.raycaster = new THREE.Raycaster();
     this.pointer = new THREE.Vector2();
+    // Listen on the canvas for clicks
     this.renderer.domElement.addEventListener('pointerdown', (e) => this.onPointerDown(e), false);
 
     // 4. Connect UI Buttons
@@ -55,6 +56,9 @@ export class EditorManager {
     // Set initial camera position for editor
     this.camera.position.set(10, 10, 10);
     this.camera.lookAt(0, 0, 0);
+    
+    // Set initial tool
+    this.onToolClick({ target: document.getElementById('btn-select') });
   }
 
   toggleGameMode() {
@@ -135,7 +139,7 @@ export class EditorManager {
     loadModel(
       path, 
       (model) => {
-        model.position.set(0, 0, 0); // Or place at camera target
+        model.position.set(0, 0.1, 0); // Place at camera target
         this.scene.add(model);
         this.selectObject(model); // Select the new model
       },
@@ -178,8 +182,8 @@ export class EditorManager {
     // Don't select if clicking on the gizmo
     if (this.transformControls.dragging) return;
     
-    // Don't select if clicking on UI
-    if (event.target.closest('.no-look')) return;
+    // Clicks on HTML (UI) are on a different layer and won't reach the canvas,
+    // so we don't need to check for .no-look here.
 
     // Calculate pointer position in normalized device coordinates
     this.pointer.x = (event.clientX / window.innerWidth) * 2 - 1;
@@ -259,14 +263,14 @@ export class EditorManager {
     content.innerHTML = `
       <strong>${obj.name || 'Object'}</strong>
       <label>Pos X:</label>
-      <input type="number" step="0.1" value="${obj.position.x}" data-prop="position.x">
+      <input type="number" step="0.1" value="${obj.position.x.toFixed(2)}" data-prop="position.x">
       <label>Pos Y:</label>
-      <input type="number" step="0.1" value="${obj.position.y}" data-prop="position.y">
+      <input type="number" step="0.1" value="${obj.position.y.toFixed(2)}" data-prop="position.y">
       <label>Pos Z:</label>
-      <input type="number" step="0.1" value="${obj.position.z}" data-prop="position.z">
+      <input type="number" step="0.1" value="${obj.position.z.toFixed(2)}" data-prop="position.z">
       
       <label>Scale:</label>
-      <input type="number" step="0.05" value="${obj.scale.x}" data-prop="scale.x">
+      <input type="number" step="0.05" value="${obj.scale.x.toFixed(2)}" data-prop="scale.x">
     `;
     
     // Add live-updating
