@@ -13,7 +13,6 @@ export class Main {
     this.debugger = debuggerInstance;
     this.viewportContainer = viewportContainer;
 
-    // --- renderer / scene / camera ---
     this.canvas   = document.getElementById('game-canvas');
     this.renderer = new THREE.WebGLRenderer({ canvas: this.canvas, antialias: true });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -27,13 +26,10 @@ export class Main {
     this.camera.rotation.order = 'YXZ';
     this.scene.add(this.camera);
 
-    // *** NEW: World container for user objects ***
     this.world = new THREE.Group();
     this.world.name = "WorldRoot";
     this.scene.add(this.world);
-    // *** END NEW ***
 
-    // --- lighting / sky / terrain ---
     const lights = createLighting();
     this.sunLight = lights.sunLight;
     
@@ -42,13 +38,13 @@ export class Main {
 
     this.sky = createSkyDome();
     this.terrain = createTerrain();
-    this.scene.add(this.terrain, this.sky); // Add terrain and sky to the main scene
+    this.scene.add(this.terrain, this.sky);
 
     this.terrainMesh = this.terrain.getObjectByName('ConcreteTerrain_100x100_Flat');
     this.textureLoader = new THREE.TextureLoader();
 
     this.gridHelper = new THREE.GridHelper(100, 100, 0x888888, 0x444444);
-    this.scene.add(this.gridHelper); // Add grid to the main scene
+    this.scene.add(this.gridHelper);
 
     this.skyColors = {
       nightTop: new THREE.Color(0x02030a),
@@ -57,7 +53,6 @@ export class Main {
       dayBottom: new THREE.Color(0xdfeaff)
     };
     
-    // --- controls ---
     this.controls = new TouchPad();
     this.playerVelocity = new THREE.Vector3();
     this.lookSpeed = 0.004;
@@ -68,13 +63,10 @@ export class Main {
     this.raycaster = new THREE.Raycaster();
     this.rayDown = new THREE.Vector3(0, -1, 0);
 
-    // --- clock / perf ---
     this.clock = new THREE.Clock();
     this.frameCount = 0;
     
-    // =========== INIT EDITOR ===========
     this.editorManager = new EditorManager(this);
-    // ======================================
 
     window.addEventListener('resize', () => this.onWindowResize(), false);
     this.initPerformanceMonitor();
@@ -84,7 +76,6 @@ export class Main {
     this.start();
   }
 
-  // ... (updateSun method is unchanged) ...
   updateSun(sliderValue) {
     const normalizedTime = sliderValue / 100; // 0.0 to 1.0
     const angle = normalizedTime * Math.PI;
@@ -103,7 +94,6 @@ export class Main {
     );
   }
 
-  // *** NEW: Placeholder methods for texture loading ***
   setTerrainColor(color) {
     if (!this.terrainMesh) return;
     this.terrainMesh.material.map = null;
@@ -114,7 +104,6 @@ export class Main {
   setTerrainTexture(texturePath) {
     if (!this.terrainMesh) return;
     const texture = this.textureLoader.load(texturePath, () => {
-        // Callback to ensure it updates once loaded
         this.terrainMesh.material.needsUpdate = true;
     });
     texture.wrapS = THREE.RepeatWrapping;
@@ -122,7 +111,7 @@ export class Main {
     texture.repeat.set(20, 20);
     
     this.terrainMesh.material.map = texture;
-    this.terrainMesh.material.color.set(0xffffff); // Set to white to not tint texture
+    this.terrainMesh.material.color.set(0xffffff);
     this.terrainMesh.material.needsUpdate = true;
   }
 
@@ -131,12 +120,20 @@ export class Main {
   
   animate(){
     requestAnimationFrame(()=>this.animate());
-    const dt = this.clock.getDelta();
+    const dt = this.clock.getDelta(); // Get time delta
 
     if (this.editorManager.state === 'GAME') {
       this.updatePlayer(dt);
     }
     
+    // *** NEW: Animation Mixer Loop ***
+    // This updates any playing animations on any object
+    this.world.traverse(obj => {
+        if (obj.mixer) {
+            obj.mixer.update(dt);
+        }
+    });
+
     this.renderer.render(this.scene, this.camera);
     this.frameCount++;
   }
@@ -167,11 +164,9 @@ export class Main {
     const rayOrigin = new THREE.Vector3(this.camera.position.x, 80, this.camera.position.z);
     this.raycaster.set(rayOrigin, this.rayDown);
 
-    // *** MODIFIED: Only check for collisions with terrain and world objects ***
     const collidableMeshes = [];
     this.terrain.traverse(o => { if (o.isMesh) collidableMeshes.push(o); });
     this.world.traverse(o => { if (o.isMesh) collidableMeshes.push(o); });
-    // *** END MODIFIED ***
 
     const hits = this.raycaster.intersectObjects(collidableMeshes, true);
     if (hits.length > 0) {
