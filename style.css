@@ -179,7 +179,7 @@ button:disabled {
     flex: 1;
     background: transparent;
     border-radius: 0;
-    padding: 18px 10px;
+    padding: 18px 10px; /* MODIFIED: Larger padding */
     border-bottom: 3px solid transparent;
     color: #8e8e93; /* MODIFIED: iOS inactive color */
     font-weight: 600;
@@ -343,7 +343,6 @@ button:disabled {
 =================================================
 */
 
-/* MODIFIED: Replaced .props-group with a new structure */
 .props-group {
     background: #1c1c1c;
     border-radius: 12px;
@@ -359,7 +358,6 @@ button:disabled {
     padding: 16px 16px 12px 16px;
 }
 
-/* A single row in a group */
 .props-row, .props-stack {
     display: flex;
     align-items: center;
@@ -377,7 +375,6 @@ button:disabled {
     color: #fff;
 }
 
-/* For label-over-control */
 .props-stack {
     flex-direction: column;
     align-items: stretch;
@@ -470,8 +467,12 @@ input[type="number"], input[type="text"] {
     padding: 14px;
     border-radius: 8px;
     box-sizing: border-box;
-    font-size: 17px;
+    font-size: 17px; /* MODIFIED: iOS standard size */
     font-weight: 500;
+}
+/* Prevent iOS zoom on input focus */
+input[type="number"], input[type="text"], button {
+    font-size: 16px;
 }
 
 /*
