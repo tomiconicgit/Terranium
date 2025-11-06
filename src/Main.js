@@ -5,17 +5,18 @@ import { createSkyDome }  from './scene/SkyDome.js';
 import { createLighting } from './scene/Lighting.js';
 import { createCamera }   from './scene/Camera.js';
 import { TouchPad }       from './controls/TouchPad.js';
-import { loadModel }      from './ModelLoading.js';
-import { EditorManager }  from './EditorManager.js'; // <-- NEW IMPORT
+// import { loadModel }      from './ModelLoading.js'; // Not used by default
+import { EditorManager }  from './EditorManager.js'; 
 
 export class Main {
-  constructor(debuggerInstance) {
+  // *** MODIFIED: Accept viewportContainer ***
+  constructor(debuggerInstance, viewportContainer) {
     this.debugger = debuggerInstance;
+    this.viewportContainer = viewportContainer;
 
     // --- renderer / scene / camera ---
     this.canvas   = document.getElementById('game-canvas');
     this.renderer = new THREE.WebGLRenderer({ canvas: this.canvas, antialias: true });
-    this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.renderer.shadowMap.enabled = true;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -29,21 +30,23 @@ export class Main {
 
     // --- lighting / sky / terrain ---
     const lights = createLighting();
-    this.sunLight     = lights.sunLight;
+    this.sunLight = lights.sunLight;
     
-    this.hemiLight = new THREE.HemisphereLight(
-      0x8ecaff, // Sky color
-      0x808080, // Ground color
-      0.5       // Initial intensity
-    );
-    this.scene.add(this.hemiLight);
-    this.scene.add(this.sunLight, this.sunLight.target); // Add sun
+    this.hemiLight = new THREE.HemisphereLight(0x8ecaff, 0x404040, 0.8);
+    this.scene.add(this.hemiLight, this.sunLight, this.sunLight.target);
 
     this.sky = createSkyDome();
-    this.terrain = createTerrain(); // 100x100 flat base
+    this.terrain = createTerrain();
     this.scene.add(this.terrain, this.sky);
 
-    // Store base sky colors for interpolation
+    // *** NEW: Store reference to the mesh for texture swapping ***
+    this.terrainMesh = this.terrain.getObjectByName('ConcreteTerrain_100x100_Flat');
+    this.textureLoader = new THREE.TextureLoader();
+
+    // *** NEW: Add grid helper ***
+    this.gridHelper = new THREE.GridHelper(100, 100, 0x888888, 0x444444);
+    this.scene.add(this.gridHelper);
+
     this.skyColors = {
       nightTop: new THREE.Color(0x02030a),
       nightBottom: new THREE.Color(0x0c101d),
@@ -53,114 +56,56 @@ export class Main {
     
     // --- controls ---
     this.controls = new TouchPad();
-    
     this.playerVelocity = new THREE.Vector3();
     this.lookSpeed = 0.004;
     this.playerHeight = 1.83; 
-
-    // Camera Bob
     this.bobTime = 0;
     this.bobSpeed = 10;
     this.bobAmount = 0.08; 
-
     this.raycaster = new THREE.Raycaster();
     this.rayDown = new THREE.Vector3(0, -1, 0);
 
     // --- World Models ---
-    this.hallModel = null;
-    this.loadHallModel(); // This will now be selectable!
+    // *** REMOVED: this.loadHallModel() removed from start ***
 
     // --- clock / perf ---
     this.clock = new THREE.Clock();
     this.frameCount = 0;
 
     // --- UIs ---
-    this.sunSlider = document.getElementById('sun-slider');
-    if (this.sunSlider) {
-      this.sunSlider.addEventListener('input', (e) => this.updateSun(e.target.value));
-      this.updateSun(this.sunSlider.value); // Set initial position
-    }
+    // Sun slider is now handled by EditorManager
     
     // =========== NEW: INIT EDITOR ===========
-    // Must be after renderer, scene, camera, and controls are created
     this.editorManager = new EditorManager(this);
     // ======================================
 
+    // *** MODIFIED: Use new resize method ***
     window.addEventListener('resize', () => this.onWindowResize(), false);
     this.initPerformanceMonitor();
-    
-    // Set initial state from EditorManager
     this.controls.setPaused(this.editorManager.state === 'EDITOR');
     
+    // *** MODIFIED: Set initial size ***
+    this.onWindowResize();
     this.start();
   }
 
-  loadHallModel() {
-    const setMaterialProperties = (mat) => {
-      if (mat.transparent) {
-        mat.alphaTest = 0.5;
-      }
-    };
-
-    loadModel(
-      'src/assets/ModernHall.glb',
-      (model) => {
-        model.position.set(0, 0, 0); 
-        
-        model.traverse(o => {
-          if (o.isMesh) {
-            o.castShadow = true; 
-            o.receiveShadow = true; 
-            
-            if (Array.isArray(o.material)) {
-              o.material.forEach(mat => setMaterialProperties(mat));
-            } else if (o.material) {
-              setMaterialProperties(o.material);
-            }
-          }
-        });
-        
-        this.scene.add(model);
-        this.hallModel = model;
-        this.debugger?.log('Loaded static model: ModernHall.glb');
-      },
-      (error) => {
-        this.debugger?.handleError(error, 'StaticModel: ModernHall.glb');
-      }
-    );
-  }
+  // No loadHallModel method
 
   updateSun(sliderValue) {
     const normalizedTime = sliderValue / 100; // 0.0 to 1.0
-    
-    // Angle: 0.0 (sunrise) -> PI/2 (noon) -> PI (sunset)
     const angle = normalizedTime * Math.PI;
+    const R = 600;
     
-    const R = 600; // Sun distance
-    
-    // Sun rises in the East (positive Z), high at noon, sets in West (negative Z)
-    const sunX = 0;
-    const sunY = Math.sin(angle) * R; // Elevation (max at noon)
-    const sunZ = Math.cos(angle) * R; // East/West
-    this.sunLight.position.set(sunX, sunY, sunZ);
-
-    // Sun progress: 0.0 at night, 1.0 at noon
+    this.sunLight.position.set(0, Math.sin(angle) * R, Math.cos(angle) * R);
     const sunProgress = Math.max(0, Math.sin(angle));
-
-    // Intensity
-    this.sunLight.intensity = sunProgress * 2.5; // Max 2.5 at noon
-    this.hemiLight.intensity = sunProgress * 0.8 + 0.25; // Min 0.25 (night), Max 1.05 (day)
+    this.sunLight.intensity = sunProgress * 2.5;
+    this.hemiLight.intensity = sunProgress * 0.8 + 0.25;
     
-    // Sky Color
     this.sky.material.uniforms.topColor.value.lerpColors(
-      this.skyColors.nightTop, 
-      this.skyColors.dayTop, 
-      sunProgress
+      this.skyColors.nightTop, this.skyColors.dayTop, sunProgress
     );
     this.sky.material.uniforms.bottomColor.value.lerpColors(
-      this.skyColors.nightBottom, 
-      this.skyColors.dayBottom, 
-      sunProgress
+      this.skyColors.nightBottom, this.skyColors.dayBottom, sunProgress
     );
   }
 
@@ -171,14 +116,10 @@ export class Main {
     requestAnimationFrame(()=>this.animate());
     const dt = this.clock.getDelta();
 
-    // *** MODIFIED: Only update player if in GAME mode ***
     if (this.editorManager.state === 'GAME') {
       this.updatePlayer(dt);
     }
     
-    // Editor controls (like Orbit) update themselves
-    // Gizmo (TransformControls) also updates itself
-
     this.renderer.render(this.scene, this.camera);
     this.frameCount++;
   }
@@ -206,17 +147,16 @@ export class Main {
     this.playerVelocity.z = mv.y*moveSpeed; this.playerVelocity.x = mv.x*moveSpeed;
     this.camera.translateX(this.playerVelocity.x); this.camera.translateZ(this.playerVelocity.z);
 
-    // keep camera at least slightly above ground
     const rayOrigin = new THREE.Vector3(this.camera.position.x, 80, this.camera.position.z);
     this.raycaster.set(rayOrigin, this.rayDown);
 
     const collidableMeshes = [];
-    this.terrain.traverse(o => { if (o.isMesh) collidableMeshes.push(o); });
-    
-    // Check all scene children that aren't the terrain, sky, or gizmos
     this.scene.children.forEach(child => {
-        if (child !== this.terrain && child !== this.sky && !child.isTransformControls) {
-            child.traverse(o => { if (o.isMesh) collidableMeshes.push(o); });
+        if (child.isMesh || child.isGroup) {
+            // Check if it's NOT one of the editor helpers
+            if (child !== this.sky && child !== this.gridHelper && !child.isTransformControls) {
+                child.traverse(o => { if (o.isMesh) collidableMeshes.push(o); });
+            }
         }
     });
 
@@ -226,10 +166,14 @@ export class Main {
     }
   }
 
+  // *** MODIFIED: Resize based on container ***
   onWindowResize(){
-    this.camera.aspect = window.innerWidth/window.innerHeight;
+    const width = this.viewportContainer.clientWidth;
+    const height = this.viewportContainer.clientHeight;
+
+    this.camera.aspect = width / height;
     this.camera.updateProjectionMatrix();
-    this.renderer.setSize(window.innerWidth,window.innerHeight);
+    this.renderer.setSize(width, height);
   }
 
   initPerformanceMonitor(){
