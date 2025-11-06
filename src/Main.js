@@ -1,20 +1,19 @@
-// File: src/Main.js
-
+// src/Main.js
 import * as THREE from 'three';
-import { createTerrain } from './scene/Terrain.js';
-import { createSkyDome } from './scene/SkyDome.js';
+import { createTerrain }  from './scene/Terrain.js';
+import { createSkyDome }  from './scene/SkyDome.js';
 import { createLighting } from './scene/Lighting.js';
-import { createCamera } from './scene/Camera.js';
-import { TouchPad } from './controls/TouchPad.js';
-import { loadModel } from './ModelLoading.js';
-import { EditorManager } from './EditorManager.js'; // <-- NEW IMPORT
+import { createCamera }   from './scene/Camera.js';
+import { TouchPad }       from './controls/TouchPad.js';
+import { loadModel }      from './ModelLoading.js';
+import { EditorManager }  from './EditorManager.js'; // <-- NEW IMPORT
 
 export class Main {
   constructor(debuggerInstance) {
     this.debugger = debuggerInstance;
 
     // --- renderer / scene / camera ---
-    this.canvas = document.getElementById('game-canvas');
+    this.canvas   = document.getElementById('game-canvas');
     this.renderer = new THREE.WebGLRenderer({ canvas: this.canvas, antialias: true });
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -30,12 +29,12 @@ export class Main {
 
     // --- lighting / sky / terrain ---
     const lights = createLighting();
-    this.sunLight = lights.sunLight;
-
+    this.sunLight     = lights.sunLight;
+    
     this.hemiLight = new THREE.HemisphereLight(
       0x8ecaff, // Sky color
       0x808080, // Ground color
-      0.5 // Initial intensity
+      0.5       // Initial intensity
     );
     this.scene.add(this.hemiLight);
     this.scene.add(this.sunLight, this.sunLight.target); // Add sun
@@ -51,19 +50,18 @@ export class Main {
       dayTop: new THREE.Color(0x4fa8ff),
       dayBottom: new THREE.Color(0xdfeaff)
     };
-
+    
     // --- controls ---
     this.controls = new TouchPad();
-    // this.controlsPaused = false; // <-- This is now managed by EditorManager
-
+    
     this.playerVelocity = new THREE.Vector3();
     this.lookSpeed = 0.004;
-    this.playerHeight = 1.83;
+    this.playerHeight = 1.83; 
 
     // Camera Bob
     this.bobTime = 0;
     this.bobSpeed = 10;
-    this.bobAmount = 0.08;
+    this.bobAmount = 0.08; 
 
     this.raycaster = new THREE.Raycaster();
     this.rayDown = new THREE.Vector3(0, -1, 0);
@@ -90,10 +88,10 @@ export class Main {
 
     window.addEventListener('resize', () => this.onWindowResize(), false);
     this.initPerformanceMonitor();
-
+    
     // Set initial state from EditorManager
     this.controls.setPaused(this.editorManager.state === 'EDITOR');
-
+    
     this.start();
   }
 
@@ -107,13 +105,13 @@ export class Main {
     loadModel(
       'src/assets/ModernHall.glb',
       (model) => {
-        model.position.set(0, 0, 0);
-
+        model.position.set(0, 0, 0); 
+        
         model.traverse(o => {
           if (o.isMesh) {
-            o.castShadow = true;
-            o.receiveShadow = true;
-
+            o.castShadow = true; 
+            o.receiveShadow = true; 
+            
             if (Array.isArray(o.material)) {
               o.material.forEach(mat => setMaterialProperties(mat));
             } else if (o.material) {
@@ -121,7 +119,7 @@ export class Main {
             }
           }
         });
-
+        
         this.scene.add(model);
         this.hallModel = model;
         this.debugger?.log('Loaded static model: ModernHall.glb');
@@ -134,12 +132,12 @@ export class Main {
 
   updateSun(sliderValue) {
     const normalizedTime = sliderValue / 100; // 0.0 to 1.0
-
+    
     // Angle: 0.0 (sunrise) -> PI/2 (noon) -> PI (sunset)
     const angle = normalizedTime * Math.PI;
-
+    
     const R = 600; // Sun distance
-
+    
     // Sun rises in the East (positive Z), high at noon, sets in West (negative Z)
     const sunX = 0;
     const sunY = Math.sin(angle) * R; // Elevation (max at noon)
@@ -152,58 +150,60 @@ export class Main {
     // Intensity
     this.sunLight.intensity = sunProgress * 2.5; // Max 2.5 at noon
     this.hemiLight.intensity = sunProgress * 0.8 + 0.25; // Min 0.25 (night), Max 1.05 (day)
-
+    
     // Sky Color
     this.sky.material.uniforms.topColor.value.lerpColors(
-      this.skyColors.nightTop,
-      this.skyColors.dayTop,
+      this.skyColors.nightTop, 
+      this.skyColors.dayTop, 
       sunProgress
     );
     this.sky.material.uniforms.bottomColor.value.lerpColors(
-      this.skyColors.nightBottom,
-      this.skyColors.dayBottom,
+      this.skyColors.nightBottom, 
+      this.skyColors.dayBottom, 
       sunProgress
     );
   }
 
   /* ---------------- Main loop ---------------- */
-  start() { this.animate(); }
-
-  animate() {
-    requestAnimationFrame(() => this.animate());
+  start(){ this.animate(); }
+  
+  animate(){
+    requestAnimationFrame(()=>this.animate());
     const dt = this.clock.getDelta();
 
     // *** MODIFIED: Only update player if in GAME mode ***
     if (this.editorManager.state === 'GAME') {
       this.updatePlayer(dt);
     }
+    
+    // Editor controls (like Orbit) update themselves
+    // Gizmo (TransformControls) also updates itself
 
     this.renderer.render(this.scene, this.camera);
-
     this.frameCount++;
   }
 
-  updatePlayer(deltaTime) {
-    const moveSpeed = 12.0 * deltaTime, mv = this.controls.moveVector, lv = this.controls.lookVector;
-
-    if (lv.length() > 0) {
-      this.camera.rotation.y -= lv.x * this.lookSpeed;
-      this.camera.rotation.x -= lv.y * this.lookSpeed;
-      this.camera.rotation.x = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, this.camera.rotation.x));
-      this.controls.lookVector.set(0, 0);
+  updatePlayer(deltaTime){
+    const moveSpeed = 12.0 * deltaTime, mv=this.controls.moveVector, lv=this.controls.lookVector;
+    
+    if (lv.length()>0){
+      this.camera.rotation.y -= lv.x*this.lookSpeed;
+      this.camera.rotation.x -= lv.y*this.lookSpeed;
+      this.camera.rotation.x = Math.max(-Math.PI/2, Math.min(Math.PI/2, this.camera.rotation.x));
+      this.controls.lookVector.set(0,0);
     }
 
     const isMoving = mv.y !== 0 || mv.x !== 0;
     let bobOffset = 0;
-
+    
     if (isMoving) {
       this.bobTime += deltaTime * this.bobSpeed;
       bobOffset = Math.sin(this.bobTime) * this.bobAmount;
     } else {
       this.bobTime = 0;
     }
-
-    this.playerVelocity.z = mv.y * moveSpeed; this.playerVelocity.x = mv.x * moveSpeed;
+    
+    this.playerVelocity.z = mv.y*moveSpeed; this.playerVelocity.x = mv.x*moveSpeed;
     this.camera.translateX(this.playerVelocity.x); this.camera.translateZ(this.playerVelocity.z);
 
     // keep camera at least slightly above ground
@@ -226,17 +226,17 @@ export class Main {
     }
   }
 
-  onWindowResize() {
-    this.camera.aspect = window.innerWidth / window.innerHeight;
+  onWindowResize(){
+    this.camera.aspect = window.innerWidth/window.innerHeight;
     this.camera.updateProjectionMatrix();
-    this.renderer.setSize(window.innerWidth, window.innerHeight);
+    this.renderer.setSize(window.innerWidth,window.innerHeight);
   }
 
-  initPerformanceMonitor() {
-    setInterval(() => {
-      if (this.frameCount > 0 && this.frameCount < 30)
-        this.debugger?.warn(`Low framerate detected: ${this.frameCount} FPS`, 'Performance');
-      this.frameCount = 0;
-    }, 1000);
+  initPerformanceMonitor(){
+    setInterval(()=>{
+      if (this.frameCount>0 && this.frameCount<30)
+        this.debugger?.warn(`Low framerate detected: ${this.frameCount} FPS`,'Performance');
+      this.frameCount=0;
+    },1000);
   }
 }
