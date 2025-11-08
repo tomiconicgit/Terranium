@@ -13,63 +13,22 @@ gltfLoader.setDRACOLoader(dracoLoader);
 const fbxLoader = new FBXLoader();
 
 /**
- * Helper function to "sanitize" a loaded scene.
- * Extracts only geometry/groups, discarding cameras, lights, etc.
- */
-function sanitizeScene(scene) {
-  const newGroup = new THREE.Group();
-  
-  // Filter and re-parent only the objects we want (Meshes, Groups)
-  const objectsToKeep = [];
-  scene.traverse(child => {
-    if (child.isMesh || child.isSkinnedMesh || child.isBone) {
-      objectsToKeep.push(child);
-    }
-  });
-
-  // If the original scene's children were just meshes, add them
-  scene.children.forEach(child => {
-      if (child.isMesh || child.isSkinnedMesh || child.isGroup) {
-          if (!objectsToKeep.includes(child)) {
-              objectsToKeep.push(child);
-          }
-      }
-  });
-
-  // Consolidate unique top-level objects
-  const topLevelObjects = new Set();
-  objectsToKeep.forEach(obj => {
-      let topParent = obj;
-      while (topParent.parent && topParent.parent !== scene) {
-          topParent = topParent.parent;
-      }
-      topLevelObjects.add(topParent);
-  });
-
-  // Add them to our new, clean group
-  topLevelObjects.forEach(obj => {
-      newGroup.add(obj);
-  });
-
-  // Fallback: If no objects were found, just return the original scene
-  // but this is unlikely to be what the user wants.
-  if (newGroup.children.length === 0) {
-      console.warn("Model scene was empty or contained no meshes/groups. Returning raw scene.");
-      return scene;
-  }
-
-  return newGroup;
-}
-
-/**
  * Loads a GLB/GLTF model.
+ * *** MODIFIED: This function no longer uses the broken 'sanitizeScene'
+ * *** It now passes the full gltf.scene and attaches animations.
  */
 export function loadModel(source, onLoad, onError) {
   const loadFn = (data) => {
     gltfLoader.parse(data, '', (gltf) => {
-      const sanitizedModel = sanitizeScene(gltf.scene);
-      sanitizedModel.traverse(applyShadows);
-      onLoad(sanitizedModel);
+      
+      const model = gltf.scene;
+      
+      // *** FIX: Attach animations to the model's root userData ***
+      model.userData.animations = gltf.animations;
+      
+      model.traverse(applyShadows);
+      onLoad(model); // Pass the model's root scene, hierarchy intact
+
     }, (error) => {
       onError(new Error(`GLTF parsing failed: ${error.message || 'Unknown error'}`));
     });
