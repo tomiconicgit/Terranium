@@ -57,58 +57,62 @@
 
     <div id="viewport-container">
       <canvas id="game-canvas"></canvas>
-      <div id="editor-toolbar" class="no-look">
+
+      <div id="editor-hud" class="no-look">
+        <button id="btn-show-scene" title="Scene Hierarchy">Scene</button>
+        <button id="btn-show-assets" title="Load Assets">Assets</button>
+        <button id="btn-show-props" title="Properties">Properties</button>
+      </div>
+      
+      <div id="transform-tools" class="no-look">
         <button id="btn-select" class="tool active" data-tool="select" title="Select">Select</button>
         <button id="btn-move" class="tool" data-tool="translate" title="Move">Move</button>
         <button id="btn-rotate" class="tool" data-tool="rotate" title="Rotate">Rotate</button>
         <button id="btn-scale" class="tool" data-tool="scale" title="Scale">Scale</button>
         <button id="btn-delete" title="Delete Selected">Delete</button>
       </div>
+      
       <button id="btn-play" class="no-look" title="Play Test">Play</button>
       <button id="btn-end-test" class="no-look" title="End Test Mode">End Test</button>
     </div>
 
-    <div id="editor-panel-container" class="no-look">
-      
-      <nav class="tab-bar">
-        <button class="tab-button active" data-tab="tab-scene">Scene</button>
-        <button class="tab-button" data-tab="tab-properties">Properties</button>
-        <button class="tab-button" data-tab="tab-assets">Assets</button>
-      </nav>
-
-      <div class="tab-content-wrapper">
-
-        <div id="tab-scene" class="tab-content active">
-          <div class="panel-section">
-            <div id="scene-tree-view">
-              </div>
-            <div class="button-row">
-              <button id="btn-child-to" disabled>Child To...</button>
-            </div>
+    <div id="panel-scene" class="editor-panel fullscreen-panel no-look">
+      <div class="panel-header">
+        <h3>Scene Hierarchy</h3>
+        <button class="btn-close-panel">Close</button>
+      </div>
+      <div class="panel-content">
+        <div id="scene-tree-view">
           </div>
+        <div class="button-row" style="margin-top: 20px;">
+          <button id="btn-child-to" disabled>Child To...</button>
         </div>
-
-        <div id="tab-properties" class="tab-content">
-          <div class="panel-section">
-            <div id="props-content">
-              <p>No object selected.</p>
-            </div>
-          </div>
-        </div>
-
-        <div id="tab-assets" class="tab-content">
-          <div class="panel-section">
-            <h4>Assets</h4>
-            <div id="asset-list">
-              <button class="asset-item" data-path="src/assets/ModernHall.glb">ModernHall.glb</button>
-              <input type="file" id="file-input-model" multiple accept=".glb,.fbx" style="display: none;">
-              <button id="btn-upload-model" title="Upload 3D Model">Upload .glb/.fbx</button>
-            </div>
-          </div>
-        </div>
-
       </div>
     </div>
+    
+    <div id="panel-properties" class="editor-panel fullscreen-panel no-look">
+      <div class="panel-header">
+        <h3>Properties</h3>
+        <button class="btn-close-panel">Close</button>
+      </div>
+      <div class="panel-content" id="props-content">
+        </div>
+    </div>
+    
+    <div id="panel-assets" class="editor-panel fullscreen-panel no-look">
+      <div class="panel-header">
+        <h3>Assets</h3>
+        <button class="btn-close-panel">Close</button>
+      </div>
+      <div class="panel-content">
+        <div id="asset-list">
+          <button class="asset-item" data-path="src/assets/ModernHall.glb">ModernHall.glb</button>
+          <input type="file" id="file-input-model" multiple accept=".glb,.fbx" style="display: none;">
+          <button id="btn-upload-model" title="Upload 3D Model">Upload .glb/.fbx</button>
+        </div>
+      </div>
+    </div>
+
   </div>
 
   <input type="file" id="texture-input-map" accept="image/*" style="display: none;">
