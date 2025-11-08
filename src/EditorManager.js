@@ -17,6 +17,9 @@ export class EditorManager {
     this.selectedObject = null;
     this.textureLoader = new THREE.TextureLoader();
     this.fileReader = new FileReader();
+    
+    // *** NEW: State for full-screen panels ***
+    this.isPanelOpen = false; 
 
     this.parentingState = {
       isWaiting: false,
@@ -24,7 +27,6 @@ export class EditorManager {
     };
     this.animCreatorState = { pos1: null, pos2: null };
     
-    // Store time of day to fix bug
     this.timeOfDay = 50; 
     this.isGridVisible = true;
 
@@ -38,11 +40,15 @@ export class EditorManager {
     this.appContainer = document.getElementById('app-container');
     this.playButton = document.getElementById('btn-play');
     this.endTestButton = document.getElementById('btn-end-test');
-    this.toolbar = document.getElementById('editor-toolbar');
     
-    this.tabBar = document.querySelector('.tab-bar');
-    this.tabButtons = document.querySelectorAll('.tab-button');
-    this.tabContents = document.querySelectorAll('.tab-content');
+    // *** MODIFIED: Bind new toolbar and panels ***
+    this.toolbar = document.getElementById('transform-tools');
+    this.hud = document.getElementById('editor-hud');
+    
+    this.scenePanel = document.getElementById('panel-scene');
+    this.propsPanel = document.getElementById('panel-properties');
+    this.assetsPanel = document.getElementById('panel-assets');
+    this.allPanels = [this.scenePanel, this.propsPanel, this.assetsPanel];
 
     this.sceneTreeView = document.getElementById('scene-tree-view');
     this.parentButton = document.getElementById('btn-child-to');
@@ -52,7 +58,6 @@ export class EditorManager {
     this.modelFileInput = document.getElementById('file-input-model');
     this.uploadModelButton = document.getElementById('btn-upload-model');
     
-    // Bind all texture inputs
     this.texInputMap = document.getElementById('texture-input-map');
     this.texInputNormal = document.getElementById('texture-input-normal');
     this.texInputMetal = document.getElementById('texture-input-metal');
@@ -71,9 +76,11 @@ export class EditorManager {
     this.transformControls = new TransformControls(this.camera, this.renderer.domElement);
     this.scene.add(this.transformControls);
 
-    // *** FIX: Listen for dragging-changed to disable camera ***
     this.transformControls.addEventListener('dragging-changed', (event) => {
-        this.orbitControls.enabled = !event.value;
+        // Only disable orbit controls if a panel isn't already disabling it
+        if (!this.isPanelOpen) {
+            this.orbitControls.enabled = !event.value;
+        }
     });
     
     this.transformControls.addEventListener('objectChange', () => {
@@ -90,7 +97,6 @@ export class EditorManager {
     this.playButton.addEventListener('click', () => this.enterGameMode());
     this.endTestButton.addEventListener('click', () => this.enterEditorMode());
     this.toolbar.addEventListener('click', (e) => this.onToolClick(e));
-    this.tabBar.addEventListener('click', (e) => this.onTabClick(e));
     this.renderer.domElement.addEventListener('pointerdown', (e) => this.onPointerDown(e), false);
     
     this.parentButton.addEventListener('click', () => this.startChildingProcess());
@@ -101,12 +107,63 @@ export class EditorManager {
     this.modelFileInput.addEventListener('change', (e) => this.onFileUpload(e));
     
     document.getElementById('btn-delete').addEventListener('click', () => this.deleteSelected());
+
+    // *** NEW: Panel Show/Hide Listeners ***
+    document.getElementById('btn-show-scene').addEventListener('click', () => this.showPanel(this.scenePanel));
+    document.getElementById('btn-show-props').addEventListener('click', () => this.showPanel(this.propsPanel));
+    document.getElementById('btn-show-assets').addEventListener('click', () => this.showPanel(this.assetsPanel));
+
+    this.allPanels.forEach(panel => {
+      const closeButton = panel.querySelector('.btn-close-panel');
+      if (closeButton) {
+        closeButton.addEventListener('click', () => this.hidePanel(panel));
+      }
+    });
+  }
+  
+  // *** NEW: Panel Management Functions ***
+  showPanel(panelToShow) {
+    this.allPanels.forEach(p => {
+      if (p === panelToShow) {
+        p.classList.add('visible');
+      } else {
+        p.classList.remove('visible');
+      }
+    });
+    this.setPaused(true); // Pause editor controls when a panel is open
   }
 
-  // --- Game Mode Logic ---
+  hidePanel(panelToHide) {
+    if (panelToHide) {
+        panelToHide.classList.remove('visible');
+    }
+    this.setPaused(false); // Resume editor controls
+  }
+
+  hideAllPanels() {
+    this.allPanels.forEach(p => p.classList.remove('visible'));
+    this.setPaused(false);
+  }
+  
+  // *** NEW: Paused state for panels ***
+  setPaused(isPaused) {
+    this.isPanelOpen = isPaused;
+    this.orbitControls.enabled = !isPaused && this.state === 'EDITOR' && !this.transformControls.dragging;
+    
+    if (isPaused) {
+        // Detach gizmo when panel is open
+        this.transformControls.detach();
+    } else if (this.state === 'EDITOR' && this.selectedObject) {
+        // Re-attach gizmo when panel closes
+        this.transformControls.attach(this.selectedObject);
+    }
+  }
+
+  // --- Game Mode Logic (Updated) ---
   enterGameMode() {
     this.state = 'GAME';
     this.appContainer.classList.add('game-mode-active');
+    this.hideAllPanels(); // Close any open panels
     this.orbitControls.enabled = false;
     this.transformControls.detach();
     this.main.controls.setPaused(false);
@@ -119,10 +176,7 @@ export class EditorManager {
   enterEditorMode() {
     this.state = 'EDITOR';
     this.appContainer.classList.remove('game-mode-active');
-    this.orbitControls.enabled = true;
-    if (this.selectedObject instanceof THREE.Object3D) {
-      this.transformControls.attach(this.selectedObject);
-    }
+    this.setPaused(false); // This will enable orbit controls
     this.main.controls.setPaused(true);
     this.main.gridHelper.visible = this.isGridVisible;
     
@@ -132,15 +186,9 @@ export class EditorManager {
     this.main.onWindowResize();
   }
 
-  // --- UI Event Handlers ---
+  // --- UI Event Handlers (Updated) ---
   onTabClick(event) {
-    const button = event.target.closest('button.tab-button');
-    if (!button) return;
-    const tabId = button.dataset.tab;
-    this.tabButtons.forEach(btn => btn.classList.remove('active'));
-    this.tabContents.forEach(content => content.classList.remove('active'));
-    button.classList.add('active');
-    document.getElementById(tabId).classList.add('active');
+    // This function is no longer needed
   }
 
   onToolClick(event) {
@@ -167,6 +215,7 @@ export class EditorManager {
         this.world.add(model); 
         this.selectObject(model);
         this.buildSceneTree();
+        this.hidePanel(this.assetsPanel); // Close panel on load
       }, (error) => this.main.debugger.handleError(error, 'AssetLoad')
     );
   }
@@ -184,6 +233,7 @@ export class EditorManager {
             this.world.add(model);
             this.selectObject(model);
             this.buildSceneTree();
+            this.hidePanel(this.assetsPanel); // Close panel on load
           }, (error) => this.main.debugger.handleError(error, `FileUpload: ${file.name}`)
         );
       };
@@ -200,7 +250,7 @@ export class EditorManager {
     
     const arrow = document.createElement('span');
     arrow.className = 'arrow';
-    if (isCollapsible) arrow.textContent = '►';
+    if (isCollapsible) arrow.textContent = 'âº';
     
     const label = document.createElement('span');
     label.className = 'label';
@@ -267,7 +317,10 @@ export class EditorManager {
     const { category: modelsCat, childrenContainer: modelsChildren } = this.createTreeCategory('Models', true);
     modelsCat.classList.add('expanded');
     
+    // This recursive function was correct, but was being fed flat data.
+    // It will now work as intended.
     const buildModelNode = (obj) => {
+        // *** FIX: Check for animations on userData ***
         const hasAnims = obj.userData.animations && obj.userData.animations.length > 0;
         const hasChildren = obj.children.length > 0;
         const isCollapsible = hasChildren || hasAnims;
@@ -279,7 +332,7 @@ export class EditorManager {
 
         const arrow = document.createElement('span');
         arrow.className = 'arrow';
-        if (isCollapsible) arrow.textContent = '►';
+        if (isCollapsible) arrow.textContent = 'âº';
         
         const icon = document.createElement('span');
         icon.className = 'icon ' + (obj.isMesh ? 'icon-mesh' : 'icon-folder');
@@ -306,7 +359,11 @@ export class EditorManager {
         childrenContainer.className = 'tree-children';
 
         if (hasChildren) {
-            obj.children.forEach(child => childrenContainer.appendChild(buildModelNode(child)));
+            obj.children.forEach(child => {
+                // Filter out helper objects
+                if (child.isCamera || child.isLight) return;
+                childrenContainer.appendChild(buildModelNode(child));
+            });
         }
         if (hasAnims) {
             obj.userData.animations.forEach(anim => {
@@ -336,12 +393,14 @@ export class EditorManager {
     const special = item.dataset.special;
     
     if (uuid) {
-        const object = this.world.getObjectByProperty('uuid', uuid);
+        // *** FIX: Search the entire scene, not just the world ***
+        const object = this.scene.getObjectByProperty('uuid', uuid);
         if (object) {
             if (this.parentingState.isWaiting) {
                 this.completeChildingProcess(object);
             } else {
                 this.selectObject(object);
+                this.hidePanel(this.scenePanel); // Close panel on selection
             }
         }
     } else if (special) {
@@ -350,11 +409,11 @@ export class EditorManager {
             this.cancelChildingProcess();
         } else {
             this.selectObject(special);
+            this.hidePanel(this.scenePanel); // Close panel on selection
         }
     }
   }
   
-  // *** MODIFIED: New Parenting Logic ***
   startChildingProcess() {
     if (!this.selectedObject || !(this.selectedObject instanceof THREE.Object3D)) {
         this.main.debugger.warn("Select an object to be the child first.", "Parenting");
@@ -364,6 +423,7 @@ export class EditorManager {
     this.parentingState.childToMove = this.selectedObject;
     this.parentButton.textContent = 'Cancel (Select Parent)';
     this.parentButton.style.background = '#ff3b30';
+    this.hidePanel(this.scenePanel); // Close panel to allow viewport selection
   }
   
   completeChildingProcess(newParent) {
@@ -373,7 +433,7 @@ export class EditorManager {
       return;
     }
     
-    newParent.attach(childToMove);
+    newParent.attach(childToMove); // .attach preserves world transform
     this.main.debugger.log(`Parented ${childToMove.name} to ${newParent.name}`);
     this.cancelChildingProcess();
     this.buildSceneTree();
@@ -390,28 +450,27 @@ export class EditorManager {
 
   // --- Object Selection & Properties ---
   onPointerDown(event) {
-    if (this.state !== 'EDITOR' || this.transformControls.dragging) return;
+    // *** MODIFIED: Add check for isPanelOpen ***
+    if (this.state !== 'EDITOR' || this.transformControls.dragging || this.isPanelOpen) return;
     
     const rect = this.renderer.domElement.getBoundingClientRect();
     this.pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
     this.pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
 
     this.raycaster.setFromCamera(this.pointer, this.camera);
+    // Intersect the world and terrain
     const objectsToIntersect = [...this.world.children, this.main.terrain];
     const intersects = this.raycaster.intersectObjects(objectsToIntersect, true);
     
     let hit = null;
     for (const i of intersects) {
       if (i.object.userData.__isTerrain) {
-          hit = null;
+          hit = null; // Hit terrain, de-select
           break; 
       }
+      // *** CRITICAL FIX: Select the clicked mesh, NOT its root parent ***
       if (i.object.isMesh) {
-        let rootObject = i.object;
-        while (rootObject.parent && rootObject.parent !== this.world) {
-          rootObject = rootObject.parent;
-        }
-        hit = rootObject;
+        hit = i.object; // Select the actual mesh
         break;
       }
     }
@@ -426,12 +485,19 @@ export class EditorManager {
   selectObject(obj) {
     if (this.selectedObject === obj) return;
     this.selectedObject = obj;
+    
     if (obj instanceof THREE.Object3D) {
       this.transformControls.attach(obj);
-      this.onTabClick({ target: document.querySelector('button[data-tab="tab-properties"]') });
+      // *** MODIFIED: Show panel if not already open ***
+      if (!this.isPanelOpen) {
+          this.showPanel(this.propsPanel);
+      }
     } else {
       this.transformControls.detach();
+      // *** MODIFIED: Hide props if nothing is selected ***
+      this.hidePanel(this.propsPanel);
     }
+    
     this.cancelChildingProcess();
     this.updatePropertyPanel(obj);
     this.buildSceneTree();
@@ -439,14 +505,24 @@ export class EditorManager {
   
   deleteSelected() {
     if (!this.selectedObject || !(this.selectedObject instanceof THREE.Object3D)) return;
+    
+    // Don't delete world settings
+    if (typeof this.selectedObject === 'string') return; 
+    
     const obj = this.selectedObject;
-    this.selectObject(null);
+    this.selectObject(null); // De-select
+    
     obj.removeFromParent();
+    
+    // Dispose geometry and materials
     obj.traverse(child => {
       if (child.isMesh) {
         child.geometry?.dispose();
-        if (Array.isArray(child.material)) child.material.forEach(m => m.dispose());
-        else child.material?.dispose();
+        if (Array.isArray(child.material)) {
+            child.material.forEach(m => m.dispose());
+        } else {
+            child.material?.dispose();
+        }
       }
     });
     this.buildSceneTree();
@@ -477,10 +553,21 @@ export class EditorManager {
     const scl = obj.scale;
 
     let mesh = null;
-    obj.traverse(child => { if (child.isMesh) mesh = child; });
+    // *** FIX: Find mesh on selected object or its children ***
+    if (obj.isMesh) {
+        mesh = obj;
+    } else {
+        obj.traverse(child => { if (child.isMesh) mesh = child; });
+    }
     const mat = mesh ? (Array.isArray(mesh.material) ? mesh.material[0] : mesh.material) : null;
     
-    const anims = obj.userData.animations || [];
+    // *** FIX: Find animation root ***
+    let animRoot = obj;
+    while (animRoot.parent && animRoot.parent !== this.world) {
+        animRoot = animRoot.parent;
+    }
+    const anims = animRoot.userData.animations || [];
+    
     const animListHTML = anims.map(anim => `
       <div class="animation-list-item">
         <span>${anim.name}</span>
@@ -490,9 +577,9 @@ export class EditorManager {
 
     this.propsContent.innerHTML = `
       <div class="props-group">
-        <h5>${obj.name || obj.type}</h5>
+        <h5>${obj.name || obj.type} ( ${obj.isMesh ? 'Mesh' : 'Group'} )</h5>
         <div class="props-stack">
-            <label>Position</label>
+            <label>Position (Local)</label>
             <div class="props-vector3">
               <span>X</span><input type="number" step="0.1" id="props-pos-x" value="${pos.x.toFixed(2)}">
               <span>Y</span><input type="number" step="0.1" id="props-pos-y" value="${pos.y.toFixed(2)}">
@@ -509,7 +596,7 @@ export class EditorManager {
             </div>
         </div>
         <div class="props-stack">
-            <label>Rotation</label>
+            <label>Rotation (Local)</label>
             <div class="props-vector3">
               <span>X</span><input type="number" step="1" id="props-rot-x" value="${THREE.MathUtils.radToDeg(rot.x).toFixed(1)}">
               <span>Y</span><input type="number" step="1" id="props-rot-y" value="${THREE.MathUtils.radToDeg(rot.y).toFixed(1)}">
@@ -517,7 +604,7 @@ export class EditorManager {
             </div>
         </div>
         <div class="props-stack">
-            <label>Scale (Non-Uniform)</label>
+            <label>Scale (Local, Non-Uniform)</label>
             <div class="props-vector3">
               <span>X</span><input type="number" step="0.05" id="props-scl-x" value="${scl.x.toFixed(2)}">
               <span>Y</span><input type="number" step="0.05" id="props-scl-y" value="${scl.y.toFixed(2)}">
@@ -525,7 +612,7 @@ export class EditorManager {
             </div>
         </div>
         <div class="props-stack">
-            <label>Scale (Uniform)</label>
+            <label>Scale (Local, Uniform)</label>
             <input type="range" min="0.01" max="5" step="0.01" id="props-scl-uniform" value="${scl.x.toFixed(2)}">
         </div>
       </div>
@@ -560,14 +647,14 @@ export class EditorManager {
             </div>
         </div>
       </div>
-    ` : '';
+    ` : '<div class="props-group"><p style="padding: 16px; margin: 0; color: #8e8e93;">No material found on this object.</p></div>';
 
     const animHTML = `
       <div class="props-group">
-        <h5>Animations</h5>
-        <div class="animation-list" id="anim-list">${animListHTML}</div>
-        <button id="btn-anim-create-new" style="margin-top: 10px;">Create New Animation</button>
-        <div class="animation-creator" id="anim-creator" style="display: none;">
+        <h5>Animations (on Root: ${animRoot.name || 'Model'})</h5>
+        <div class="animation-list" id="anim-list">${animListHTML || '<p style="padding: 0 16px 16px; margin: 0; color: #8e8e93;">No animations found on root.</p>'}</div>
+        <button id="btn-anim-create-new" style="margin: 10px 16px 16px;">Create New Animation</button>
+        <div class="animation-creator" id="anim-creator" style="display: none; margin: 0 16px 16px; box-sizing: border-box;">
           <label>Animation Name</label>
           <input type="text" id="anim-name" placeholder="e.g. 'DoorOpen'">
           <div class="animation-keyframe-row">
@@ -589,11 +676,13 @@ export class EditorManager {
         .replace('... (Material HTML) ...', matHTML)
         .replace('... (Animation HTML) ...', animHTML);
 
-    this.bindPropertyPanelEvents(obj, mat);
+    // *** FIX: Pass animRoot to binding function ***
+    this.bindPropertyPanelEvents(obj, mat, animRoot);
   }
 
   // --- PANEL BUILDER: SKY ---
   buildSkyPanel() {
+    // ... (This function is unchanged) ...
     const sky = this.main.sky;
     const sunLight = this.main.sunLight;
     
@@ -611,7 +700,6 @@ export class EditorManager {
         </div>
     `;
     
-    // Bind Events
     document.getElementById('props-sky-top').oninput = (e) => sky.material.uniforms.topColor.value.set(e.target.value);
     document.getElementById('props-sky-bottom').oninput = (e) => sky.material.uniforms.bottomColor.value.set(e.target.value);
     document.getElementById('props-sun-color').oninput = (e) => sunLight.color.set(e.target.value);
@@ -626,6 +714,7 @@ export class EditorManager {
   
   // --- PANEL BUILDER: LIGHTING ---
   buildLightPanel() {
+    // ... (This function is unchanged) ...
     const sunLight = this.main.sunLight;
     const hemiLight = this.main.hemiLight;
     const pos = sunLight.position;
@@ -652,7 +741,6 @@ export class EditorManager {
         </div>
     `;
     
-    // Bind Events
     document.getElementById('props-sun-color').oninput = (e) => sunLight.color.set(e.target.value);
     document.getElementById('props-sun-intensity').oninput = (e) => sunLight.intensity = parseFloat(e.target.value);
     document.getElementById('props-pos-x').oninput = (e) => sunLight.position.x = parseFloat(e.target.value);
@@ -665,6 +753,7 @@ export class EditorManager {
   
   // --- PANEL BUILDER: TERRAIN ---
   buildTerrainPanel() {
+    // ... (This function is unchanged) ...
     const terrainMesh = this.main.terrainMesh;
     if (!terrainMesh) return;
     const mat = terrainMesh.material;
@@ -702,7 +791,6 @@ export class EditorManager {
         </div>
     `;
     
-    // Bind Events
     document.getElementById('props-grid-toggle').onchange = (e) => {
         this.main.gridHelper.visible = e.target.checked;
         this.isGridVisible = e.target.checked;
@@ -718,7 +806,7 @@ export class EditorManager {
     document.getElementById('btn-load-ao').onclick = () => this.texInputAO.click();
     document.getElementById('btn-load-disp').onclick = () => this.texInputDisplacement.click();
 
-    this.texInputMap.onchange = (e) => this.handleTextureUpload(e, mat, 'map', true); // isTerrain = true
+    this.texInputMap.onchange = (e) => this.handleTextureUpload(e, mat, 'map', true);
     this.texInputNormal.onchange = (e) => this.handleTextureUpload(e, mat, 'normalMap', true);
     this.texInputRough.onchange = (e) => this.handleTextureUpload(e, mat, 'roughnessMap', true);
     this.texInputMetal.onchange = (e) => this.handleTextureUpload(e, mat, 'metalnessMap', true);
@@ -730,7 +818,9 @@ export class EditorManager {
     document.getElementById('props-uv-y').oninput = (e) => this.setMaterialUV(mat, 'y', e.target.value);
   }
 
-  bindPropertyPanelEvents(obj, mat) {
+  // *** MODIFIED: Accept animRoot ***
+  bindPropertyPanelEvents(obj, mat, animRoot) {
+    // --- Transform ---
     const pX = document.getElementById('props-pos-x');
     const pY = document.getElementById('props-pos-y');
     const pZ = document.getElementById('props-pos-z');
@@ -778,6 +868,7 @@ export class EditorManager {
         sclX.value = val.toFixed(2); sclY.value = val.toFixed(2); sclZ.value = val.toFixed(2);
     };
 
+    // --- Material ---
     if (mat) {
       document.getElementById('props-mat-metal').oninput = (e) => mat.metalness = parseFloat(e.target.value);
       document.getElementById('props-mat-rough').oninput = (e) => mat.roughness = parseFloat(e.target.value);
@@ -792,7 +883,7 @@ export class EditorManager {
       document.getElementById('btn-load-emissive').onclick = () => this.texInputEmissive.click();
       document.getElementById('btn-load-disp').onclick = () => this.texInputDisplacement.click();
       
-      this.texInputMap.onchange = (e) => this.handleTextureUpload(e, mat, 'map', false); // isTerrain = false
+      this.texInputMap.onchange = (e) => this.handleTextureUpload(e, mat, 'map', false);
       this.texInputNormal.onchange = (e) => this.handleTextureUpload(e, mat, 'normalMap', false);
       this.texInputRough.onchange = (e) => this.handleTextureUpload(e, mat, 'roughnessMap', false);
       this.texInputMetal.onchange = (e) => this.handleTextureUpload(e, mat, 'metalnessMap', false);
@@ -801,24 +892,28 @@ export class EditorManager {
       this.texInputDisplacement.onchange = (e) => this.handleTextureUpload(e, mat, 'displacementMap', false);
     }
 
+    // --- Animation ---
+    const rootForAnims = animRoot || obj; // Fallback to selected object
+    
     document.getElementById('btn-anim-create-new').onclick = () => {
       document.getElementById('anim-creator').style.display = 'flex';
       this.resetAnimCreator();
     };
     document.getElementById('btn-anim-set-pos1').onclick = () => this.setAnimKeyframe(1);
-    // *** FIX: This was the syntax error ***
     document.getElementById('btn-anim-set-pos2').onclick = () => this.setAnimKeyframe(2);
-    document.getElementById('btn-anim-save').onclick = () => this.saveAnimation();
+    // *** FIX: Pass anim root to save function ***
+    document.getElementById('btn-anim-save').onclick = () => this.saveAnimation(rootForAnims);
     
     document.getElementById('anim-list').addEventListener('click', (e) => {
         if (e.target.tagName === 'BUTTON') {
-            this.testAnimation(e.target.dataset.animName);
+            // *** FIX: Pass anim root to test function ***
+            this.testAnimation(e.target.dataset.animName, rootForAnims);
         }
     });
   }
 
   syncPropsFromGizmo() {
-    if (!this.selectedObject || !(this.selectedObject instanceof THREE.Object3D)) return;
+    if (!this.selectedObject || !(this.selectedObject instanceof THREE.Object3D) || this.isPanelOpen) return;
     
     const { position, rotation, scale } = this.selectedObject;
 
@@ -837,14 +932,16 @@ export class EditorManager {
     document.getElementById('props-scl-y').value = scale.y.toFixed(2);
     document.getElementById('props-scl-z').value = scale.z.toFixed(2);
     const uniSlider = document.getElementById('props-scl-uniform');
-    if (scale.x === scale.y && scale.x === scale.z) {
-        uniSlider.value = scale.x.toFixed(2);
-    } else {
-        uniSlider.value = scale.x.toFixed(2);
+    if (uniSlider) {
+        if (scale.x === scale.y && scale.x === scale.z) {
+            uniSlider.value = scale.x.toFixed(2);
+        } else {
+            uniSlider.value = scale.x.toFixed(2);
+        }
     }
   }
 
-  // --- Animation Creator Logic ---
+  // --- Animation Creator Logic (Updated) ---
   resetAnimCreator() {
     this.animCreatorState = { pos1: null, pos2: null };
     const nameEl = document.getElementById('anim-name');
@@ -869,7 +966,8 @@ export class EditorManager {
     }
   }
 
-  saveAnimation() {
+  // *** MODIFIED: Accept rootObject ***
+  saveAnimation(rootObject) {
     const { pos1, pos2 } = this.animCreatorState;
     const name = document.getElementById('anim-name').value;
     const duration = parseFloat(document.getElementById('anim-duration').value);
@@ -880,30 +978,57 @@ export class EditorManager {
 
     const times = [0, duration];
     const values = [pos1.x, pos1.y, pos1.z, pos2.x, pos2.y, pos2.z];
+    // This animation will be relative to the parent of the *selected object*
     const posTrack = new THREE.VectorKeyframeTrack('.position', times, values);
     const clip = new THREE.AnimationClip(name, -1, [posTrack]);
 
-    if (!this.selectedObject.userData.animations) {
-      this.selectedObject.userData.animations = [];
+    if (!rootObject.userData.animations) {
+      rootObject.userData.animations = [];
     }
-    this.selectedObject.userData.animations.push(clip);
+    rootObject.userData.animations.push(clip);
 
     document.getElementById('anim-creator').style.display = 'none';
-    this.updatePropertyPanel(this.selectedObject);
+    this.updatePropertyPanel(this.selectedObject); // Refresh panel
+    this.buildSceneTree(); // Refresh scene tree to show new anim
     this.main.debugger.log(`Animation '${name}' saved.`);
   }
 
-  testAnimation(animName) {
-    if (!this.selectedObject || !this.selectedObject.userData.animations) return;
-    const clip = THREE.AnimationClip.findByName(this.selectedObject.userData.animations, animName);
+  // *** MODIFIED: Accept rootObject ***
+  testAnimation(animName, rootObject) {
+    if (!rootObject || !rootObject.userData.animations) {
+        this.main.debugger.warn(`No animations found on root object.`, 'Animation');
+        return;
+    }
+    const clip = THREE.AnimationClip.findByName(rootObject.userData.animations, animName);
     if (!clip) { this.main.debugger.warn(`Animation '${animName}' not found.`, 'Animation'); return; }
 
-    if (!this.selectedObject.mixer) {
-      this.selectedObject.mixer = new THREE.AnimationMixer(this.selectedObject);
+    // Use the mixer on the root object
+    if (!rootObject.mixer) {
+      rootObject.mixer = new THREE.AnimationMixer(rootObject);
     }
     
-    this.selectedObject.mixer.stopAllAction();
-    const action = this.selectedObject.mixer.clipAction(clip);
+    // Find the specific object this animation targets
+    // For now, we assume it targets the selected object
+    // A more robust system would store the target's name in the clip
+    const targetObject = this.selectedObject;
+    if (!targetObject) return;
+
+    // We need to find the clip action on the *root* mixer,
+    // but the clip itself contains the track for the *child*
+    // This is complex. A simpler way is to put the mixer on the object itself.
+    
+    // *** RE-THINK: The animation should be played on the object it applies to.
+    // The *clip* is stored on the root, but the *mixer* should be on the
+    // object being animated.
+    
+    const animatedObj = this.selectedObject; // We assume the anim applies to the selected obj
+    
+    if (!animatedObj.mixer) {
+      animatedObj.mixer = new THREE.AnimationMixer(animatedObj);
+    }
+    
+    animatedObj.mixer.stopAllAction();
+    const action = animatedObj.mixer.clipAction(clip);
     action.setLoop(THREE.LoopOnce);
     action.clampWhenFinished = true;
     action.play();
@@ -911,6 +1036,7 @@ export class EditorManager {
   
   // --- Material/Texture Logic ---
   handleTextureUpload(event, material, mapType, isTerrain = false) {
+    // ... (This function is unchanged) ...
     const file = event.target.files[0];
     if (!file) return;
     this.fileReader.onload = (e) => {
@@ -919,14 +1045,12 @@ export class EditorManager {
         texture.wrapS = THREE.RepeatWrapping;
         texture.wrapT = THREE.RepeatWrapping;
         
-        // *** FIX: Set default tiling based on type ***
         const repeatVal = isTerrain ? 20 : 1;
         texture.repeat.set(repeatVal, repeatVal);
         
         material[mapType] = texture;
         material.needsUpdate = true;
         
-        // Refresh the whole panel to show new UV values and texture name
         this.updatePropertyPanel(this.selectedObject);
       });
     };
@@ -935,6 +1059,7 @@ export class EditorManager {
   }
   
   setMaterialUV(material, axis, value) {
+    // ... (This function is unchanged) ...
     const val = parseFloat(value);
     if (isNaN(val)) return;
     
